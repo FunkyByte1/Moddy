@@ -161,19 +161,22 @@ async def install_modloader(game: GameProfile, install_dir: str) -> bool:
 
 async def uninstall_modloader(game: GameProfile, install_dir: str) -> bool:
     """Remove the modloader from a game's install directory (handles both enabled and disabled state)."""
+    bak = os.path.join(install_dir, "version.dll.deckhand_bak")
+    removed = []
     try:
         for filename in MELONLOADER_FILES:
             for candidate in [filename, filename + ".disabled"]:
                 path = os.path.join(install_dir, candidate)
                 if os.path.isfile(path):
                     os.remove(path)
+                    removed.append(('file', path))
         for dirname in MELONLOADER_DIRS:
             for candidate in [dirname, dirname + ".disabled"]:
                 path = os.path.join(install_dir, candidate)
                 if os.path.isdir(path):
                     shutil.rmtree(path)
+                    removed.append(('dir', path))
         # Restore backed up version.dll if it exists
-        bak = os.path.join(install_dir, "version.dll.deckhand_bak")
         if os.path.isfile(bak):
             os.rename(bak, os.path.join(install_dir, "version.dll"))
         decky.logger.info(f"Uninstalled {game.modloader} from {install_dir}")

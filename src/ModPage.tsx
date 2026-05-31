@@ -15,11 +15,13 @@ import {
   getSupportedGames, installModloader,
   cancelInstall,
   installMod, uninstallMod, toggleMod,
-  getModReleases,
+  getModReleases, getBackedUpVersions, deleteModVersion, checkModUpdates,
   MODLOADER_LAUNCH_OPTIONS, setLaunchOptions,
 } from './types';
 import FirstLaunchModal from './components/modals/FirstLaunchModal';
 import VersionPickerModal from './components/modals/VersionPickerModal';
+import DeleteVersionModal from './components/modals/DeleteVersionModal';
+import OptionsModal from './components/modals/OptionsModal';
 
 interface ModEntry {
   filename: string;
@@ -108,11 +110,12 @@ const ModDetailPanel: FC<{
   progress: number;
   updates: ModUpdate[];
   onInstall: (mod: ModInfo) => void;
-  onUninstall: (filename: string) => void;
+  onDelete: (mod: ModInfo) => void;
   onUpdate: (mod: ModInfo) => void;
   onChangeVersion: (mod: ModInfo) => void;
   onCancel: () => void;
-}> = ({ entry, busy, installing, progress, updates, onInstall, onUninstall, onUpdate, onChangeVersion, onCancel }) => {
+  onMenuButton: () => void;
+}> = ({ entry, busy, installing, progress, updates, onInstall, onDelete, onUpdate, onChangeVersion, onCancel, onMenuButton }) => {
   const update = updates.find(u => u.filename === entry.filename);
 
   return (
@@ -125,6 +128,7 @@ const ModDetailPanel: FC<{
         display: 'flex',
         flexDirection: 'column',
       }}
+      onMenuButton={onMenuButton}
     >
       {/* Installing progress */}
       {installing && (
@@ -198,8 +202,8 @@ const ModDetailPanel: FC<{
               </ButtonItem>
             </PanelSectionRow>
             <PanelSectionRow>
-              <ButtonItem layout="below" onClick={() => onUninstall(entry.filename)} disabled={busy}>
-                Uninstall
+              <ButtonItem layout="below" onClick={() => onDelete(entry.info)} disabled={busy}>
+                Delete
               </ButtonItem>
             </PanelSectionRow>
           </>
@@ -422,34 +426,61 @@ const ModPage: FC = () => {
     setBusy(false);
   };
 
-  const handleUninstallMod = async (filename: string) => {
-    const dependents = game.recommended_mods.filter(m =>
-      (m.dependencies ?? []).includes(filename) && installedFilenames.has(m.filename)
+  const handleDeleteMod = async (mod: ModInfo) => {
+    const currentVersion = game.installed_mods.find(m => m.filename === mod.filename)?.version ?? null;
+    const backedUp = await getBackedUpVersions(game.appid, mod.filename);
+
+    showModal(
+      <DeleteVersionModal
+        modName={mod.name}
+        currentVersion={currentVersion}
+        backedUpVersions={backedUp}
+        onDeleteAll={async (close) => {
+          close();
+          setBusy(true);
+          await uninstallMod(game.appid, mod.filename);
+          await refresh();
+          setBusy(false);
+        }}
+        onDeleteVersion={async (version, close) => {
+          close();
+          setBusy(true);
+          const isCurrent = currentVersion === version;
+          if (isCurrent) {
+            // Uninstalling the active version — check for dependents first
+            const dependents = game.recommended_mods.filter(m =>
+              (m.dependencies ?? []).includes(mod.filename) && installedFilenames.has(m.filename)
+            );
+            if (dependents.length > 0) {
+              const depNames = dependents.map(m => m.name).join(', ');
+              showModal(
+                <ConfirmModal
+                  strTitle="Dependent mods installed"
+                  strDescription={`${depNames} depend${dependents.length === 1 ? 's' : ''} on this mod and will stop working. Uninstall all?`}
+                  strOKButtonText="Uninstall all"
+                  strCancelButtonText="Cancel"
+                  bDestructiveWarning={true}
+                  onOK={async () => {
+                    setBusy(true);
+                    for (const dep of dependents) await uninstallMod(game.appid, dep.filename);
+                    await uninstallMod(game.appid, mod.filename);
+                    await refresh();
+                    setBusy(false);
+                  }}
+                />
+              );
+              setBusy(false);
+              return;
+            }
+            await uninstallMod(game.appid, mod.filename);
+          } else {
+            await deleteModVersion(game.appid, mod.filename, version);
+          }
+          await refresh();
+          setBusy(false);
+        }}
+      />
     );
-    if (dependents.length > 0) {
-      const depNames = dependents.map(m => m.name).join(', ');
-      showModal(
-        <ConfirmModal
-          strTitle="Dependent mods installed"
-          strDescription={`${depNames} depend${dependents.length === 1 ? 's' : ''} on this mod and will stop working. Uninstall all?`}
-          strOKButtonText="Uninstall all"
-          strCancelButtonText="Cancel"
-          bDestructiveWarning={true}
-          onOK={async () => {
-            setBusy(true);
-            for (const dep of dependents) await uninstallMod(game.appid, dep.filename);
-            await uninstallMod(game.appid, filename);
-            await refresh();
-            setBusy(false);
-          }}
-        />
-      );
-      return;
-    }
-    setBusy(true);
-    await uninstallMod(game.appid, filename);
-    await refresh();
-    setBusy(false);
   };
 
   const handleToggleMod = async (filename: string, enable: boolean) => {
@@ -476,12 +507,17 @@ const ModPage: FC = () => {
   };
 
   const handleInstallModVersion = async (mod: ModInfo, version: string) => {
+    const wasInstalled = installedFilenames.has(mod.filename);
     setBusy(true);
     setInstalling(true);
     setProgress(0);
     const ok = await installMod(game.appid, mod.filename, version);
     setInstalling(false);
-    toaster.toast({ title: 'Decky Mod Manager', body: ok ? `${mod.name} ${version} installed` : `Failed to install ${mod.name} ${version}` });
+    if (!wasInstalled) {
+      toaster.toast({ title: 'Decky Mod Manager', body: ok ? `${mod.name} installed` : `Failed to install ${mod.name}` });
+    } else if (!ok) {
+      toaster.toast({ title: 'Decky Mod Manager', body: `Failed to change ${mod.name} to ${version}` });
+    }
     await refresh();
     setBusy(false);
   };
@@ -492,10 +528,14 @@ const ModPage: FC = () => {
       toaster.toast({ title: 'Decky Mod Manager', body: 'Could not fetch releases' });
       return;
     }
+    const currentVersion = game.installed_mods.find(m => m.filename === mod.filename)?.version ?? null;
+    const backedUp = await getBackedUpVersions(game.appid, mod.filename);
     showModal(
       <VersionPickerModal
         mod={mod}
         releases={releases}
+        installedVersion={currentVersion}
+        backedUpVersions={backedUp}
         onSelect={(version, close) => { close(); handleInstallModVersion(mod, version); }}
       />
     );
@@ -527,8 +567,33 @@ const ModPage: FC = () => {
 
   // ── Two-column layout ─────────────────────────────────────────────────────────
 
+  const handleOptionsMenu = () => {
+    showModal(
+      <OptionsModal
+        onCheckUpdates={async (close) => {
+          close();
+          const result = await checkModUpdates(game.appid);
+          setUpdates(result);
+          if (result.length === 0) {
+            toaster.toast({ title: 'Decky Mod Manager', body: 'All mods are up to date' });
+          } else {
+            toaster.toast({ title: 'Decky Mod Manager', body: `${result.length} update${result.length === 1 ? '' : 's'} available` });
+          }
+        }}
+        onMelonLoaderSettings={(close) => {
+          close();
+          toaster.toast({ title: 'Decky Mod Manager', body: 'MelonLoader Settings coming soon' });
+        }}
+      />
+    );
+  };
+
   return (
-    <Focusable style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <Focusable
+      style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
+      onMenuButton={handleOptionsMenu}
+      onMenuActionDescription="Options"
+    >
       {/* Header */}
       <div style={{
         padding: '12px 16px 8px',
@@ -552,6 +617,7 @@ const ModPage: FC = () => {
             borderRight: '1px solid var(--gpColorSeparator)',
             padding: '8px',
           }}
+          onMenuButton={handleOptionsMenu}
         >
           {modEntries.length === 0 ? (
             <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', padding: '8px' }}>
@@ -577,10 +643,11 @@ const ModPage: FC = () => {
             progress={progress}
             updates={updates}
             onInstall={handleInstallMod}
-            onUninstall={handleUninstallMod}
+            onDelete={handleDeleteMod}
             onUpdate={handleUpdateMod}
             onChangeVersion={handleChangeVersion}
             onCancel={handleCancelInstall}
+            onMenuButton={handleOptionsMenu}
           />
         )}
       </Focusable>

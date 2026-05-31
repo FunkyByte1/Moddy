@@ -63,3 +63,5 @@ export const uninstallMod = callable<[appid: number, mod_filename: string], bool
 export const toggleMod = callable<[appid: number, mod_filename: string, enable: boolean], boolean>('toggle_mod');
 export const getModReleases = callable<[mod_url: string, mod_filename: string], ModRelease[]>('get_mod_releases');
 export const checkModUpdates = callable<[appid: number], ModUpdate[]>('check_mod_updates');
+export const getBackedUpVersions = callable<[appid: number, mod_filename: string], string[]>('get_backed_up_versions');
+export const deleteModVersion = callable<[appid: number, mod_filename: string, version: string], boolean>('delete_mod_version');

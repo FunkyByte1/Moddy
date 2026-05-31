@@ -31,16 +31,20 @@ def _load_version_store() -> dict:
 
 
 def _save_version_store(store: dict) -> None:
-    """Save the installed mod versions to disk."""
+    """Save the installed mod versions to disk atomically."""
     global _VERSION_STORE
     _VERSION_STORE = store
     path = _get_version_store_path()
+    tmp = path + ".tmp"
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
+        with open(tmp, "w") as f:
             json.dump(store, f, indent=2)
+        os.replace(tmp, path)
     except Exception as e:
         decky.logger.error(f"Failed to save version store: {e}")
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def get_installed_version(filename: str) -> str | None:
@@ -98,6 +102,22 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
     return installed
 
 
+def delete_mod_version(game: GameProfile, install_dir: str, filename: str, version: str) -> bool:
+    """Delete a specific backed-up version of a mod (.vX.Y.Z.bak file)."""
+    mods_path = os.path.join(install_dir, game.mods_dir)
+    bak_path = os.path.join(mods_path, f"{filename}.v{version}.bak")
+    try:
+        if os.path.isfile(bak_path):
+            os.remove(bak_path)
+            decky.logger.info(f"Deleted backup {filename} v{version}")
+            return True
+        decky.logger.warning(f"Backup not found: {bak_path}")
+        return False
+    except Exception as e:
+        decky.logger.error(f"Failed to delete backup {filename} v{version}: {e}")
+        return False
+
+
 async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None = None, url: str | None = None) -> bool:
     """
     Download and install a mod DLL into the game's mods directory.
@@ -139,18 +159,42 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
         return False
 
 
+def get_backed_up_versions(game: GameProfile, install_dir: str, filename: str) -> list[str]:
+    """Return a list of previously installed versions backed up on disk."""
+    mods_path = os.path.join(install_dir, game.mods_dir)
+    versions = []
+    if not os.path.isdir(mods_path):
+        return versions
+    prefix = f"{filename}.v"
+    suffix = ".bak"
+    for f in os.listdir(mods_path):
+        if f.startswith(prefix) and f.endswith(suffix):
+            version = f[len(prefix):-len(suffix)]
+            versions.append(version)
+    return sorted(versions, reverse=True)
+
+
 async def uninstall_mod(game: GameProfile, install_dir: str, filename: str) -> bool:
     """
     Remove a mod DLL from the mods directory.
-    Removes the active .dll and toggle .bak, but preserves versioned backups (.vX.Y.Z.bak).
+    Removes the active .dll, toggle .bak, and all versioned backups (.vX.Y.Z.bak).
     """
     mods_path = os.path.join(install_dir, game.mods_dir)
     try:
+        # Remove active and toggle-disabled versions
         for candidate in [filename, filename + ".bak"]:
             path = os.path.join(mods_path, candidate)
             if os.path.exists(path):
                 os.remove(path)
                 decky.logger.info(f"Removed {candidate}")
+        # Remove all versioned backups
+        prefix = f"{filename}.v"
+        suffix = ".bak"
+        for f in os.listdir(mods_path):
+            if f.startswith(prefix) and f.endswith(suffix):
+                path = os.path.join(mods_path, f)
+                os.remove(path)
+                decky.logger.info(f"Removed backup {f}")
         clear_installed_version(filename)
         return True
     except Exception as e:

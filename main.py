@@ -115,14 +115,22 @@ class Plugin:
             return False
         # If a specific version is requested, get its download URL from GitHub
         url = None
+        resolved_version = version
+        repo = github.parse_github_repo(mod.url)
         if version and version != "latest":
-            repo = github.parse_github_repo(mod.url)
             if repo:
                 url = github.get_download_url_for_version(repo[0], repo[1], version, mod.filename)
                 if not url:
                     decky.logger.error(f"Could not find download URL for {mod.filename} at {version}")
                     return False
-        return await mods.install_mod(game, install_dir, mod, version=version, url=url)
+        else:
+            # Resolve the actual latest version tag so we can display it properly
+            if repo:
+                latest = github.get_latest_release(repo[0], repo[1])
+                if latest:
+                    resolved_version = latest["version"]
+                    decky.logger.info(f"Resolved latest version of {mod.filename} to {resolved_version}")
+        return await mods.install_mod(game, install_dir, mod, version=resolved_version, url=url)
 
     async def get_mod_releases(self, mod_url: str, mod_filename: str) -> list:
         """Get available releases for a mod from GitHub."""
@@ -171,6 +179,26 @@ class Plugin:
         if not install_dir:
             return False
         return await mods.uninstall_mod(game, install_dir, mod_filename)
+
+    async def get_backed_up_versions(self, appid: int, mod_filename: str) -> list:
+        """Return list of previously installed versions backed up on disk."""
+        game = game_registry.get_game_by_appid(appid)
+        if not game:
+            return []
+        install_dir = steam.find_game_install_dir(appid)
+        if not install_dir:
+            return []
+        return mods.get_backed_up_versions(game, install_dir, mod_filename)
+
+    async def delete_mod_version(self, appid: int, mod_filename: str, version: str) -> bool:
+        """Delete a specific backed-up version of a mod."""
+        game = game_registry.get_game_by_appid(appid)
+        if not game:
+            return False
+        install_dir = steam.find_game_install_dir(appid)
+        if not install_dir:
+            return False
+        return mods.delete_mod_version(game, install_dir, mod_filename, version)
 
     async def toggle_mod(self, appid: int, mod_filename: str, enable: bool) -> bool:
         """Enable or disable a mod."""
