@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "games": [
+    {
+      "name": "Slime Rancher 2",
+      "appid": 1657630,
+      "modloader": "melonloader",
+      "mods_dir": "Mods",
+      "recommended_mods": [
+        {
+          "name": "Starlight",
+          "description": "Essential mod for SR2: mod menu, in-game console, and modding API.",
+          "url": "https://github.com/ThatFinnDev/Starlight/releases/latest/download/Starlight.dll",
+          "filename": "Starlight.dll",
+          "author": "ThatFinn",
+          "homepage": "https://starlight.sr2.dev",
+          "thumbnail": ""
+        },
+        {
+          "name": "SR2 Gyro Aim",
+          "description": "Gyroscope camera control for Steam Deck. Requires SteamDeckGyroDSU.",
+          "url": "https://github.com/FunkyByte1/SR2GyroAim/releases/latest/download/SR2GyroAim.dll",
+          "filename": "SR2GyroAim.dll",
+          "author": "FunkyByte1",
+          "homepage": "https://github.com/FunkyByte1/SR2GyroAim",
+          "thumbnail": "",
+          "dependencies": ["Starlight.dll"]
+        }
+      ]
+    }
+  ]
+}

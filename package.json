@@ -1,7 +1,7 @@
 {
-  "name": "decky-plugin-template",
-  "version": "0.0.1",
-  "description": "A template to quickly create decky plugins from scratch, based on TypeScript and webpack",
+  "name": "decky-mod-manager",
+  "version": "0.1.0",
+  "description": "One-click mod installation and management for supported games on Steam Deck.",
   "type": "module",
   "scripts": {
     "build": "rollup -c",
@@ -10,21 +10,22 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SteamDeckHomebrew/decky-plugin-template.git"
+    "url": "git+https://github.com/FunkyByte1/Deckhand.git"
   },
   "keywords": [
     "decky",
     "plugin",
-    "plugin-template",
+    "mods",
+    "modding",
     "steam-deck",
-    "deck"
+    "melonloader"
   ],
-  "author": "You <you@you.tld>",
-  "license": "BSD-3-Clause",
+  "author": "FunkyByte1",
+  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/SteamDeckHomebrew/decky-plugin-template/issues"
+    "url": "https://github.com/FunkyByte1/Deckhand/issues"
   },
-  "homepage": "https://github.com/SteamDeckHomebrew/decky-plugin-template#readme",
+  "homepage": "https://github.com/FunkyByte1/Deckhand#readme",
   "devDependencies": {
     "@decky/rollup": "^1.0.2",
     "@decky/ui": "^4.11.0",

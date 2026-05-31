@@ -55,3 +55,13 @@ out/*
 cli/
 cli/*
 cli/decky
+
+# Local build configuration (contains machine-specific paths)
+Directory.Build.props
+
+# Python cache
+*.pyc
+**/__pycache__/
+
+# Decky plugin settings/runtime data (generated at runtime)
+*.deckhand_bak
