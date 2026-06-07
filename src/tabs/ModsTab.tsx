@@ -20,7 +20,7 @@ import DependentsModal from '../components/modals/DependentsModal';
 import DependencyInstallModal from '../components/modals/DependencyInstallModal';
 
 interface ModEntry {
-  filename: string;
+  id: string;
   name: string;
   installed: boolean;
   enabled: boolean;
@@ -46,18 +46,11 @@ const ModDetailPanel: FC<{
   onCancel: () => void;
   onMenuButton: () => void;
 }> = ({ entry, game, busy, installing, progress, updates, onInstall, onDelete, onUpdate, onChangeVersion, onCancel, onMenuButton }) => {
-  const update = updates.find(u => u.filename === entry.filename);
+  const update = updates.find(u => u.id === entry.id);
 
   return (
     <Focusable
-      style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '12px 16px',
-        paddingBottom: '60px',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
+      style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', paddingBottom: '60px', display: 'flex', flexDirection: 'column' }}
       onMenuButton={onMenuButton}
       onMenuActionDescription="Options"
     >
@@ -100,12 +93,12 @@ const ModDetailPanel: FC<{
       {entry.info.dependencies && entry.info.dependencies.length > 0 && (
         <div style={{ fontSize: '0.85em', marginBottom: '12px' }}>
           <div style={{ color: 'var(--gpColorTextSecondary)', marginBottom: '4px' }}>Dependencies:</div>
-          {entry.info.dependencies.map(dep => {
-            const depInstalled = game.installed_mods.find(m => m.filename === dep);
+          {entry.info.dependencies.map(depId => {
+            const depInstalled = game.installed_mods.find(m => m.id === depId);
             const depEnabled = depInstalled?.enabled ?? false;
-            const depName = game.recommended_mods.find(m => m.filename === dep)?.name ?? dep.replace('.dll', '');
+            const depName = game.mods.find(m => m.id === depId)?.name ?? depId;
             return (
-              <div key={dep} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+              <div key={depId} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
                 <span style={{ color: depEnabled ? '#5ba85b' : '#f8a623' }}>
                   {depEnabled ? '✓' : depInstalled ? '⚠ disabled' : '⚠ not installed'}
                 </span>
@@ -161,12 +154,12 @@ const ModDetailPanel: FC<{
 const ModListItem: FC<{
   entry: ModEntry;
   selected: boolean;
-  onToggle: (filename: string, enable: boolean) => void;
+  onToggle: (id: string, enable: boolean) => void;
   onFocus: () => void;
 }> = ({ entry, selected, onToggle, onFocus }) => (
   <Focusable
     onFocus={onFocus}
-    onActivate={() => { if (entry.installed) onToggle(entry.filename, !entry.enabled); }}
+    onActivate={() => { if (entry.installed) onToggle(entry.id, !entry.enabled); }}
     style={{
       display: 'flex', alignItems: 'center', padding: '10px 8px',
       borderRadius: '4px', marginBottom: '2px',
@@ -187,7 +180,7 @@ const ModListItem: FC<{
     </div>
     {entry.hasUpdate && <div style={{ color: 'var(--gpSystemLightBlue)', fontSize: '1.1em', marginRight: '4px' }}>↑</div>}
     {entry.installed && (
-      <ToggleField label="" checked={entry.enabled} onChange={(val) => onToggle(entry.filename, val)} />
+      <ToggleField label="" checked={entry.enabled} onChange={(val) => onToggle(entry.id, val)} />
     )}
   </Focusable>
 );
@@ -209,30 +202,44 @@ const ModsTab: FC<{
   const [busy, setBusy] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  const installedFilenames = new Set(game.installed_mods.map(m => m.filename));
+  const installedIds = new Set(game.installed_mods.map(m => m.id));
 
-  const modEntries: ModEntry[] = game.recommended_mods.map(mod => {
-    const installed = game.installed_mods.find(m => m.filename === mod.filename);
-    const dependenciesMet = (mod.dependencies ?? []).every(dep =>
-      game.installed_mods.find(m => m.filename === dep && m.enabled)
-    );
+  const modEntries: ModEntry[] = game.mods.map(mod => {
+    const installed = game.installed_mods.find(m => m.id === mod.id);
+    const dependenciesMet = !installed || !installed.enabled ||
+      (mod.dependencies ?? []).every(depId =>
+        game.installed_mods.find(m => m.id === depId && m.enabled)
+      );
     return {
-      filename: mod.filename, name: mod.name,
-      installed: !!installed, enabled: installed?.enabled ?? false,
+      id: mod.id,
+      name: mod.name,
+      installed: !!installed,
+      enabled: installed?.enabled ?? false,
       version: installed?.version ?? null,
-      hasUpdate: !!updates.find(u => u.filename === mod.filename),
+      hasUpdate: !!updates.find(u => u.id === mod.id),
       dependenciesMet,
       info: mod,
     };
   });
 
+  // Add any installed mods not in the registry
   game.installed_mods.forEach(installed => {
-    if (!modEntries.find(e => e.filename === installed.filename)) {
+    if (!modEntries.find(e => e.id === installed.id)) {
       modEntries.push({
-        filename: installed.filename, name: installed.filename.replace('.dll', ''),
-        installed: true, enabled: installed.enabled, version: installed.version,
-        hasUpdate: false, dependenciesMet: true,
-        info: { name: installed.filename.replace('.dll', ''), description: '', url: '', filename: installed.filename },
+        id: installed.id,
+        name: installed.filename.replace('.dll', ''),
+        installed: true,
+        enabled: installed.enabled,
+        version: installed.version,
+        hasUpdate: false,
+        dependenciesMet: true,
+        info: {
+          id: installed.id,
+          name: installed.filename.replace('.dll', ''),
+          description: '',
+          filename: installed.filename,
+          source: { type: 'unknown', owner: '', repo: '', asset: '' },
+        },
       });
     }
   });
@@ -241,8 +248,8 @@ const ModsTab: FC<{
 
   const handleInstallMod = async (mod: ModInfo) => {
     const missingDeps = (mod.dependencies ?? [])
-      .filter(dep => !installedFilenames.has(dep))
-      .map(dep => game.recommended_mods.find(m => m.filename === dep)?.name ?? dep);
+      .filter(depId => !installedIds.has(depId))
+      .map(depId => game.mods.find(m => m.id === depId)?.name ?? depId);
 
     if (missingDeps.length > 0) {
       showModal(
@@ -252,21 +259,21 @@ const ModsTab: FC<{
           onInstall={async (close: () => void) => {
             close();
             setBusy(true); setInstalling(true); setProgress(0);
-            for (const depFilename of (mod.dependencies ?? []).filter(d => !installedFilenames.has(d))) {
-              const depMod = game.recommended_mods.find(m => m.filename === depFilename);
+            for (const depId of (mod.dependencies ?? []).filter(d => !installedIds.has(d))) {
+              const depMod = game.mods.find(m => m.id === depId);
               if (depMod) {
-                const ok = await installMod(game.appid, depMod.filename, null);
+                const ok = await installMod(game.appid, depMod.id, null);
                 if (ok === null) { setInstalling(false); setBusy(false); await onRefresh(); return; }
                 if (!ok) {
-                  toaster.toast({ title: 'Decky Mod Manager', body: `Failed to install dependency: ${depMod.name}` });
+                  toaster.toast({ title: 'Moddy', body: `Failed to install dependency: ${depMod.name}` });
                   setInstalling(false); setBusy(false); await onRefresh(); return;
                 }
               }
             }
-            const ok = await installMod(game.appid, mod.filename, null);
+            const ok = await installMod(game.appid, mod.id, null);
             setInstalling(false);
             if (ok === null) { await onRefresh(); setBusy(false); return; }
-            toaster.toast({ title: 'Decky Mod Manager', body: ok ? `${mod.name} installed` : `Failed to install ${mod.name}` });
+            toaster.toast({ title: 'Moddy', body: ok ? `${mod.name} installed` : `Failed to install ${mod.name}` });
             await onRefresh(); setBusy(false);
           }}
         />
@@ -275,20 +282,18 @@ const ModsTab: FC<{
     }
 
     setBusy(true); setInstalling(true); setProgress(0);
-    const ok = await installMod(game.appid, mod.filename, null);
+    const ok = await installMod(game.appid, mod.id, null);
     setInstalling(false);
     if (ok === null) { await onRefresh(); setBusy(false); return; }
-    toaster.toast({ title: 'Decky Mod Manager', body: ok ? `${mod.name} installed` : `Failed to install ${mod.name}` });
+    toaster.toast({ title: 'Moddy', body: ok ? `${mod.name} installed` : `Failed to install ${mod.name}` });
     await onRefresh(); setBusy(false);
   };
 
   const handleDeleteMod = async (mod: ModInfo) => {
-    const currentVersion = game.installed_mods.find(m => m.filename === mod.filename)?.version ?? null;
-    const backedUp = await getBackedUpVersions(game.appid, mod.filename);
-
-    // Check for dependents first
-    const dependents = game.recommended_mods.filter(m =>
-      (m.dependencies ?? []).includes(mod.filename) && installedFilenames.has(m.filename)
+    const currentVersion = game.installed_mods.find(m => m.id === mod.id)?.version ?? null;
+    const backedUp = await getBackedUpVersions(game.appid, mod.id);
+    const dependents = game.mods.filter(m =>
+      (m.dependencies ?? []).includes(mod.id) && installedIds.has(m.id)
     );
 
     if (dependents.length > 0) {
@@ -296,19 +301,16 @@ const ModsTab: FC<{
         <DependentsModal
           dependentNames={dependents.map(m => m.name)}
           onDisable={async (close: () => void) => {
-            close();
-            setBusy(true);
-            for (const dep of dependents) await toggleMod(game.appid, dep.filename, false);
-            await onRefresh();
-            setBusy(false);
-            // Now show the delete modal for just this mod
+            close(); setBusy(true);
+            for (const dep of dependents) await toggleMod(game.appid, dep.id, false);
+            await onRefresh(); setBusy(false);
             showModal(
               <DeleteVersionModal
                 modName={mod.name}
                 currentVersion={currentVersion}
                 backedUpVersions={backedUp}
-                onDeleteAll={async (close2) => { close2(); setBusy(true); await uninstallMod(game.appid, mod.filename); await onRefresh(); setBusy(false); }}
-                onDeleteVersion={async (version, close2) => { close2(); setBusy(true); if (currentVersion === version) { await uninstallMod(game.appid, mod.filename); } else { await deleteModVersion(game.appid, mod.filename, version); } await onRefresh(); setBusy(false); }}
+                onDeleteAll={async (c) => { c(); setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
+                onDeleteVersion={async (version, c) => { c(); setBusy(true); if (currentVersion === version) { await uninstallMod(game.appid, mod.id); } else { await deleteModVersion(game.appid, mod.id, version); } await onRefresh(); setBusy(false); }}
               />
             );
           }}
@@ -319,18 +321,16 @@ const ModsTab: FC<{
                 modName={mod.name}
                 currentVersion={currentVersion}
                 backedUpVersions={backedUp}
-                onDeleteAll={async (close2) => { close2(); setBusy(true); await uninstallMod(game.appid, mod.filename); await onRefresh(); setBusy(false); }}
-                onDeleteVersion={async (version, close2) => { close2(); setBusy(true); if (currentVersion === version) { await uninstallMod(game.appid, mod.filename); } else { await deleteModVersion(game.appid, mod.filename, version); } await onRefresh(); setBusy(false); }}
+                onDeleteAll={async (c) => { c(); setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
+                onDeleteVersion={async (version, c) => { c(); setBusy(true); if (currentVersion === version) { await uninstallMod(game.appid, mod.id); } else { await deleteModVersion(game.appid, mod.id, version); } await onRefresh(); setBusy(false); }}
               />
             );
           }}
           onDelete={async (close: () => void) => {
-            close();
-            setBusy(true);
-            for (const dep of dependents) await uninstallMod(game.appid, dep.filename);
-            await uninstallMod(game.appid, mod.filename);
-            await onRefresh();
-            setBusy(false);
+            close(); setBusy(true);
+            for (const dep of dependents) await uninstallMod(game.appid, dep.id);
+            await uninstallMod(game.appid, mod.id);
+            await onRefresh(); setBusy(false);
           }}
         />
       );
@@ -342,57 +342,89 @@ const ModsTab: FC<{
         modName={mod.name}
         currentVersion={currentVersion}
         backedUpVersions={backedUp}
-        onDeleteAll={async (close) => {
-          close(); setBusy(true);
-          await uninstallMod(game.appid, mod.filename);
-          await onRefresh(); setBusy(false);
-        }}
+        onDeleteAll={async (close) => { close(); setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
         onDeleteVersion={async (version, close) => {
           close(); setBusy(true);
-          const isCurrent = currentVersion === version;
-          if (isCurrent) {
-            await uninstallMod(game.appid, mod.filename);
-          } else {
-            await deleteModVersion(game.appid, mod.filename, version);
-          }
+          if (currentVersion === version) { await uninstallMod(game.appid, mod.id); }
+          else { await deleteModVersion(game.appid, mod.id, version); }
           await onRefresh(); setBusy(false);
         }}
       />
     );
   };
 
-  const handleToggleMod = async (filename: string, enable: boolean) => {
+  const handleToggleMod = async (id: string, enable: boolean) => {
+    if (enable) {
+      // Check if dependencies are installed and enabled
+      const mod = game.mods.find(m => m.id === id);
+      if (mod) {
+        const missingDeps = (mod.dependencies ?? []).filter(depId =>
+          !game.installed_mods.find(m => m.id === depId && m.enabled)
+        );
+        if (missingDeps.length > 0) {
+          const missingNames = missingDeps.map(depId => game.mods.find(m => m.id === depId)?.name ?? depId);
+          const notInstalled = missingDeps.filter(depId => !game.installed_mods.find(m => m.id === depId));
+          const disabled = missingDeps.filter(depId => game.installed_mods.find(m => m.id === depId && !m.enabled));
+          showModal(
+            <DependencyInstallModal
+              modName={mod.name}
+              dependencyNames={missingNames}
+              actionLabel={notInstalled.length > 0 ? 'Install & Enable' : 'Enable dependencies'}
+              onInstall={async (close: () => void) => {
+                close(); setBusy(true); setInstalling(true); setProgress(0);
+                // Install any not installed
+                for (const depId of notInstalled) {
+                  const depMod = game.mods.find(m => m.id === depId);
+                  if (depMod) {
+                    const ok = await installMod(game.appid, depId, null);
+                    if (ok === null) { setInstalling(false); setBusy(false); await onRefresh(); return; }
+                    if (!ok) {
+                      toaster.toast({ title: 'Moddy', body: `Failed to install ${depMod.name}` });
+                      setInstalling(false); setBusy(false); await onRefresh(); return;
+                    }
+                  }
+                }
+                setInstalling(false);
+                // Enable any disabled
+                for (const depId of disabled) {
+                  await toggleMod(game.appid, depId, true);
+                }
+                // Now enable the mod itself
+                await toggleMod(game.appid, id, true);
+                await onRefresh(); setBusy(false);
+              }}
+            />
+          );
+          return;
+        }
+      }
+    }
+
     if (!enable) {
-      const dependents = game.recommended_mods.filter(m =>
-        (m.dependencies ?? []).includes(filename) &&
-        game.installed_mods.find(im => im.filename === m.filename && im.enabled)
+      const dependents = game.mods.filter(m =>
+        (m.dependencies ?? []).includes(id) &&
+        game.installed_mods.find(im => im.id === m.id && im.enabled)
       );
       if (dependents.length > 0) {
         showModal(
           <DependentsModal
             dependentNames={dependents.map(m => m.name)}
             onDisable={async (close: () => void) => {
-              close();
-              setBusy(true);
-              for (const dep of dependents) await toggleMod(game.appid, dep.filename, false);
-              await toggleMod(game.appid, filename, false);
-              await onRefresh();
-              setBusy(false);
+              close(); setBusy(true);
+              for (const dep of dependents) await toggleMod(game.appid, dep.id, false);
+              await toggleMod(game.appid, id, false);
+              await onRefresh(); setBusy(false);
             }}
             onIgnore={async (close: () => void) => {
-              close();
-              setBusy(true);
-              await toggleMod(game.appid, filename, false);
-              await onRefresh();
-              setBusy(false);
+              close(); setBusy(true);
+              await toggleMod(game.appid, id, false);
+              await onRefresh(); setBusy(false);
             }}
             onDelete={async (close: () => void) => {
-              close();
-              setBusy(true);
-              for (const dep of dependents) await uninstallMod(game.appid, dep.filename);
-              await toggleMod(game.appid, filename, false);
-              await onRefresh();
-              setBusy(false);
+              close(); setBusy(true);
+              for (const dep of dependents) await uninstallMod(game.appid, dep.id);
+              await toggleMod(game.appid, id, false);
+              await onRefresh(); setBusy(false);
             }}
           />
         );
@@ -400,44 +432,43 @@ const ModsTab: FC<{
       }
     }
     setBusy(true);
-    await toggleMod(game.appid, filename, enable);
-    await onRefresh();
-    setBusy(false);
+    await toggleMod(game.appid, id, enable);
+    await onRefresh(); setBusy(false);
   };
 
   const handleUpdateMod = async (mod: ModInfo) => {
     setBusy(true); setInstalling(true); setProgress(0);
-    const ok = await installMod(game.appid, mod.filename, null);
+    const ok = await installMod(game.appid, mod.id, null);
     setInstalling(false);
     if (ok === null) { await onRefresh(); setBusy(false); return; }
     if (ok) {
-      setUpdates(updates.filter(u => u.filename !== mod.filename));
-      toaster.toast({ title: 'Decky Mod Manager', body: `${mod.name} updated` });
+      setUpdates(updates.filter(u => u.id !== mod.id));
+      toaster.toast({ title: 'Moddy', body: `${mod.name} updated` });
     } else {
-      toaster.toast({ title: 'Decky Mod Manager', body: `Failed to update ${mod.name}` });
+      toaster.toast({ title: 'Moddy', body: `Failed to update ${mod.name}` });
     }
     await onRefresh(); setBusy(false);
   };
 
   const handleInstallModVersion = async (mod: ModInfo, version: string) => {
-    const wasInstalled = installedFilenames.has(mod.filename);
+    const wasInstalled = installedIds.has(mod.id);
     setBusy(true); setInstalling(true); setProgress(0);
-    const ok = await installMod(game.appid, mod.filename, version);
+    const ok = await installMod(game.appid, mod.id, version);
     setInstalling(false);
     if (ok === null) { await onRefresh(); setBusy(false); return; }
     if (!wasInstalled) {
-      toaster.toast({ title: 'Decky Mod Manager', body: ok ? `${mod.name} installed` : `Failed to install ${mod.name}` });
+      toaster.toast({ title: 'Moddy', body: ok ? `${mod.name} installed` : `Failed to install ${mod.name}` });
     } else if (!ok) {
-      toaster.toast({ title: 'Decky Mod Manager', body: `Failed to change ${mod.name} to ${version}` });
+      toaster.toast({ title: 'Moddy', body: `Failed to change ${mod.name} to ${version}` });
     }
     await onRefresh(); setBusy(false);
   };
 
   const handleChangeVersion = async (mod: ModInfo) => {
-    const releases = await getModReleases(mod.url, mod.filename);
-    if (releases.length === 0) { toaster.toast({ title: 'Decky Mod Manager', body: 'Could not fetch releases' }); return; }
-    const currentVersion = game.installed_mods.find(m => m.filename === mod.filename)?.version ?? null;
-    const backedUp = await getBackedUpVersions(game.appid, mod.filename);
+    const releases = await getModReleases(game.appid, mod.id);
+    if (releases.length === 0) { toaster.toast({ title: 'Moddy', body: 'Could not fetch releases' }); return; }
+    const currentVersion = game.installed_mods.find(m => m.id === mod.id)?.version ?? null;
+    const backedUp = await getBackedUpVersions(game.appid, mod.id);
     showModal(
       <VersionPickerModal
         mod={mod} releases={releases}
@@ -449,7 +480,6 @@ const ModsTab: FC<{
 
   return (
     <Focusable style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-      {/* Left column */}
       <Focusable
         style={{ width: '30%', overflowY: 'auto', paddingBottom: '60px', borderRight: '1px solid var(--gpColorSeparator)', padding: '8px' }}
         onMenuButton={onMenuButton}
@@ -458,12 +488,11 @@ const ModsTab: FC<{
         {modEntries.length === 0 ? (
           <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', padding: '8px' }}>No mods available</div>
         ) : modEntries.map((entry, i) => (
-          <ModListItem key={entry.filename} entry={entry} selected={i === selectedIndex}
+          <ModListItem key={entry.id} entry={entry} selected={i === selectedIndex}
             onToggle={handleToggleMod} onFocus={() => setSelectedIndex(i)} />
         ))}
       </Focusable>
 
-      {/* Right column */}
       {selectedEntry && (
         <ModDetailPanel
           entry={selectedEntry} game={game} busy={busy} installing={installing} progress={progress}

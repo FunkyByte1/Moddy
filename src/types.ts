@@ -1,17 +1,27 @@
 import { callable } from '@decky/api';
 
+export interface ModSource {
+  type: string;
+  owner: string;
+  repo: string;
+  asset: string;
+}
+
 export interface ModInfo {
+  id: string;
   name: string;
   description: string;
-  url: string;
   filename: string;
+  source: ModSource;
   author?: string;
   homepage?: string;
   thumbnail?: string;
-  dependencies?: string[];
+  modloader?: string;
+  dependencies?: string[];  // list of mod IDs
 }
 
 export interface InstalledMod {
+  id: string;
   filename: string;
   enabled: boolean;
   version: string | null;
@@ -25,7 +35,7 @@ export interface ModRelease {
 }
 
 export interface ModUpdate {
-  filename: string;
+  id: string;
   installed_version: string;
   latest_version: string;
 }
@@ -36,6 +46,7 @@ export interface ModloaderUpdate {
 }
 
 export interface GameStatus {
+  id: string;
   name: string;
   appid: number;
   modloader: string;
@@ -45,7 +56,7 @@ export interface GameStatus {
   modloader_enabled: boolean;
   modloader_ready: boolean;
   installed_mods: InstalledMod[];
-  recommended_mods: ModInfo[];
+  mods: ModInfo[];
 }
 
 export const MODLOADER_LAUNCH_OPTIONS: Record<string, string> = {
@@ -63,13 +74,13 @@ export const uninstallModloader = callable<[appid: number], boolean>('uninstall_
 export const enableModloader = callable<[appid: number], boolean>('enable_modloader');
 export const disableModloader = callable<[appid: number], boolean>('disable_modloader');
 export const getModloaderVersion = callable<[appid: number], string | null>('get_modloader_version');
-export const getModloaderReleases = callable<[modloader: string], ModRelease[]>('get_modloader_releases');
+export const getModloaderReleases = callable<[appid: number], ModRelease[]>('get_modloader_releases');
 export const checkModloaderUpdate = callable<[appid: number], ModloaderUpdate | null>('check_modloader_update');
 export const cancelInstall = callable<[], void>('cancel_install');
-export const installMod = callable<[appid: number, mod_filename: string, version: string | null], boolean | null>('install_mod');
-export const uninstallMod = callable<[appid: number, mod_filename: string], boolean>('uninstall_mod');
-export const toggleMod = callable<[appid: number, mod_filename: string, enable: boolean], boolean>('toggle_mod');
-export const getModReleases = callable<[mod_url: string, mod_filename: string], ModRelease[]>('get_mod_releases');
+export const installMod = callable<[appid: number, mod_id: string, version: string | null], boolean | null>('install_mod');
+export const uninstallMod = callable<[appid: number, mod_id: string], boolean>('uninstall_mod');
+export const toggleMod = callable<[appid: number, mod_id: string, enable: boolean], boolean>('toggle_mod');
+export const getModReleases = callable<[appid: number, mod_id: string], ModRelease[]>('get_mod_releases');
 export const checkModUpdates = callable<[appid: number], ModUpdate[]>('check_mod_updates');
-export const getBackedUpVersions = callable<[appid: number, mod_filename: string], string[]>('get_backed_up_versions');
-export const deleteModVersion = callable<[appid: number, mod_filename: string, version: string], boolean>('delete_mod_version');
+export const getBackedUpVersions = callable<[appid: number, mod_id: string], string[]>('get_backed_up_versions');
+export const deleteModVersion = callable<[appid: number, mod_id: string, version: string], boolean>('delete_mod_version');

@@ -1,0 +1,59 @@
+{
+  "version": 2,
+  "games": [
+    {
+      "id": "slime-rancher-2",
+      "name": "Slime Rancher 2",
+      "appid": 1657630,
+      "mods_dir": "Mods",
+      "modloaders": [
+        {
+          "id": "melonloader",
+          "name": "MelonLoader",
+          "source": {
+            "type": "github",
+            "owner": "LavaGang",
+            "repo": "MelonLoader",
+            "asset": "MelonLoader.x64.zip"
+          }
+        }
+      ],
+      "mods": [
+        {
+          "id": "sr2.starlight",
+          "name": "Starlight",
+          "description": "Essential mod for SR2: mod menu, in-game console, and modding API.",
+          "author": "ThatFinn",
+          "homepage": "https://starlight.sr2.dev",
+          "thumbnail": "",
+          "modloader": "melonloader",
+          "source": {
+            "type": "github",
+            "owner": "ThatFinnDev",
+            "repo": "Starlight",
+            "asset": "Starlight.dll"
+          },
+          "filename": "Starlight.dll",
+          "dependencies": []
+        },
+        {
+          "id": "sr2.gyro-aim",
+          "name": "SR2 Gyro Aim",
+          "description": "Gyroscope camera control for Steam Deck. Requires SteamDeckGyroDSU.",
+          "author": "FunkyByte1",
+          "homepage": "https://github.com/FunkyByte1/SR2GyroAim",
+          "thumbnail": "",
+          "modloader": "melonloader",
+          "source": {
+            "type": "github",
+            "owner": "FunkyByte1",
+            "repo": "SR2GyroAim",
+            "asset": "SR2GyroAim.dll"
+          },
+          "filename": "SR2GyroAim.dll",
+          "dependencies": ["sr2.starlight"]
+        }
+      ]
+    }
+  ]
+}

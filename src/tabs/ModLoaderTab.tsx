@@ -95,7 +95,7 @@ const ModLoaderTab: FC<{
       await loadVersion();
       showModal(<FirstLaunchModal gameName={game.name} />);
     } else {
-      toaster.toast({ title: 'Decky Mod Manager', body: `Failed to install ${game.modloader}` });
+      toaster.toast({ title: 'Moddy', body: `Failed to install ${game.modloader}` });
     }
     setBusy(false);
   };
@@ -122,9 +122,9 @@ const ModLoaderTab: FC<{
             setLaunchOptions(game.appid, '');
             setInstalledVersion(null);
             setModloaderUpdate(null);
-            toaster.toast({ title: 'Decky Mod Manager', body: `${game.modloader} uninstalled` });
+            toaster.toast({ title: 'Moddy', body: `${game.modloader} uninstalled` });
           } else {
-            toaster.toast({ title: 'Decky Mod Manager', body: `Failed to uninstall ${game.modloader}` });
+            toaster.toast({ title: 'Moddy', body: `Failed to uninstall ${game.modloader}` });
           }
           await onRefresh();
           setBusy(false);
@@ -140,7 +140,7 @@ const ModLoaderTab: FC<{
       const launchOption = MODLOADER_LAUNCH_OPTIONS[game.modloader];
       if (launchOption) setLaunchOptions(game.appid, enable ? launchOption : '');
     } else {
-      toaster.toast({ title: 'Decky Mod Manager', body: `Failed to ${enable ? 'enable' : 'disable'} ${game.modloader}` });
+      toaster.toast({ title: 'Moddy', body: `Failed to ${enable ? 'enable' : 'disable'} ${game.modloader}` });
     }
     await onRefresh();
     setBusy(false);
@@ -152,14 +152,14 @@ const ModLoaderTab: FC<{
     setModloaderUpdate(update);
     setCheckingUpdate(false);
     if (!update) {
-      toaster.toast({ title: 'Decky Mod Manager', body: `${game.modloader} is up to date` });
+      toaster.toast({ title: 'Moddy', body: `${game.modloader} is up to date` });
     }
   };
 
   const handleChangeVersion = async () => {
-    const releases = await getModloaderReleases(game.modloader);
+    const releases = await getModloaderReleases(game.appid);
     if (releases.length === 0) {
-      toaster.toast({ title: 'Decky Mod Manager', body: 'Could not fetch releases' });
+      toaster.toast({ title: 'Moddy', body: 'Could not fetch releases' });
       return;
     }
     showModal(

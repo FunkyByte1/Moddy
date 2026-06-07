@@ -1,11 +1,13 @@
+# Moddy — Game Mode Mod Manager
+# Copyright (C) 2026 FunkyByte1
+# Licensed under GNU GPL v3. See LICENSE for details.
 import sys
 import os
 import decky
 
-# Add backend directory to path so we can import our modules
 sys.path.append(os.path.join(os.path.dirname(__file__), "backend"))
 
-import games as game_registry
+import registry
 import steam
 import modloaders
 import mods
@@ -16,242 +18,245 @@ import utils
 class Plugin:
 
     async def get_supported_games(self) -> list:
-        """Return all supported games with their current install and mod status."""
+        """Return all supported games with current install and mod status."""
         result = []
-        for game in game_registry.SUPPORTED_GAMES:
+        for game in registry.SUPPORTED_GAMES:
             install_dir = steam.find_game_install_dir(game.appid)
-            modloader_installed = (
-                install_dir is not None and
-                modloaders.is_modloader_installed(game, install_dir)
+
+            # Use the first modloader defined for the game
+            ml = game.modloaders[0] if game.modloaders else None
+            ml_id = ml.id if ml else None
+
+            modloader_installed = bool(
+                install_dir and ml_id and
+                modloaders.is_modloader_installed(game, install_dir, ml_id)
             )
-            modloader_enabled = (
-                install_dir is not None and
-                modloaders.is_modloader_enabled(game, install_dir)
+            modloader_enabled = bool(
+                install_dir and ml_id and
+                modloaders.is_modloader_enabled(game, install_dir, ml_id)
             )
-            modloader_ready = (
-                install_dir is not None and
-                modloaders.is_modloader_ready(game, install_dir)
+            modloader_ready = bool(
+                install_dir and ml_id and
+                modloaders.is_modloader_ready(game, install_dir, ml_id)
             )
-            installed_mods = mods.get_installed_mods(game, install_dir) if install_dir else []
+            installed_mods_list = mods.get_installed_mods(game, install_dir) if install_dir else []
 
             result.append({
+                "id": game.id,
                 "name": game.name,
                 "appid": game.appid,
-                "modloader": game.modloader,
+                "modloader": ml_id or "",
                 "installed": install_dir is not None,
                 "install_dir": install_dir or "",
                 "modloader_installed": modloader_installed,
                 "modloader_enabled": modloader_enabled,
                 "modloader_ready": modloader_ready,
-                "installed_mods": installed_mods,
-                "recommended_mods": [
+                "installed_mods": installed_mods_list,
+                "mods": [
                     {
+                        "id": m.id,
                         "name": m.name,
                         "description": m.description,
-                        "url": m.url,
                         "filename": m.filename,
                         "author": m.author,
                         "homepage": m.homepage,
                         "thumbnail": m.thumbnail,
+                        "modloader": m.modloader,
                         "dependencies": m.dependencies,
+                        "source": {
+                            "type": m.source.type,
+                            "owner": m.source.owner,
+                            "repo": m.source.repo,
+                            "asset": m.source.asset,
+                        },
                     }
-                    for m in game.recommended_mods
+                    for m in game.mods
                 ],
             })
         return result
 
     async def install_modloader(self, appid: int, version: str | None = None) -> bool:
-        """Install the modloader for a game, optionally at a specific version."""
-        game = game_registry.get_game_by_appid(appid)
-        if not game:
-            decky.logger.error(f"Unknown appid: {appid}")
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.modloaders:
             return False
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
-            decky.logger.error(f"Game {appid} not installed")
             return False
-        return await modloaders.install_modloader(game, install_dir, version)
+        return await modloaders.install_modloader(game, install_dir, game.modloaders[0].id, version)
 
     async def get_modloader_version(self, appid: int) -> str | None:
-        """Get the installed modloader version for a game."""
-        game = game_registry.get_game_by_appid(appid)
-        if not game:
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.modloaders:
             return None
-        return modloaders.get_modloader_version(game.modloader)
+        return modloaders.get_modloader_version(game.modloaders[0].id)
 
-    async def get_modloader_releases(self, modloader: str) -> list:
-        """Get available releases for a modloader from GitHub."""
-        repos = {
-            "melonloader": ("LavaGang", "MelonLoader"),
-        }
-        repo = repos.get(modloader)
-        if not repo:
+    async def get_modloader_releases(self, appid: int) -> list:
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.modloaders:
             return []
-        releases = github.get_all_releases(repo[0], repo[1])
-        return [r for r in releases if "MelonLoader.x64.zip" in r.get("download_urls", {})]
+        ml = game.modloaders[0]
+        if ml.source.type != "github":
+            return []
+        releases = github.get_all_releases(ml.source.owner, ml.source.repo)
+        return [r for r in releases if ml.source.asset in r.get("download_urls", {})]
 
     async def check_modloader_update(self, appid: int) -> dict | None:
-        """Check if a modloader update is available. Returns {installed, latest} or None."""
-        game = game_registry.get_game_by_appid(appid)
-        if not game:
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.modloaders:
             return None
-        installed = modloaders.get_modloader_version(game.modloader)
+        ml = game.modloaders[0]
+        installed = modloaders.get_modloader_version(ml.id)
         if not installed:
             return None
-        repos = {
-            "melonloader": ("LavaGang", "MelonLoader"),
-        }
-        repo = repos.get(game.modloader)
-        if not repo:
+        if ml.source.type != "github":
             return None
-        latest = github.get_latest_release(repo[0], repo[1])
-        if not latest:
+        latest = github.get_latest_release(ml.source.owner, ml.source.repo)
+        if not latest or latest["version"] == installed:
             return None
-        if latest["version"] != installed:
-            return {"installed": installed, "latest": latest["version"]}
-        return None
+        return {"installed": installed, "latest": latest["version"]}
 
     async def uninstall_modloader(self, appid: int) -> bool:
-        """Uninstall the modloader for a game."""
-        game = game_registry.get_game_by_appid(appid)
-        if not game:
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.modloaders:
             return False
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return False
-        return await modloaders.uninstall_modloader(game, install_dir)
+        return await modloaders.uninstall_modloader(game, install_dir, game.modloaders[0].id)
 
     async def enable_modloader(self, appid: int) -> bool:
-        """Re-enable a disabled modloader."""
-        game = game_registry.get_game_by_appid(appid)
-        if not game:
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.modloaders:
             return False
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return False
-        return await modloaders.enable_modloader(game, install_dir)
+        return await modloaders.enable_modloader(game, install_dir, game.modloaders[0].id)
 
     async def disable_modloader(self, appid: int) -> bool:
-        """Disable the modloader without uninstalling it."""
-        game = game_registry.get_game_by_appid(appid)
-        if not game:
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.modloaders:
             return False
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return False
-        return await modloaders.disable_modloader(game, install_dir)
+        return await modloaders.disable_modloader(game, install_dir, game.modloaders[0].id)
 
-    async def install_mod(self, appid: int, mod_filename: str, version: str | None = None) -> bool | None:
-        """Install a recommended mod for a game. Returns True=success, False=failed, None=cancelled."""
-        game = game_registry.get_game_by_appid(appid)
+    async def install_mod(self, appid: int, mod_id: str, version: str | None = None) -> bool | None:
+        """Install a mod. Returns True=success, False=failed, None=cancelled."""
+        game = registry.get_game_by_appid(appid)
         if not game:
             return False
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return False
-        mod = next((m for m in game.recommended_mods if m.filename == mod_filename), None)
+        mod = game.get_mod(mod_id)
         if not mod:
-            decky.logger.error(f"Unknown mod: {mod_filename}")
+            decky.logger.error(f"Unknown mod: {mod_id}")
             return False
-        # If a specific version is requested, get its download URL from GitHub
+
         url = None
         resolved_version = version
-        repo = github.parse_github_repo(mod.url)
-        if version and version != "latest":
-            if repo:
-                url = github.get_download_url_for_version(repo[0], repo[1], version, mod.filename)
+
+        if mod.source.type == "github":
+            if version:
+                url = github.get_download_url_for_version(
+                    mod.source.owner, mod.source.repo, version, mod.source.asset
+                )
                 if not url:
-                    decky.logger.error(f"Could not find download URL for {mod.filename} at {version}")
+                    decky.logger.error(f"Could not find download URL for {mod_id} at {version}")
+                    return False
+            else:
+                result = github.get_latest_download_url(
+                    mod.source.owner, mod.source.repo, mod.source.asset
+                )
+                if result:
+                    resolved_version, url = result
+                else:
+                    decky.logger.error(f"Could not resolve latest release for {mod_id}")
                     return False
         else:
-            # Resolve the actual latest version tag so we can display it properly
-            if repo:
-                latest = github.get_latest_release(repo[0], repo[1])
-                if latest:
-                    resolved_version = latest["version"]
-                    decky.logger.info(f"Resolved latest version of {mod.filename} to {resolved_version}")
+            decky.logger.error(f"Unsupported mod source type: {mod.source.type}")
+            return False
+
         return await mods.install_mod(game, install_dir, mod, version=resolved_version, url=url)
 
-    async def get_mod_releases(self, mod_url: str, mod_filename: str) -> list:
+    async def get_mod_releases(self, appid: int, mod_id: str) -> list:
         """Get available releases for a mod from GitHub."""
-        repo = github.parse_github_repo(mod_url)
-        if not repo:
+        game = registry.get_game_by_appid(appid)
+        if not game:
             return []
-        releases = github.get_all_releases(repo[0], repo[1])
-        # Filter to only releases that have the right DLL asset
-        return [r for r in releases if mod_filename in r.get("download_urls", {})]
+        mod = game.get_mod(mod_id)
+        if not mod or mod.source.type != "github":
+            return []
+        releases = github.get_all_releases(mod.source.owner, mod.source.repo)
+        return [r for r in releases if mod.source.asset in r.get("download_urls", {})]
 
     async def check_mod_updates(self, appid: int) -> list:
-        """Check which installed mods have updates available. Returns list of mod filenames with updates."""
-        game = game_registry.get_game_by_appid(appid)
+        """Check which installed mods have updates available."""
+        game = registry.get_game_by_appid(appid)
         if not game:
             return []
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return []
-        updates_available = []
         installed = mods.get_installed_mods(game, install_dir)
-        installed_filenames = {m["filename"] for m in installed}
-        for mod in game.recommended_mods:
-            if mod.filename not in installed_filenames:
+        installed_ids = {m["id"] for m in installed}
+        updates = []
+        for mod in game.mods:
+            if mod.id not in installed_ids:
                 continue
-            installed_version = mods.get_installed_version(mod.filename)
+            installed_version = mods.get_installed_version(mod.id)
             if not installed_version or installed_version == "latest":
-                continue  # Can't compare if we don't know the version
-            repo = github.parse_github_repo(mod.url)
-            if not repo:
                 continue
-            latest = github.get_latest_release(repo[0], repo[1])
+            if mod.source.type != "github":
+                continue
+            latest = github.get_latest_release(mod.source.owner, mod.source.repo)
             if latest and latest["version"] != installed_version:
-                updates_available.append({
-                    "filename": mod.filename,
+                updates.append({
+                    "id": mod.id,
                     "installed_version": installed_version,
                     "latest_version": latest["version"],
                 })
-        return updates_available
+        return updates
 
-    async def uninstall_mod(self, appid: int, mod_filename: str) -> bool:
-        """Uninstall a mod from a game."""
-        game = game_registry.get_game_by_appid(appid)
+    async def uninstall_mod(self, appid: int, mod_id: str) -> bool:
+        game = registry.get_game_by_appid(appid)
         if not game:
             return False
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return False
-        return await mods.uninstall_mod(game, install_dir, mod_filename)
+        return await mods.uninstall_mod(game, install_dir, mod_id)
 
-    async def get_backed_up_versions(self, appid: int, mod_filename: str) -> list:
-        """Return list of previously installed versions backed up on disk."""
-        game = game_registry.get_game_by_appid(appid)
+    async def toggle_mod(self, appid: int, mod_id: str, enable: bool) -> bool:
+        game = registry.get_game_by_appid(appid)
+        if not game:
+            return False
+        install_dir = steam.find_game_install_dir(appid)
+        if not install_dir:
+            return False
+        return await mods.toggle_mod(game, install_dir, mod_id, enable)
+
+    async def get_backed_up_versions(self, appid: int, mod_id: str) -> list:
+        game = registry.get_game_by_appid(appid)
         if not game:
             return []
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return []
-        return mods.get_backed_up_versions(game, install_dir, mod_filename)
+        return mods.get_backed_up_versions(game, install_dir, mod_id)
 
-    async def delete_mod_version(self, appid: int, mod_filename: str, version: str) -> bool:
-        """Delete a specific backed-up version of a mod."""
-        game = game_registry.get_game_by_appid(appid)
+    async def delete_mod_version(self, appid: int, mod_id: str, version: str) -> bool:
+        game = registry.get_game_by_appid(appid)
         if not game:
             return False
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return False
-        return mods.delete_mod_version(game, install_dir, mod_filename, version)
-
-    async def toggle_mod(self, appid: int, mod_filename: str, enable: bool) -> bool:
-        """Enable or disable a mod."""
-        game = game_registry.get_game_by_appid(appid)
-        if not game:
-            return False
-        install_dir = steam.find_game_install_dir(appid)
-        if not install_dir:
-            return False
-        return await mods.toggle_mod(game, install_dir, mod_filename, enable)
+        return mods.delete_mod_version(game, install_dir, mod_id, version)
 
     async def cancel_install(self) -> None:
-        """Cancel any in-progress installation."""
         utils.cancel_install()
 
     async def _main(self):

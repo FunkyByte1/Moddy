@@ -65,3 +65,4 @@ Directory.Build.props
 
 # Decky plugin settings/runtime data (generated at runtime)
 *.deckhand_bak
+deploy.sh

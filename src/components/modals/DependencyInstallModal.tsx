@@ -4,9 +4,10 @@ import { FC } from 'react';
 const DependencyInstallModal: FC<{
   modName: string;
   dependencyNames: string[];
+  actionLabel?: string;
   onInstall: (closeModal: () => void) => void;
   closeModal?: () => void;
-}> = ({ modName, dependencyNames, onInstall, closeModal }) => {
+}> = ({ modName, dependencyNames, actionLabel = 'Install all & continue', onInstall, closeModal }) => {
   const close = closeModal ?? (() => {});
 
   return (
@@ -16,7 +17,7 @@ const DependencyInstallModal: FC<{
           Missing dependencies
         </div>
         <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.9em', marginBottom: '8px' }}>
-          {modName} requires the following mods to be installed first:
+          {modName} requires the following mods:
         </div>
         <ul style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.9em', marginBottom: '16px', paddingLeft: '16px' }}>
           {dependencyNames.map(name => (
@@ -25,7 +26,7 @@ const DependencyInstallModal: FC<{
         </ul>
         <div style={{ marginBottom: '8px' }}>
           <ButtonItem layout="below" onClick={() => onInstall(close)}>
-            Install all & continue
+            {actionLabel}
           </ButtonItem>
         </div>
         <div style={{ marginBottom: '8px' }}>
