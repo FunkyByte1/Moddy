@@ -10,6 +10,7 @@ import steam
 import modloaders
 import mods
 import github
+import utils
 
 
 class Plugin:
@@ -59,8 +60,8 @@ class Plugin:
             })
         return result
 
-    async def install_modloader(self, appid: int) -> bool:
-        """Install the modloader for a game."""
+    async def install_modloader(self, appid: int, version: str | None = None) -> bool:
+        """Install the modloader for a game, optionally at a specific version."""
         game = game_registry.get_game_by_appid(appid)
         if not game:
             decky.logger.error(f"Unknown appid: {appid}")
@@ -69,7 +70,46 @@ class Plugin:
         if not install_dir:
             decky.logger.error(f"Game {appid} not installed")
             return False
-        return await modloaders.install_modloader(game, install_dir)
+        return await modloaders.install_modloader(game, install_dir, version)
+
+    async def get_modloader_version(self, appid: int) -> str | None:
+        """Get the installed modloader version for a game."""
+        game = game_registry.get_game_by_appid(appid)
+        if not game:
+            return None
+        return modloaders.get_modloader_version(game.modloader)
+
+    async def get_modloader_releases(self, modloader: str) -> list:
+        """Get available releases for a modloader from GitHub."""
+        repos = {
+            "melonloader": ("LavaGang", "MelonLoader"),
+        }
+        repo = repos.get(modloader)
+        if not repo:
+            return []
+        releases = github.get_all_releases(repo[0], repo[1])
+        return [r for r in releases if "MelonLoader.x64.zip" in r.get("download_urls", {})]
+
+    async def check_modloader_update(self, appid: int) -> dict | None:
+        """Check if a modloader update is available. Returns {installed, latest} or None."""
+        game = game_registry.get_game_by_appid(appid)
+        if not game:
+            return None
+        installed = modloaders.get_modloader_version(game.modloader)
+        if not installed:
+            return None
+        repos = {
+            "melonloader": ("LavaGang", "MelonLoader"),
+        }
+        repo = repos.get(game.modloader)
+        if not repo:
+            return None
+        latest = github.get_latest_release(repo[0], repo[1])
+        if not latest:
+            return None
+        if latest["version"] != installed:
+            return {"installed": installed, "latest": latest["version"]}
+        return None
 
     async def uninstall_modloader(self, appid: int) -> bool:
         """Uninstall the modloader for a game."""
@@ -101,8 +141,8 @@ class Plugin:
             return False
         return await modloaders.disable_modloader(game, install_dir)
 
-    async def install_mod(self, appid: int, mod_filename: str, version: str | None = None) -> bool:
-        """Install a recommended mod for a game, optionally at a specific version."""
+    async def install_mod(self, appid: int, mod_filename: str, version: str | None = None) -> bool | None:
+        """Install a recommended mod for a game. Returns True=success, False=failed, None=cancelled."""
         game = game_registry.get_game_by_appid(appid)
         if not game:
             return False
@@ -212,7 +252,7 @@ class Plugin:
 
     async def cancel_install(self) -> None:
         """Cancel any in-progress installation."""
-        modloaders.cancel_install()
+        utils.cancel_install()
 
     async def _main(self):
         decky.logger.info("Decky Mod Manager loaded")

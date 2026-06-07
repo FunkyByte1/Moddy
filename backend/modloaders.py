@@ -1,59 +1,75 @@
 import os
-import ssl
+import json
 import shutil
 import zipfile
-import tempfile
-import threading
-import urllib.request
 import decky
 import steam
+import github
+import utils
 from games import GameProfile
 
-# System CA bundle path on Steam Deck (SteamOS/Arch-based)
-_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
-
-# Cancel flag — set this to abort an in-progress install
-_cancel_event = threading.Event()
-
-
+# Cancel flag — delegates to shared utils
 def cancel_install() -> None:
-    """Signal any in-progress install to cancel."""
-    _cancel_event.set()
+    utils.cancel_install()
+
+# Version store
+_modloader_versions: dict = {}
 
 
-def _make_ssl_context() -> ssl.SSLContext:
-    """Create an SSL context using the system CA bundle."""
-    ctx = ssl.create_default_context()
-    if os.path.isfile(_CA_BUNDLE):
-        ctx = ssl.create_default_context(cafile=_CA_BUNDLE)
-    return ctx
+def _get_version_store_path() -> str:
+    return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "modloader_versions.json")
 
 
-def _download(url: str, dest: str, appid: int) -> None:
-    """
-    Download a URL to a file with progress reporting and cancellation support.
-    Emits 'install_progress' events (0-100) to the frontend.
-    Raises Exception if cancelled.
-    """
-    _cancel_event.clear()
-    ctx = _make_ssl_context()
-    chunk_size = 65536  # 64KB chunks
+def _load_version_store() -> dict:
+    global _modloader_versions
+    if _modloader_versions:
+        return _modloader_versions
+    path = _get_version_store_path()
+    try:
+        if os.path.isfile(path):
+            with open(path, "r") as f:
+                _modloader_versions = json.load(f)
+                return _modloader_versions
+    except Exception as e:
+        decky.logger.error(f"Failed to load modloader version store: {e}")
+    _modloader_versions = {}
+    return _modloader_versions
 
-    with urllib.request.urlopen(url, context=ctx) as response:
-        total = int(response.headers.get('Content-Length', 0))
-        downloaded = 0
-        with open(dest, 'wb') as f:
-            while True:
-                if _cancel_event.is_set():
-                    raise Exception("Installation cancelled by user")
-                chunk = response.read(chunk_size)
-                if not chunk:
-                    break
-                f.write(chunk)
-                downloaded += len(chunk)
-                if total > 0:
-                    percent = int(downloaded * 100 / total)
-                    decky.emit('install_progress', appid, percent)
+
+def _save_version_store(store: dict) -> None:
+    global _modloader_versions
+    _modloader_versions = store
+    path = _get_version_store_path()
+    tmp = path + ".tmp"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w") as f:
+            json.dump(store, f, indent=2)
+        os.replace(tmp, path)
+    except Exception as e:
+        decky.logger.error(f"Failed to save modloader version store: {e}")
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def get_modloader_version(modloader: str) -> str | None:
+    store = _load_version_store()
+    return store.get(modloader, {}).get("version")
+
+
+def set_modloader_version(modloader: str, version: str) -> None:
+    store = _load_version_store()
+    store[modloader] = {"version": version}
+    _save_version_store(store)
+
+
+def clear_modloader_version(modloader: str) -> None:
+    store = _load_version_store()
+    if modloader in store:
+        del store[modloader]
+        _save_version_store(store)
+
+
 
 
 # Maps modloader type to the folder/file that indicates it's installed
@@ -144,11 +160,11 @@ async def enable_modloader(game: GameProfile, install_dir: str) -> bool:
         return False
 
 
-async def install_modloader(game: GameProfile, install_dir: str) -> bool:
+async def install_modloader(game: GameProfile, install_dir: str, version: str | None = None) -> bool:
     """Download and install the appropriate modloader for a game."""
     try:
         if game.modloader == "melonloader":
-            return await _install_melonloader(install_dir, game.appid)
+            return await _install_melonloader(install_dir, game.appid, version)
         elif game.modloader == "lovely":
             return await _install_lovely(install_dir, game.appid)
         else:
@@ -180,36 +196,58 @@ async def uninstall_modloader(game: GameProfile, install_dir: str) -> bool:
         if os.path.isfile(bak):
             os.rename(bak, os.path.join(install_dir, "version.dll"))
         decky.logger.info(f"Uninstalled {game.modloader} from {install_dir}")
+        clear_modloader_version(game.modloader)
         return True
     except Exception as e:
         decky.logger.error(f"Failed to uninstall {game.modloader}: {e}")
         return False
 
 
-async def _install_melonloader(install_dir: str, appid: int) -> bool:
+async def _install_melonloader(install_dir: str, appid: int, version: str | None = None) -> bool:
     """
     Download and install MelonLoader into the game directory with full rollback on failure.
 
     Steps:
-      1. Download zip to a tmp file
-      2. Extract to a temp directory
-      3. Verify expected files exist
-      4. Back up existing version.dll and MelonLoader/ if present
-      5. Move files into the game directory
-      6. Set the Steam launch option
-      7. On any failure: roll back all changes
+      1. Resolve version and download URL
+      2. Download zip to a tmp file
+      3. Extract to a temp directory
+      4. Verify expected files exist
+      5. Back up existing version.dll and MelonLoader/ if present
+      6. Move files into the game directory
+      7. Store installed version
+      8. On any failure: roll back all changes
     """
-    url = MODLOADER_URLS["melonloader"]
+    # Step 1: Resolve version and URL
+    if version:
+        repo = github.parse_github_repo(MODLOADER_URLS["melonloader"])
+        if repo:
+            url = github.get_download_url_for_version(repo[0], repo[1], version, "MelonLoader.x64.zip")
+            if not url:
+                decky.logger.error(f"Could not find MelonLoader download URL for {version}")
+                return False
+        else:
+            url = MODLOADER_URLS["melonloader"]
+        resolved_version = version
+    else:
+        url = MODLOADER_URLS["melonloader"]
+        # Resolve actual version tag from GitHub
+        repo = github.parse_github_repo(url)
+        if repo:
+            latest = github.get_latest_release(repo[0], repo[1])
+            resolved_version = latest["version"] if latest else "v0.7.3"
+        else:
+            resolved_version = "v0.7.3"
+
     tmp_zip = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "melonloader_tmp.zip")
     tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "melonloader_extract")
     backed_up = {}  # maps original path -> backup path
 
     try:
-        # Step 1: Download
-        decky.logger.info(f"Downloading MelonLoader from {url}")
-        _download(url, tmp_zip, appid)
+        # Step 2: Download
+        decky.logger.info(f"Downloading MelonLoader {resolved_version} from {url}")
+        await utils.download(url, tmp_zip, appid)
 
-        # Step 2: Extract to temp dir
+        # Step 3: Extract to temp dir
         decky.logger.info("Extracting MelonLoader to temp directory")
         if os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir)
@@ -217,7 +255,7 @@ async def _install_melonloader(install_dir: str, appid: int) -> bool:
         with zipfile.ZipFile(tmp_zip, "r") as z:
             z.extractall(tmp_dir)
 
-        # Step 3: Verify expected files exist in extracted output
+        # Step 4: Verify expected files exist in extracted output
         for filename in MELONLOADER_FILES:
             if not os.path.isfile(os.path.join(tmp_dir, filename)):
                 raise Exception(f"Expected file missing from zip: {filename}")
@@ -225,7 +263,7 @@ async def _install_melonloader(install_dir: str, appid: int) -> bool:
             if not os.path.isdir(os.path.join(tmp_dir, dirname)):
                 raise Exception(f"Expected directory missing from zip: {dirname}")
 
-        # Step 4: Back up existing files
+        # Step 5: Back up existing files
         for filename in MELONLOADER_FILES:
             dst = os.path.join(install_dir, filename)
             if os.path.isfile(dst):
@@ -241,7 +279,7 @@ async def _install_melonloader(install_dir: str, appid: int) -> bool:
                 backed_up[dst] = bak
                 decky.logger.info(f"Backed up {dirname}/")
 
-        # Step 5: Move files into game directory
+        # Step 6: Move files into game directory
         decky.logger.info("Moving MelonLoader files into game directory")
         for filename in MELONLOADER_FILES:
             src = os.path.join(tmp_dir, filename)
@@ -256,10 +294,8 @@ async def _install_melonloader(install_dir: str, appid: int) -> bool:
                 shutil.rmtree(dst)
             shutil.move(src, dst)
 
-        # Step 6: Set launch option
-        decky.logger.info("Setting Steam launch option")
-        if not steam.set_launch_options(appid, MELONLOADER_LAUNCH_OPTION):
-            raise Exception("Failed to set Steam launch option")
+        # Step 7: Store installed version
+        set_modloader_version("melonloader", resolved_version)
 
         # Clean up backups on success
         for bak in backed_up.values():
@@ -268,7 +304,7 @@ async def _install_melonloader(install_dir: str, appid: int) -> bool:
             elif os.path.isdir(bak):
                 shutil.rmtree(bak)
 
-        decky.logger.info("MelonLoader installed successfully")
+        decky.logger.info(f"MelonLoader {resolved_version} installed successfully")
         return True
 
     except Exception as e:
@@ -316,7 +352,7 @@ async def _install_lovely(install_dir: str, appid: int) -> bool:
     tmp_zip = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "lovely_tmp.zip")
     try:
         decky.logger.info(f"Downloading Lovely from {url}")
-        _download(url, tmp_zip, appid)
+        await utils.download(url, tmp_zip, appid)
         decky.logger.info("Extracting Lovely")
         with zipfile.ZipFile(tmp_zip, "r") as z:
             z.extractall(install_dir)

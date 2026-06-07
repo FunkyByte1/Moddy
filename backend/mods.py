@@ -1,11 +1,9 @@
 import os
-import ssl
 import json
-import urllib.request
 import decky
 from games import GameProfile, ModInfo
+import utils
 
-_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
 _VERSION_STORE = None
 
 
@@ -68,17 +66,6 @@ def clear_installed_version(filename: str) -> None:
         _save_version_store(store)
 
 
-def _download(url: str, dest: str) -> None:
-    """Download a URL to a file using the system CA bundle for SSL verification."""
-    ctx = ssl.create_default_context()
-    if os.path.isfile(_CA_BUNDLE):
-        ctx = ssl.create_default_context(cafile=_CA_BUNDLE)
-    req = urllib.request.Request(url, headers={"User-Agent": "DeckyModManager/1.0"})
-    with urllib.request.urlopen(req, context=ctx) as response:
-        with open(dest, 'wb') as f:
-            f.write(response.read())
-
-
 def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
     """Return a list of installed mods with their enabled/disabled state and version."""
     mods_path = os.path.join(install_dir, game.mods_dir)
@@ -132,7 +119,7 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
     backed_up = None
     try:
         decky.logger.info(f"Downloading {mod.name} from {download_url}")
-        _download(download_url, tmp)
+        await utils.download(download_url, tmp, game.appid)
 
         # Back up existing version before replacing
         if os.path.isfile(dst):
@@ -149,11 +136,17 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
         set_installed_version(mod.filename, version or "latest", download_url)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'})")
         return True
+    except utils.InstallCancelledError:
+        decky.logger.info(f"Install of {mod.name} was cancelled")
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        if backed_up and os.path.isfile(backed_up) and not os.path.isfile(dst):
+            os.rename(backed_up, dst)
+        return None
     except Exception as e:
         decky.logger.error(f"Failed to install {mod.name}: {e}")
         if os.path.exists(tmp):
             os.remove(tmp)
-        # Restore backup if we moved it
         if backed_up and os.path.isfile(backed_up) and not os.path.isfile(dst):
             os.rename(backed_up, dst)
         return False

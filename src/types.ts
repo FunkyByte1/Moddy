@@ -30,6 +30,11 @@ export interface ModUpdate {
   latest_version: string;
 }
 
+export interface ModloaderUpdate {
+  installed: string;
+  latest: string;
+}
+
 export interface GameStatus {
   name: string;
   appid: number;
@@ -53,12 +58,15 @@ export const setLaunchOptions = (appid: number, options: string) => {
 
 // Callables
 export const getSupportedGames = callable<[], GameStatus[]>('get_supported_games');
-export const installModloader = callable<[appid: number], boolean>('install_modloader');
+export const installModloader = callable<[appid: number, version: string | null], boolean>('install_modloader');
 export const uninstallModloader = callable<[appid: number], boolean>('uninstall_modloader');
 export const enableModloader = callable<[appid: number], boolean>('enable_modloader');
 export const disableModloader = callable<[appid: number], boolean>('disable_modloader');
+export const getModloaderVersion = callable<[appid: number], string | null>('get_modloader_version');
+export const getModloaderReleases = callable<[modloader: string], ModRelease[]>('get_modloader_releases');
+export const checkModloaderUpdate = callable<[appid: number], ModloaderUpdate | null>('check_modloader_update');
 export const cancelInstall = callable<[], void>('cancel_install');
-export const installMod = callable<[appid: number, mod_filename: string, version: string | null], boolean>('install_mod');
+export const installMod = callable<[appid: number, mod_filename: string, version: string | null], boolean | null>('install_mod');
 export const uninstallMod = callable<[appid: number, mod_filename: string], boolean>('uninstall_mod');
 export const toggleMod = callable<[appid: number, mod_filename: string, enable: boolean], boolean>('toggle_mod');
 export const getModReleases = callable<[mod_url: string, mod_filename: string], ModRelease[]>('get_mod_releases');
