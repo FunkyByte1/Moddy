@@ -20,6 +20,20 @@ def find_steam_libraries() -> list[str]:
     return libraries
 
 
+def get_proton_appdata_path(appid: int, relative_path: str) -> str:
+    """
+    Resolve a path inside a game's Proton prefix AppData/Roaming directory.
+    e.g. get_proton_appdata_path(2379780, "Balatro/Mods") returns
+    ~/.steam/steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods
+    """
+    base = os.path.join(
+        decky.DECKY_USER_HOME, ".steam", "steam", "steamapps",
+        "compatdata", str(appid), "pfx", "drive_c", "users", "steamuser",
+        "AppData", "Roaming"
+    )
+    return os.path.join(base, relative_path)
+
+
 def find_game_install_dir(appid: int) -> str | None:
     """Find the install directory for a game by its AppID."""
     for steamapps in find_steam_libraries():

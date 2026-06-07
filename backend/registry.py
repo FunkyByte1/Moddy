@@ -7,11 +7,13 @@ import decky
 
 @dataclass
 class ModSource:
-    type: str          # "github" | "url"
+    type: str          # "github" | "github_source" | "url"
     owner: str = ""    # GitHub owner
     repo: str = ""     # GitHub repo
-    asset: str = ""    # Asset filename to download
+    asset: str = ""    # Asset filename to download (for type="github")
+    branch: str = "main"  # Branch to download (for type="github_source")
     url: str = ""      # Direct URL (for type="url")
+    install_type: str = "file"  # "file" = single file, "zip_dir" = extract zip as folder
 
 
 @dataclass
@@ -41,6 +43,8 @@ class GameProfile:
     name: str
     appid: int
     mods_dir: str
+    mods_dir_type: str = "game"          # "game" or "proton_appdata"
+    mods_appdata_path: str = ""          # relative path within AppData/Roaming (for proton_appdata type)
     modloaders: list[ModloaderInfo] = field(default_factory=list)
     mods: list[ModInfo] = field(default_factory=list)
 
@@ -60,7 +64,9 @@ def _parse_source(s: dict) -> ModSource:
         owner=s.get("owner", ""),
         repo=s.get("repo", ""),
         asset=s.get("asset", ""),
+        branch=s.get("branch", "main"),
         url=s.get("url", ""),
+        install_type=s.get("install_type", "file"),
     )
 
 
@@ -107,6 +113,8 @@ def _load_registry() -> list[GameProfile]:
                 name=g["name"],
                 appid=g["appid"],
                 mods_dir=g["mods_dir"],
+                mods_dir_type=g.get("mods_dir_type", "game"),
+                mods_appdata_path=g.get("mods_appdata_path", ""),
                 modloaders=modloaders,
                 mods=mods,
             ))

@@ -6,6 +6,7 @@
       "name": "Slime Rancher 2",
       "appid": 1657630,
       "mods_dir": "Mods",
+      "mods_dir_type": "game",
       "modloaders": [
         {
           "id": "melonloader",
@@ -52,6 +53,46 @@
           },
           "filename": "SR2GyroAim.dll",
           "dependencies": ["sr2.starlight"]
+        }
+      ]
+    },
+    {
+      "id": "balatro",
+      "name": "Balatro",
+      "appid": 2379780,
+      "mods_dir": "Mods",
+      "mods_dir_type": "proton_appdata",
+      "mods_appdata_path": "Balatro",
+      "modloaders": [
+        {
+          "id": "lovely",
+          "name": "Lovely Injector",
+          "source": {
+            "type": "github",
+            "owner": "ethangreen-dev",
+            "repo": "lovely-injector",
+            "asset": "lovely-x86_64-pc-windows-msvc.zip"
+          }
+        }
+      ],
+      "mods": [
+        {
+          "id": "balatro.steamodded",
+          "name": "Steamodded",
+          "description": "The essential mod framework for Balatro. Required by most mods.",
+          "author": "Steamodded Team",
+          "homepage": "https://github.com/Steamodded/smods",
+          "thumbnail": "",
+          "modloader": "lovely",
+          "source": {
+            "type": "github_source",
+            "owner": "Steamodded",
+            "repo": "smods",
+            "branch": "main",
+            "install_type": "zip_dir"
+          },
+          "filename": "Steamodded",
+          "dependencies": []
         }
       ]
     }

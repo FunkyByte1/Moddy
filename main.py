@@ -1,6 +1,3 @@
-# Moddy — Game Mode Mod Manager
-# Copyright (C) 2026 FunkyByte1
-# Licensed under GNU GPL v3. See LICENSE for details.
 import sys
 import os
 import decky
@@ -68,6 +65,7 @@ class Plugin:
                             "owner": m.source.owner,
                             "repo": m.source.repo,
                             "asset": m.source.asset,
+                            "install_type": m.source.install_type,
                         },
                     }
                     for m in game.mods
@@ -175,6 +173,14 @@ class Plugin:
                 else:
                     decky.logger.error(f"Could not resolve latest release for {mod_id}")
                     return False
+        elif mod.source.type == "github_source":
+            # Download source archive from a branch — no versioned releases
+            branch = mod.source.branch or "main"
+            url = f"https://github.com/{mod.source.owner}/{mod.source.repo}/archive/refs/heads/{branch}.zip"
+            resolved_version = "latest"
+            decky.logger.info(f"Downloading {mod_id} from branch {branch}: {url}")
+        elif mod.source.type == "url":
+            url = mod.source.url
         else:
             decky.logger.error(f"Unsupported mod source type: {mod.source.type}")
             return False
@@ -188,7 +194,7 @@ class Plugin:
             return []
         mod = game.get_mod(mod_id)
         if not mod or mod.source.type != "github":
-            return []
+            return []  # github_source mods don't have versioned releases
         releases = github.get_all_releases(mod.source.owner, mod.source.repo)
         return [r for r in releases if mod.source.asset in r.get("download_urls", {})]
 
