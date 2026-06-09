@@ -9,6 +9,7 @@ import { GameStatus, getSupportedGames } from './types';
 
 const SUPPORTED_APP_IDS = new Set<number>([
   1657630, // Slime Rancher 2
+  632360,  // Risk of Rain 2
 ]);
 
 function Content() {
@@ -37,16 +38,16 @@ function Content() {
 }
 
 export default definePlugin(() => {
-  routerHook.addRoute('/decky-mod-manager/:appid', ModPage, { exact: true });
+  routerHook.addRoute('/moddy/:appid', ModPage, { exact: true });
   const menuPatch = contextMenuPatch(LibraryContextMenu, SUPPORTED_APP_IDS);
 
   return {
-    name: 'Decky Mod Manager',
-    titleView: <div className={staticClasses.Title}>Decky Mod Manager</div>,
+    name: 'Moddy',
+    titleView: <div className={staticClasses.Title}>Moddy</div>,
     content: <Content />,
     icon: <FaPuzzlePiece />,
     onDismount() {
-      routerHook.removeRoute('/decky-mod-manager/:appid');
+      routerHook.removeRoute('/moddy/:appid');
       menuPatch?.unpatch();
     },
   };

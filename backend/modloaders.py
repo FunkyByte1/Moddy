@@ -11,15 +11,18 @@ from registry import GameProfile, ModloaderInfo
 _MODLOADER_FILES = {
     "melonloader": ["version.dll"],
     "lovely": ["version.dll"],
+    "bepinex": ["winhttp.dll"],
 }
 _MODLOADER_DIRS = {
     "melonloader": ["MelonLoader"],
     "lovely": [],
+    "bepinex": ["BepInEx"],
 }
 # The indicator file/folder used to detect if modloader is installed
 _MODLOADER_INDICATOR = {
     "melonloader": "MelonLoader",
     "lovely": "version.dll",
+    "bepinex": "BepInEx",
 }
 
 # Version store — stored inside installed.json under "modloaders" key
@@ -105,6 +108,7 @@ def is_modloader_enabled(game: GameProfile, install_dir: str, modloader_id: str)
 def is_modloader_ready(game: GameProfile, install_dir: str, modloader_id: str) -> bool:
     if modloader_id == "melonloader":
         return os.path.isdir(os.path.join(install_dir, "MelonLoader", "Il2CppAssemblies"))
+    # All other modloaders (lovely, etc.) are ready as soon as installed
     return is_modloader_installed(game, install_dir, modloader_id)
 
 
@@ -196,8 +200,70 @@ async def install_modloader(game: GameProfile, install_dir: str, modloader_id: s
         return False
     if ml.source.type == "github":
         return await _install_github_modloader(game, install_dir, ml, version)
+    if ml.source.type == "thunderstore":
+        return await _install_thunderstore_modloader(game, install_dir, ml, version)
     decky.logger.error(f"Unsupported modloader source type: {ml.source.type}")
     return False
+
+
+async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> bool:
+    """Install a Thunderstore-sourced modloader (BepInExPack pattern)."""
+    try:
+        if version:
+            url = github.get_thunderstore_download_url(ml.source.owner, ml.source.repo, version)
+            resolved_version = version
+        else:
+            latest = github.get_thunderstore_latest(ml.source.owner, ml.source.repo)
+            if not latest:
+                decky.logger.error(f"Could not resolve latest {ml.id} release from Thunderstore")
+                return False
+            resolved_version = latest["version"]
+            url = latest["download_url"]
+
+        tmp_zip = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_tmp.zip")
+        tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_extract")
+
+        decky.logger.info(f"Downloading {ml.name} {resolved_version} from {url}")
+        await utils.download(url, tmp_zip, game.appid)
+
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
+        os.makedirs(tmp_dir)
+        with zipfile.ZipFile(tmp_zip, "r") as z:
+            z.extractall(tmp_dir)
+
+        # BepInExPack has an inner folder named after the package — extract its contents
+        inner_folder = ml.source.repo  # e.g. "BepInExPack"
+        inner_path = os.path.join(tmp_dir, inner_folder)
+        if not os.path.isdir(inner_path):
+            # Try first subdirectory
+            subdirs = [d for d in os.listdir(tmp_dir) if os.path.isdir(os.path.join(tmp_dir, d))]
+            inner_path = os.path.join(tmp_dir, subdirs[0]) if subdirs else tmp_dir
+
+        for item in os.listdir(inner_path):
+            src = os.path.join(inner_path, item)
+            dst = os.path.join(install_dir, item)
+            if os.path.isdir(src):
+                if os.path.isdir(dst):
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+
+        set_modloader_version(ml.id, resolved_version)
+        decky.logger.info(f"{ml.name} {resolved_version} installed successfully")
+        return True
+    except utils.InstallCancelledError:
+        decky.logger.info(f"{ml.name} installation was cancelled")
+        return False
+    except Exception as e:
+        decky.logger.error(f"{ml.name} installation failed: {e}")
+        return False
+    finally:
+        if os.path.exists(tmp_zip):
+            os.remove(tmp_zip)
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
 
 
 async def _install_github_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> bool:

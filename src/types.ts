@@ -5,6 +5,7 @@ export interface ModSource {
   owner: string;
   repo: string;
   asset: string;
+  install_type?: string;  // "file" (default) or "zip_dir"
 }
 
 export interface ModInfo {
@@ -50,6 +51,7 @@ export interface GameStatus {
   name: string;
   appid: number;
   modloader: string;
+  modloader_name: string;
   installed: boolean;
   install_dir: string;
   modloader_installed: boolean;
@@ -61,6 +63,8 @@ export interface GameStatus {
 
 export const MODLOADER_LAUNCH_OPTIONS: Record<string, string> = {
   melonloader: 'WINEDLLOVERRIDES="version=n,b" %command%',
+  lovely: 'WINEDLLOVERRIDES="version=n,b" %command%',
+  bepinex: 'WINEDLLOVERRIDES="winhttp=n,b" %command%',
 };
 
 export const setLaunchOptions = (appid: number, options: string) => {

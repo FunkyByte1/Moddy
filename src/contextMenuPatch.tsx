@@ -18,9 +18,9 @@ const spliceConfigureModsItem = (children: any[], appid: number) => {
   const insertAt = propertiesMenuItemIdx !== -1 ? propertiesMenuItemIdx : children.length;
   children.splice(insertAt, 0, (
     <MenuItem
-      key="decky-mod-manager-configure-mods"
+      key="moddy-configure-mods"
       onSelected={() => {
-        Navigation.Navigate(`/decky-mod-manager/${appid}`);
+        Navigation.Navigate(`/moddy/${appid}`);
       }}
     >
       Configure Mods...
@@ -34,7 +34,7 @@ const isOpeningAppContextMenu = (items: any[]) => {
 };
 
 const handleItemDupes = (items: any[]) => {
-  const idx = items.findIndex((x: any) => x?.key === 'decky-mod-manager-configure-mods');
+  const idx = items.findIndex((x: any) => x?.key === 'moddy-configure-mods');
   if (idx !== -1) items.splice(idx, 1);
 };
 

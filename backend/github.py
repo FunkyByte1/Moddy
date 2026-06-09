@@ -71,3 +71,46 @@ def get_latest_download_url(owner: str, repo: str, asset: str) -> tuple[str, str
     if not url:
         return None
     return latest["version"], url
+
+
+# ── Thunderstore API ──────────────────────────────────────────────────────────
+
+def get_thunderstore_latest(author: str, name: str) -> dict | None:
+    """Get latest version info for a Thunderstore package."""
+    url = f"https://thunderstore.io/api/v1/package/{author}/{name}/"
+    data = _fetch_json(url)
+    if not data or not isinstance(data, dict):
+        return None
+    versions = data.get("versions", [])
+    if not versions:
+        return None
+    latest = versions[0]  # Thunderstore returns newest first
+    return {
+        "version": latest["version_number"],
+        "name": latest["full_name"],
+        "download_url": latest["download_url"],
+    }
+
+
+def get_thunderstore_all_versions(author: str, name: str) -> list[dict]:
+    """Get all versions for a Thunderstore package."""
+    url = f"https://thunderstore.io/api/v1/package/{author}/{name}/"
+    data = _fetch_json(url)
+    if not data or not isinstance(data, dict):
+        return []
+    versions = data.get("versions", [])
+    return [
+        {
+            "version": v["version_number"],
+            "name": v["full_name"],
+            "download_url": v["download_url"],
+            "published_at": v.get("date_created", ""),
+            "download_urls": {f"{author}-{name}-{v['version_number']}.zip": v["download_url"]},
+        }
+        for v in versions
+    ]
+
+
+def get_thunderstore_download_url(author: str, name: str, version: str) -> str:
+    """Get direct download URL for a specific Thunderstore package version."""
+    return f"https://thunderstore.io/package/download/{author}/{name}/{version}/"

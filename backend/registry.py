@@ -7,13 +7,13 @@ import decky
 
 @dataclass
 class ModSource:
-    type: str          # "github" | "github_source" | "url"
-    owner: str = ""    # GitHub owner
-    repo: str = ""     # GitHub repo
+    type: str          # "github" | "github_source" | "thunderstore" | "url"
+    owner: str = ""    # GitHub owner / Thunderstore author
+    repo: str = ""     # GitHub repo / Thunderstore package name
     asset: str = ""    # Asset filename to download (for type="github")
     branch: str = "main"  # Branch to download (for type="github_source")
     url: str = ""      # Direct URL (for type="url")
-    install_type: str = "file"  # "file" = single file, "zip_dir" = extract zip as folder
+    install_type: str = "file"  # "file" | "zip_dir" | "zip_into_game"
 
 
 @dataclass

@@ -43,6 +43,7 @@ class Plugin:
                 "name": game.name,
                 "appid": game.appid,
                 "modloader": ml_id or "",
+                "modloader_name": ml.name if ml else "",
                 "installed": install_dir is not None,
                 "install_dir": install_dir or "",
                 "modloader_installed": modloader_installed,
@@ -173,7 +174,17 @@ class Plugin:
                 else:
                     decky.logger.error(f"Could not resolve latest release for {mod_id}")
                     return False
-        elif mod.source.type == "github_source":
+        elif mod.source.type == "thunderstore":
+            if version:
+                url = github.get_thunderstore_download_url(mod.source.owner, mod.source.repo, version)
+                resolved_version = version
+            else:
+                latest = github.get_thunderstore_latest(mod.source.owner, mod.source.repo)
+                if not latest:
+                    decky.logger.error(f"Could not resolve latest Thunderstore release for {mod_id}")
+                    return False
+                resolved_version = latest["version"]
+                url = latest["download_url"]
             # Download source archive from a branch — no versioned releases
             branch = mod.source.branch or "main"
             url = f"https://github.com/{mod.source.owner}/{mod.source.repo}/archive/refs/heads/{branch}.zip"
@@ -188,15 +199,19 @@ class Plugin:
         return await mods.install_mod(game, install_dir, mod, version=resolved_version, url=url)
 
     async def get_mod_releases(self, appid: int, mod_id: str) -> list:
-        """Get available releases for a mod from GitHub."""
+        """Get available releases for a mod."""
         game = registry.get_game_by_appid(appid)
         if not game:
             return []
         mod = game.get_mod(mod_id)
-        if not mod or mod.source.type != "github":
-            return []  # github_source mods don't have versioned releases
-        releases = github.get_all_releases(mod.source.owner, mod.source.repo)
-        return [r for r in releases if mod.source.asset in r.get("download_urls", {})]
+        if not mod:
+            return []
+        if mod.source.type == "github":
+            releases = github.get_all_releases(mod.source.owner, mod.source.repo)
+            return [r for r in releases if mod.source.asset in r.get("download_urls", {})]
+        if mod.source.type == "thunderstore":
+            return github.get_thunderstore_all_versions(mod.source.owner, mod.source.repo)
+        return []  # github_source and others don't have versioned releases
 
     async def check_mod_updates(self, appid: int) -> list:
         """Check which installed mods have updates available."""
@@ -215,15 +230,22 @@ class Plugin:
             installed_version = mods.get_installed_version(mod.id)
             if not installed_version or installed_version == "latest":
                 continue
-            if mod.source.type != "github":
-                continue
-            latest = github.get_latest_release(mod.source.owner, mod.source.repo)
-            if latest and latest["version"] != installed_version:
-                updates.append({
-                    "id": mod.id,
-                    "installed_version": installed_version,
-                    "latest_version": latest["version"],
-                })
+            if mod.source.type == "github":
+                latest = github.get_latest_release(mod.source.owner, mod.source.repo)
+                if latest and latest["version"] != installed_version:
+                    updates.append({
+                        "id": mod.id,
+                        "installed_version": installed_version,
+                        "latest_version": latest["version"],
+                    })
+            elif mod.source.type == "thunderstore":
+                latest = github.get_thunderstore_latest(mod.source.owner, mod.source.repo)
+                if latest and latest["version"] != installed_version:
+                    updates.append({
+                        "id": mod.id,
+                        "installed_version": installed_version,
+                        "latest_version": latest["version"],
+                    })
         return updates
 
     async def uninstall_mod(self, appid: int, mod_id: str) -> bool:

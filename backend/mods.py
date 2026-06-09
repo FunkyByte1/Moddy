@@ -132,6 +132,8 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
 
     if mod.source.install_type == "zip_dir":
         return await _install_mod_zip_dir(game, mods_path, mod, version, url)
+    if mod.source.install_type == "zip_into_game":
+        return await _install_mod_zip_into_game(game, install_dir, mod, version, url)
     return await _install_mod_file(game, mods_path, mod, version, url)
 
 
@@ -227,6 +229,74 @@ async def _install_mod_zip_dir(game: GameProfile, mods_path: str, mod: ModInfo, 
     finally:
         if os.path.exists(tmp_zip):
             os.remove(tmp_zip)
+
+
+async def _install_mod_zip_into_game(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
+    """
+    Install a zip mod by extracting a named inner folder's contents into install_dir.
+    Used for BepInExPack which has BepInExPack/<files> and we want <files> in the game root.
+    """
+    import zipfile, shutil
+    tmp_zip = os.path.join(install_dir, f"{mod.filename}_tmp.zip")
+    try:
+        decky.logger.info(f"Downloading {mod.name} from {url}")
+        await utils.download(url, tmp_zip, game.appid)
+
+        with zipfile.ZipFile(tmp_zip, "r") as z:
+            members = z.namelist()
+            # Find the inner folder (e.g. "BepInExPack/")
+            top_dirs = set(m.split("/")[0] for m in members if "/" in m)
+            inner_folder = mod.filename + "/"  # e.g. "BepInExPack/"
+
+            # Find matching inner folder, fall back to first dir
+            target = inner_folder if any(m.startswith(inner_folder) for m in members) else (list(top_dirs)[0] + "/" if top_dirs else "")
+
+            tmp_dir = os.path.join(install_dir, f"{mod.filename}_extract")
+            if os.path.exists(tmp_dir):
+                shutil.rmtree(tmp_dir)
+            os.makedirs(tmp_dir)
+            z.extractall(tmp_dir)
+
+            inner_path = os.path.join(tmp_dir, target.rstrip("/")) if target else tmp_dir
+
+            # Copy contents of inner folder into install_dir
+            if os.path.isdir(inner_path):
+                for item in os.listdir(inner_path):
+                    src = os.path.join(inner_path, item)
+                    dst = os.path.join(install_dir, item)
+                    if os.path.isdir(src):
+                        if os.path.isdir(dst):
+                            shutil.rmtree(dst)
+                        shutil.copytree(src, dst)
+                    else:
+                        shutil.copy2(src, dst)
+            else:
+                # No inner folder, extract everything to install_dir
+                for item in os.listdir(tmp_dir):
+                    src = os.path.join(tmp_dir, item)
+                    dst = os.path.join(install_dir, item)
+                    if os.path.isdir(src):
+                        if os.path.isdir(dst):
+                            shutil.rmtree(dst)
+                        shutil.copytree(src, dst)
+                    else:
+                        shutil.copy2(src, dst)
+
+        set_installed_record(mod.id, version or "latest", mod.filename)
+        decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) into game dir")
+        return True
+    except utils.InstallCancelledError:
+        decky.logger.info(f"Install of {mod.name} was cancelled")
+        return None
+    except Exception as e:
+        decky.logger.error(f"Failed to install {mod.name}: {e}")
+        return False
+    finally:
+        if os.path.exists(tmp_zip):
+            os.remove(tmp_zip)
+        tmp_dir = os.path.join(install_dir, f"{mod.filename}_extract")
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
 
 
 def get_backed_up_versions(game: GameProfile, install_dir: str, mod_id: str) -> list[str]:
