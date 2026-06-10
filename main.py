@@ -8,6 +8,7 @@ import registry
 import steam
 import modloaders
 import mods
+import profiles
 import github
 import utils
 
@@ -287,6 +288,38 @@ class Plugin:
 
     async def cancel_install(self) -> None:
         utils.cancel_install()
+
+    async def get_profiles(self, appid: int) -> list:
+        game = registry.get_game_by_appid(appid)
+        if not game:
+            return []
+        return profiles.list_profiles(game.id)
+
+    async def save_profile(self, appid: int, name: str) -> bool:
+        game = registry.get_game_by_appid(appid)
+        if not game:
+            return False
+        install_dir = steam.find_game_install_dir(appid)
+        if not install_dir:
+            return False
+        installed = mods.get_installed_mods(game, install_dir)
+        snapshot = [
+            {"id": m["id"], "enabled": m["enabled"], "version": m.get("version")}
+            for m in installed
+        ]
+        return profiles.save_profile(game.id, name, snapshot)
+
+    async def rename_profile(self, appid: int, old_name: str, new_name: str) -> bool:
+        game = registry.get_game_by_appid(appid)
+        if not game:
+            return False
+        return profiles.rename_profile(game.id, old_name, new_name)
+
+    async def delete_profile(self, appid: int, name: str) -> bool:
+        game = registry.get_game_by_appid(appid)
+        if not game:
+            return False
+        return profiles.delete_profile(game.id, name)
 
     async def _main(self):
         decky.logger.info("Decky Mod Manager loaded")

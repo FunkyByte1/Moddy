@@ -85,3 +85,20 @@ export const getModReleases = callable<[appid: number, mod_id: string], ModRelea
 export const checkModUpdates = callable<[appid: number], ModUpdate[]>('check_mod_updates');
 export const getBackedUpVersions = callable<[appid: number, mod_id: string], string[]>('get_backed_up_versions');
 export const deleteModVersion = callable<[appid: number, mod_id: string, version: string], boolean>('delete_mod_version');
+
+export interface ProfileMod {
+  id: string;
+  enabled: boolean;
+  version: string | null;
+}
+
+export interface Profile {
+  name: string;
+  created_at: string;
+  mods: ProfileMod[];
+}
+
+export const getProfiles = callable<[appid: number], Profile[]>('get_profiles');
+export const saveProfile = callable<[appid: number, name: string], boolean>('save_profile');
+export const renameProfile = callable<[appid: number, old_name: string, new_name: string], boolean>('rename_profile');
+export const deleteProfile = callable<[appid: number, name: string], boolean>('delete_profile');

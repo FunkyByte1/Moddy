@@ -2,10 +2,12 @@ import { Tabs, showModal } from '@decky/ui';
 import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, FC } from 'react';
 
-import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates } from './types';
+import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles } from './types';
 import ModsTab from './tabs/ModsTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
+import ProfilesTab from './tabs/ProfilesTab';
 import OptionsModal from './components/modals/OptionsModal';
+import SaveProfileModal from './components/modals/SaveProfileModal';
 import FilterModal, { ModFilter, defaultModFilter } from './components/modals/FilterModal';
 
 const ModPage: FC = () => {
@@ -17,6 +19,7 @@ const ModPage: FC = () => {
   const [updates, setUpdates] = useState<ModUpdate[]>([]);
   const [activeTab, setActiveTab] = useState<string>('modloader');
   const [filter, setFilter] = useState<ModFilter>(defaultModFilter);
+  const [profilesRefreshKey, setProfilesRefreshKey] = useState(0);
 
   const refresh = async () => {
     const games = await getSupportedGames();
@@ -57,9 +60,29 @@ const ModPage: FC = () => {
     );
   };
 
+  const handleSaveProfile = async (close: () => void) => {
+    close();
+    const existing = await getProfiles(game.appid);
+    showModal(
+      <SaveProfileModal
+        existingNames={existing.map(p => p.name)}
+        onSave={async (name, closeSave) => {
+          closeSave();
+          const ok = await saveProfile(game.appid, name);
+          toaster.toast({
+            title: 'Moddy',
+            body: ok ? `Saved profile "${name}"` : 'Failed to save profile',
+          });
+          if (ok) setProfilesRefreshKey(k => k + 1);
+        }}
+      />
+    );
+  };
+
   const handleOptionsMenu = () => {
     showModal(
       <OptionsModal
+        canSaveProfile={game.installed_mods.length > 0}
         onCheckUpdates={async (close) => {
           close();
           const result = await checkModUpdates(game.appid);
@@ -70,13 +93,14 @@ const ModPage: FC = () => {
             toaster.toast({ title: 'Decky Mod Manager', body: `${result.length} update${result.length === 1 ? '' : 's'} available` });
           }
         }}
+        onSaveProfile={handleSaveProfile}
       />
     );
   };
 
   const modloaderReady = game.modloader_ready || modloaderReadyOverride;
 
-  // Build tab list — Mod Loader always first, Mods only when ready
+  // Build tab list — Mod Loader always first, Mods + Profiles only when ready
   const tabs = [
     {
       id: 'modloader',
@@ -118,6 +142,26 @@ const ModPage: FC = () => {
         onMenuActionDescription: 'Options',
         onSecondaryButton: handleFilterMenu,
         onSecondaryActionDescription: 'Filter',
+      },
+    }, {
+      id: 'profiles',
+      title: 'Profiles',
+      content: (
+        <ProfilesTab
+          game={game}
+          onRefresh={refresh}
+          installing={installing}
+          progress={progress}
+          setInstalling={setInstalling}
+          setProgress={setProgress}
+          onCancel={handleCancelInstall}
+          onMenuButton={handleOptionsMenu}
+          refreshKey={profilesRefreshKey}
+        />
+      ),
+      footer: {
+        onMenuButton: handleOptionsMenu,
+        onMenuActionDescription: 'Options',
       },
     }] : []),
   ];
