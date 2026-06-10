@@ -15,8 +15,15 @@ const spliceConfigureModsItem = (children: any[], appid: number) => {
   const propertiesMenuItemIdx = children.findIndex((item) =>
     findInReactTree(item, (x) => x?.onSelected && x.onSelected.toString().includes('AppProperties'))
   );
-  const insertAt = propertiesMenuItemIdx !== -1 ? propertiesMenuItemIdx : children.length;
-  children.splice(insertAt, 0, (
+
+  // Only insert when Properties is reachable from the menu's tree. The top-level
+  // app context menu nests Properties inside the Manage trigger; the Manage
+  // submenu (and other submenus) don't expose Properties at all, so we skip.
+  // The upstream launchSource check is leaky — Uninstall's onSelected also
+  // references launchSource, which is why the Manage submenu sneaks past it.
+  if (propertiesMenuItemIdx === -1) return;
+
+  children.splice(propertiesMenuItemIdx, 0, (
     <MenuItem
       key="moddy-configure-mods"
       onSelected={() => {
@@ -93,10 +100,6 @@ const contextMenuPatch = (LibraryContextMenu: any, supportedAppIds: Set<number>)
         });
         return ret;
       });
-    } else {
-      if (supportedAppIds.has(appid)) {
-        spliceConfigureModsItem(component.props.children, appid);
-      }
     }
     return component;
   });
