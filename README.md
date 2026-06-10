@@ -27,6 +27,12 @@ Mods and modloaders are downloaded directly from their original publishers:
 
 Mods installed through Moddy are third-party software not authored or audited by this project. Review the source and author before installing anything you don't recognize.
 
+## AI Disclosure
+
+Yes, a large portion of this was made with AI/vibe-coding. I'm a single person working on this in the small amounts of free time I get, and AI is the tool that lets me ship at all.
+
+I'm open to someone de-slopping the project and submitting PRs. If that happens, I'll use a lot less AI going forward. But for now, it's what I have, and I'd rather be upfront about it than pretend otherwise.
+
 ## Development
 
 ### Requirements
