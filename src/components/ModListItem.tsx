@@ -6,12 +6,21 @@ import { ModEntry } from './ModEntry';
 const ModListItem: FC<{
   entry: ModEntry;
   selected: boolean;
+  selectionMode?: boolean;
+  isChecked?: boolean;
   onToggle: (id: string, enable: boolean) => void;
+  onSelectToggle?: (id: string) => void;
   onFocus: () => void;
-}> = ({ entry, selected, onToggle, onFocus }) => (
+}> = ({ entry, selected, selectionMode, isChecked, onToggle, onSelectToggle, onFocus }) => (
   <Focusable
     onFocus={onFocus}
-    onActivate={() => { if (entry.installed) onToggle(entry.id, !entry.enabled); }}
+    onActivate={() => {
+      if (selectionMode) {
+        onSelectToggle?.(entry.id);
+      } else if (entry.installed) {
+        onToggle(entry.id, !entry.enabled);
+      }
+    }}
     style={{
       display: 'flex', alignItems: 'center', padding: '10px 8px',
       borderRadius: '4px', marginBottom: '2px',
@@ -19,6 +28,18 @@ const ModListItem: FC<{
       cursor: 'pointer', outline: 'none',
     }}
   >
+    {selectionMode && (
+      <div style={{
+        width: '20px', height: '20px', marginRight: '10px',
+        border: '2px solid var(--gpColorTextSecondary)', borderRadius: '3px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: isChecked ? 'var(--gpSystemLightBlue)' : 'transparent',
+        color: 'white', fontSize: '0.9em', fontWeight: 'bold',
+        flexShrink: 0,
+      }}>
+        {isChecked ? '✓' : ''}
+      </div>
+    )}
     <div style={{ flex: 1, minWidth: 0 }}>
       <div style={{ fontWeight: selected ? 'bold' : 'normal', fontSize: '0.9em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {entry.name}
@@ -33,7 +54,7 @@ const ModListItem: FC<{
     {entry.hasUpdate && (
       <div style={{ color: 'var(--gpSystemLightBlue)', fontSize: '1.1em', marginRight: '4px' }}>↑</div>
     )}
-    {entry.installed && (
+    {entry.installed && !selectionMode && (
       <ToggleField label="" checked={entry.enabled} onChange={(val) => onToggle(entry.id, val)} />
     )}
   </Focusable>

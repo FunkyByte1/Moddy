@@ -20,6 +20,7 @@ const ModPage: FC = () => {
   const [activeTab, setActiveTab] = useState<string>('modloader');
   const [filter, setFilter] = useState<ModFilter>(defaultModFilter);
   const [profilesRefreshKey, setProfilesRefreshKey] = useState(0);
+  const [selectionMode, setSelectionMode] = useState(false);
 
   const refresh = async () => {
     const games = await getSupportedGames();
@@ -94,6 +95,8 @@ const ModPage: FC = () => {
           }
         }}
         onSaveProfile={handleSaveProfile}
+        onToggleSelectionMode={activeTab === 'mods' ? (close) => { close(); setSelectionMode(m => !m); } : undefined}
+        selectionMode={selectionMode}
       />
     );
   };
@@ -135,6 +138,8 @@ const ModPage: FC = () => {
           onMenuButton={handleOptionsMenu}
           onFilterButton={handleFilterMenu}
           filter={filter}
+          selectionMode={selectionMode}
+          setSelectionMode={setSelectionMode}
         />
       ),
       footer: {
