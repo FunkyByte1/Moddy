@@ -26,17 +26,12 @@ cp dist/index.js "${OUT_DIR}/tmp/${PLUGIN_NAME}/dist/"
 cp main.py "${OUT_DIR}/tmp/${PLUGIN_NAME}/"
 cp plugin.json "${OUT_DIR}/tmp/${PLUGIN_NAME}/"
 cp package.json "${OUT_DIR}/tmp/${PLUGIN_NAME}/"
-cp registry.json "${OUT_DIR}/tmp/${PLUGIN_NAME}/"
+cp -r registry "${OUT_DIR}/tmp/${PLUGIN_NAME}/"
 cp LICENSE "${OUT_DIR}/tmp/${PLUGIN_NAME}/"
 cp README.md "${OUT_DIR}/tmp/${PLUGIN_NAME}/"
 
 # Copy backend
-cp backend/registry.py "${OUT_DIR}/tmp/${PLUGIN_NAME}/backend/"
-cp backend/steam.py "${OUT_DIR}/tmp/${PLUGIN_NAME}/backend/"
-cp backend/modloaders.py "${OUT_DIR}/tmp/${PLUGIN_NAME}/backend/"
-cp backend/mods.py "${OUT_DIR}/tmp/${PLUGIN_NAME}/backend/"
-cp backend/github.py "${OUT_DIR}/tmp/${PLUGIN_NAME}/backend/"
-cp backend/utils.py "${OUT_DIR}/tmp/${PLUGIN_NAME}/backend/"
+cp backend/*.py "${OUT_DIR}/tmp/${PLUGIN_NAME}/backend/"
 
 # Create zip
 mkdir -p "${OUT_DIR}"
