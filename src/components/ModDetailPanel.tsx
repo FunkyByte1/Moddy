@@ -22,7 +22,8 @@ const ModDetailPanel: FC<{
   onChangeVersion: (mod: ModInfo) => void;
   onCancel: () => void;
   onMenuButton: () => void;
-}> = ({ entry, game, busy, installing, progress, updates, onInstall, onDelete, onUpdate, onChangeVersion, onCancel, onMenuButton }) => {
+  onFilterButton: () => void;
+}> = ({ entry, game, busy, installing, progress, updates, onInstall, onDelete, onUpdate, onChangeVersion, onCancel, onMenuButton, onFilterButton }) => {
   const update = updates.find(u => u.id === entry.id);
 
   return (
@@ -30,6 +31,8 @@ const ModDetailPanel: FC<{
       style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', paddingBottom: '60px', display: 'flex', flexDirection: 'column' }}
       onMenuButton={onMenuButton}
       onMenuActionDescription="Options"
+      onSecondaryButton={onFilterButton}
+      onSecondaryActionDescription="Filter"
     >
       {installing && (
         <div style={{ marginBottom: '12px' }}>

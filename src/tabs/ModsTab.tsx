@@ -10,6 +10,7 @@ import {
 import { ModEntry } from '../components/ModEntry';
 import ModDetailPanel from '../components/ModDetailPanel';
 import ModListItem from '../components/ModListItem';
+import { ModFilter, modMatchesFilter } from '../components/modals/FilterModal';
 import VersionPickerModal from '../components/modals/VersionPickerModal';
 import DeleteVersionModal from '../components/modals/DeleteVersionModal';
 import DependentsModal from '../components/modals/DependentsModal';
@@ -26,13 +27,15 @@ const ModsTab: FC<{
   setProgress: (v: number) => void;
   onCancel: () => void;
   onMenuButton: () => void;
-}> = ({ game, onRefresh, updates, setUpdates, installing, progress, setInstalling, setProgress, onCancel, onMenuButton }) => {
+  onFilterButton: () => void;
+  filter: ModFilter;
+}> = ({ game, onRefresh, updates, setUpdates, installing, progress, setInstalling, setProgress, onCancel, onMenuButton, onFilterButton, filter }) => {
   const [busy, setBusy] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const installedIds = new Set(game.installed_mods.map(m => m.id));
 
-  const modEntries: ModEntry[] = game.mods.map(mod => {
+  const allEntries: ModEntry[] = game.mods.map(mod => {
     const installed = game.installed_mods.find(m => m.id === mod.id);
     const dependenciesMet = !installed || !installed.enabled ||
       (mod.dependencies ?? []).every(depId =>
@@ -48,8 +51,8 @@ const ModsTab: FC<{
   });
 
   game.installed_mods.forEach(installed => {
-    if (!modEntries.find(e => e.id === installed.id)) {
-      modEntries.push({
+    if (!allEntries.find(e => e.id === installed.id)) {
+      allEntries.push({
         id: installed.id, name: installed.filename.replace('.dll', ''),
         installed: true, enabled: installed.enabled, version: installed.version,
         hasUpdate: false, dependenciesMet: true,
@@ -58,6 +61,7 @@ const ModsTab: FC<{
     }
   });
 
+  const modEntries = allEntries.filter(e => modMatchesFilter(e, filter));
   const selectedEntry = modEntries[Math.min(selectedIndex, modEntries.length - 1)];
 
   const handleInstallMod = async (mod: ModInfo) => {
@@ -220,9 +224,13 @@ const ModsTab: FC<{
         style={{ width: '30%', overflowY: 'auto', paddingBottom: '60px', borderRight: '1px solid var(--gpColorSeparator)', padding: '8px' }}
         onMenuButton={onMenuButton}
         onMenuActionDescription="Options"
+        onSecondaryButton={onFilterButton}
+        onSecondaryActionDescription="Filter"
       >
         {modEntries.length === 0 ? (
-          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', padding: '8px' }}>No mods available</div>
+          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', padding: '8px' }}>
+            {allEntries.length === 0 ? 'No mods available' : 'No mods match the current filter'}
+          </div>
         ) : modEntries.map((entry, i) => (
           <ModListItem key={entry.id} entry={entry} selected={i === selectedIndex}
             onToggle={handleToggleMod} onFocus={() => setSelectedIndex(i)} />
@@ -234,7 +242,7 @@ const ModsTab: FC<{
           entry={selectedEntry} game={game} busy={busy} installing={installing} progress={progress}
           updates={updates} onInstall={handleInstallMod} onDelete={handleDeleteMod}
           onUpdate={handleUpdateMod} onChangeVersion={handleChangeVersion}
-          onCancel={onCancel} onMenuButton={onMenuButton}
+          onCancel={onCancel} onMenuButton={onMenuButton} onFilterButton={onFilterButton}
         />
       )}
     </Focusable>

@@ -6,6 +6,7 @@ import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates } from './typ
 import ModsTab from './tabs/ModsTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
 import OptionsModal from './components/modals/OptionsModal';
+import FilterModal, { ModFilter, defaultModFilter } from './components/modals/FilterModal';
 
 const ModPage: FC = () => {
   const appid = parseInt(window.location.pathname.split('/').pop() ?? '0');
@@ -15,6 +16,7 @@ const ModPage: FC = () => {
   const [modloaderReadyOverride, setModloaderReadyOverride] = useState(false);
   const [updates, setUpdates] = useState<ModUpdate[]>([]);
   const [activeTab, setActiveTab] = useState<string>('modloader');
+  const [filter, setFilter] = useState<ModFilter>(defaultModFilter);
 
   const refresh = async () => {
     const games = await getSupportedGames();
@@ -47,6 +49,12 @@ const ModPage: FC = () => {
     await cancelInstall();
     setInstalling(false);
     setProgress(0);
+  };
+
+  const handleFilterMenu = () => {
+    showModal(
+      <FilterModal filter={filter} onChange={setFilter} />
+    );
   };
 
   const handleOptionsMenu = () => {
@@ -101,11 +109,15 @@ const ModPage: FC = () => {
           setProgress={setProgress}
           onCancel={handleCancelInstall}
           onMenuButton={handleOptionsMenu}
+          onFilterButton={handleFilterMenu}
+          filter={filter}
         />
       ),
       footer: {
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
+        onSecondaryButton: handleFilterMenu,
+        onSecondaryActionDescription: 'Filter',
       },
     }] : []),
   ];
