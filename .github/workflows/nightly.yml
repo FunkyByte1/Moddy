@@ -42,11 +42,13 @@ jobs:
           TAG=nightly
           SHORT_SHA=${GITHUB_SHA::7}
           ZIP="releases/moddy-nightly-${SHORT_SHA}.zip"
+          STABLE_ZIP="releases/moddy-nightly.zip"
+          cp "$ZIP" "$STABLE_ZIP"
 
           # Remove the previous nightly release + tag so the new one rolls forward.
           gh release delete "$TAG" --yes --cleanup-tag || true
 
-          gh release create "$TAG" "$ZIP" \
+          gh release create "$TAG" "$ZIP" "$STABLE_ZIP" \
             --title "Nightly ($SHORT_SHA)" \
             --notes "Automated build from \`main\` at commit ${GITHUB_SHA}. Unstable — expect bugs." \
             --prerelease \
