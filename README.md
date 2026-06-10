@@ -25,6 +25,8 @@ Mods and modloaders are downloaded directly from their original publishers:
 - **GitHub Releases** — for projects that publish built assets there (e.g. MelonLoader, Starlight, R2API).
 - **[Thunderstore](https://thunderstore.io)** — for the wider Risk of Rain 2 / BepInEx mod ecosystem, accessed via Thunderstore's public API the same way [r2modman](https://github.com/ebkr/r2modmanPlus), [Thunderstore Mod Manager](https://www.overwolf.com/app/Thunderstore-Thunderstore_Mod_Manager), and [Gale](https://github.com/Kesomannen/gale) do. Moddy does not host, redistribute, or modify any mod content — it links to and downloads from the original sources, and each mod's license is set by its author.
 
+Mods installed through Moddy are third-party software not authored or audited by this project. Review the source and author before installing anything you don't recognize.
+
 ## Development
 
 ### Requirements
