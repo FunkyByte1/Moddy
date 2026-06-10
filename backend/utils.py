@@ -36,7 +36,7 @@ async def download(url: str, dest: str, appid: int) -> None:
     _cancel_event.clear()
     ctx = _make_ssl_context()
     chunk_size = 65536  # 64KB chunks
-    req = urllib.request.Request(url, headers={"User-Agent": "DeckyModManager/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Moddy/0.1.0 (+https://github.com/FunkyByte1/Moddy)"})
 
     # Run the blocking urlopen in a thread executor so we don't block the event loop
     loop = asyncio.get_event_loop()

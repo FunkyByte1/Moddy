@@ -35,6 +35,11 @@ class ModloaderInfo:
     id: str
     name: str
     source: ModSource
+    files: list[str] = field(default_factory=list)        # files dropped in game dir (e.g. ["winhttp.dll"])
+    dirs: list[str] = field(default_factory=list)         # dirs dropped in game dir (e.g. ["BepInEx"])
+    indicator: str = ""                                   # path used to detect install (relative to game dir)
+    ready_indicator: str | None = None                    # optional: path that must exist to be "ready" (post-first-launch)
+    launch_options: str = ""                              # Steam launch options to apply when enabled
 
 
 @dataclass
@@ -70,60 +75,140 @@ def _parse_source(s: dict) -> ModSource:
     )
 
 
-def _load_registry() -> list[GameProfile]:
-    """Load game profiles from registry.json next to this file."""
-    json_path = os.path.join(os.path.dirname(__file__), "..", "registry.json")
-    json_path = os.path.normpath(json_path)
-    decky.logger.info(f"Loading registry from: {json_path}")
+_REGISTRY_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "registry"))
+
+
+def _require(d: dict, key: str, where: str) -> object:
+    if key not in d:
+        raise ValueError(f"{where}: missing required field '{key}'")
+    return d[key]
+
+
+def _load_modloaders() -> dict[str, ModloaderInfo]:
+    """Load all modloader definitions from registry/modloaders/*.json."""
+    catalog: dict[str, ModloaderInfo] = {}
+    ml_dir = os.path.join(_REGISTRY_DIR, "modloaders")
+    if not os.path.isdir(ml_dir):
+        decky.logger.error(f"Modloader registry dir not found: {ml_dir}")
+        return catalog
+
+    for fname in sorted(os.listdir(ml_dir)):
+        if not fname.endswith(".json"):
+            continue
+        path = os.path.join(ml_dir, fname)
+        where = f"registry/modloaders/{fname}"
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            ml_id = _require(data, "id", where)
+            name = _require(data, "name", where)
+            source = _require(data, "source", where)
+            if ml_id in catalog:
+                raise ValueError(f"{where}: duplicate modloader id '{ml_id}'")
+            catalog[ml_id] = ModloaderInfo(
+                id=ml_id,
+                name=name,
+                source=_parse_source(source),
+                files=list(data.get("files", [])),
+                dirs=list(data.get("dirs", [])),
+                indicator=data.get("indicator", ""),
+                ready_indicator=data.get("ready_indicator"),
+                launch_options=data.get("launch_options", ""),
+            )
+        except Exception as e:
+            decky.logger.error(f"Failed to load modloader from {where}: {e}")
+    return catalog
+
+
+def _load_game(path: str, ml_catalog: dict[str, ModloaderInfo]) -> GameProfile | None:
+    fname = os.path.basename(path)
+    where = f"registry/games/{fname}"
     try:
-        with open(json_path, "r") as f:
+        with open(path, "r") as f:
             data = json.load(f)
 
-        if data.get("version") != 2:
-            decky.logger.error(f"Unsupported registry version: {data.get('version')}")
-            return []
+        game_id = _require(data, "id", where)
+        name = _require(data, "name", where)
+        appid = _require(data, "appid", where)
+        mods_dir = _require(data, "mods_dir", where)
+        modloader_ids = data.get("modloader_ids", [])
+        if not isinstance(modloader_ids, list) or not modloader_ids:
+            raise ValueError(f"{where}: 'modloader_ids' must be a non-empty list")
 
-        games = []
-        for g in data.get("games", []):
-            modloaders = [
-                ModloaderInfo(
-                    id=ml["id"],
-                    name=ml["name"],
-                    source=_parse_source(ml["source"]),
+        resolved_modloaders: list[ModloaderInfo] = []
+        for ml_id in modloader_ids:
+            ml = ml_catalog.get(ml_id)
+            if ml is None:
+                known = ", ".join(sorted(ml_catalog.keys())) or "(none loaded)"
+                raise ValueError(
+                    f"{where}: unknown modloader '{ml_id}' in modloader_ids (known: {known})"
                 )
-                for ml in g.get("modloaders", [])
-            ]
-            mods = [
-                ModInfo(
-                    id=m["id"],
-                    name=m["name"],
-                    description=m.get("description", ""),
-                    filename=m["filename"],
-                    source=_parse_source(m["source"]),
-                    author=m.get("author", ""),
-                    homepage=m.get("homepage", ""),
-                    thumbnail=m.get("thumbnail", ""),
-                    modloader=m.get("modloader", ""),
-                    dependencies=m.get("dependencies", []),
-                )
-                for m in g.get("mods", [])
-            ]
-            games.append(GameProfile(
-                id=g["id"],
-                name=g["name"],
-                appid=g["appid"],
-                mods_dir=g["mods_dir"],
-                mods_dir_type=g.get("mods_dir_type", "game"),
-                mods_appdata_path=g.get("mods_appdata_path", ""),
-                modloaders=modloaders,
-                mods=mods,
+            resolved_modloaders.append(ml)
+
+        mods = []
+        for i, m in enumerate(data.get("mods", [])):
+            mod_where = f"{where} mods[{i}]"
+            mods.append(ModInfo(
+                id=_require(m, "id", mod_where),
+                name=_require(m, "name", mod_where),
+                description=m.get("description", ""),
+                filename=_require(m, "filename", mod_where),
+                source=_parse_source(_require(m, "source", mod_where)),
+                author=m.get("author", ""),
+                homepage=m.get("homepage", ""),
+                thumbnail=m.get("thumbnail", ""),
+                modloader=m.get("modloader", ""),
+                dependencies=m.get("dependencies", []),
             ))
 
-        decky.logger.info(f"Loaded {len(games)} game(s) from registry.json")
-        return games
+        return GameProfile(
+            id=game_id,
+            name=name,
+            appid=appid,
+            mods_dir=mods_dir,
+            mods_dir_type=data.get("mods_dir_type", "game"),
+            mods_appdata_path=data.get("mods_appdata_path", ""),
+            modloaders=resolved_modloaders,
+            mods=mods,
+        )
     except Exception as e:
-        decky.logger.error(f"Failed to load registry.json: {e}")
-        return []
+        decky.logger.error(f"Failed to load game from {where}: {e}")
+        return None
+
+
+def _load_registry() -> list[GameProfile]:
+    """Load all modloader and game definitions from the registry/ directory tree."""
+    decky.logger.info(f"Loading registry from: {_REGISTRY_DIR}")
+    ml_catalog = _load_modloaders()
+    decky.logger.info(f"Loaded {len(ml_catalog)} modloader(s): {sorted(ml_catalog.keys())}")
+
+    games: list[GameProfile] = []
+    seen_ids: set[str] = set()
+    seen_appids: set[int] = set()
+
+    games_dir = os.path.join(_REGISTRY_DIR, "games")
+    if not os.path.isdir(games_dir):
+        decky.logger.error(f"Game registry dir not found: {games_dir}")
+        return games
+
+    for fname in sorted(os.listdir(games_dir)):
+        if not fname.endswith(".json"):
+            continue
+        game = _load_game(os.path.join(games_dir, fname), ml_catalog)
+        if game is None:
+            continue
+        if game.id in seen_ids:
+            decky.logger.error(f"Duplicate game id '{game.id}' in {fname}; skipping")
+            continue
+        if game.appid in seen_appids:
+            decky.logger.error(f"Duplicate game appid {game.appid} in {fname}; skipping")
+            continue
+        seen_ids.add(game.id)
+        seen_appids.add(game.appid)
+        games.append(game)
+
+    decky.logger.info(f"Loaded {len(games)} game(s) from registry/")
+    return games
 
 
 SUPPORTED_GAMES: list[GameProfile] = _load_registry()

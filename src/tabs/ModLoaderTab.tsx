@@ -15,7 +15,7 @@ import {
   GameStatus, ModRelease, ModloaderUpdate,
   installModloader, uninstallModloader, enableModloader, disableModloader,
   cancelInstall, getModloaderVersion, getModloaderReleases, checkModloaderUpdate,
-  MODLOADER_LAUNCH_OPTIONS, setLaunchOptions,
+  setLaunchOptions,
 } from '../types';
 import FirstLaunchModal from '../components/modals/FirstLaunchModal';
 
@@ -89,13 +89,14 @@ const ModLoaderTab: FC<{
     setLocalInstalling(false);
     setInstalling(false);
     if (ok) {
-      const launchOption = MODLOADER_LAUNCH_OPTIONS[game.modloader];
-      if (launchOption) setLaunchOptions(game.appid, launchOption);
+      if (game.modloader_launch_options) setLaunchOptions(game.appid, game.modloader_launch_options);
       await onRefresh();
       await loadVersion();
-      showModal(<FirstLaunchModal gameName={game.name} />);
+      if (game.modloader_needs_first_launch) {
+        showModal(<FirstLaunchModal gameName={game.name} modloaderName={game.modloader_name} />);
+      }
     } else {
-      toaster.toast({ title: 'Moddy', body: `Failed to install ${game.modloader}` });
+      toaster.toast({ title: 'Moddy', body: `Failed to install ${game.modloader_name}` });
     }
     setBusy(false);
   };
@@ -122,9 +123,9 @@ const ModLoaderTab: FC<{
             setLaunchOptions(game.appid, '');
             setInstalledVersion(null);
             setModloaderUpdate(null);
-            toaster.toast({ title: 'Moddy', body: `${game.modloader} uninstalled` });
+            toaster.toast({ title: 'Moddy', body: `${game.modloader_name} uninstalled` });
           } else {
-            toaster.toast({ title: 'Moddy', body: `Failed to uninstall ${game.modloader}` });
+            toaster.toast({ title: 'Moddy', body: `Failed to uninstall ${game.modloader_name}` });
           }
           await onRefresh();
           setBusy(false);
@@ -137,10 +138,11 @@ const ModLoaderTab: FC<{
     setBusy(true);
     const ok = enable ? await enableModloader(game.appid) : await disableModloader(game.appid);
     if (ok) {
-      const launchOption = MODLOADER_LAUNCH_OPTIONS[game.modloader];
-      if (launchOption) setLaunchOptions(game.appid, enable ? launchOption : '');
+      if (game.modloader_launch_options) {
+        setLaunchOptions(game.appid, enable ? game.modloader_launch_options : '');
+      }
     } else {
-      toaster.toast({ title: 'Moddy', body: `Failed to ${enable ? 'enable' : 'disable'} ${game.modloader}` });
+      toaster.toast({ title: 'Moddy', body: `Failed to ${enable ? 'enable' : 'disable'} ${game.modloader_name}` });
     }
     await onRefresh();
     setBusy(false);
@@ -164,7 +166,7 @@ const ModLoaderTab: FC<{
     }
     showModal(
       <ModloaderVersionPickerModal
-        modloader={game.modloader}
+        modloader={game.modloader_name}
         releases={releases}
         installedVersion={installedVersion}
         onSelect={(version, close) => { close(); handleInstall(version); }}
@@ -182,7 +184,7 @@ const ModLoaderTab: FC<{
       {localInstalling && (
         <div style={{ marginBottom: '16px' }}>
           <div style={{ marginBottom: '4px', fontSize: '0.85em', color: 'var(--gpColorTextSecondary)' }}>
-            {`Installing ${game.modloader}... ${progress}%`}
+            {`Installing ${game.modloader_name}... ${progress}%`}
           </div>
           <div style={{ width: '100%', height: '6px', background: 'var(--gpColorBgTertiary)', borderRadius: '3px', marginBottom: '8px' }}>
             <div style={{ width: `${progress}%`, height: '100%', background: 'var(--gpSystemLightBlue)', borderRadius: '3px', transition: 'width 0.2s ease' }} />
@@ -195,10 +197,10 @@ const ModLoaderTab: FC<{
 
       {!game.modloader_installed ? (
         // ── Not installed ──────────────────────────────────────────────────────
-        <PanelSection title="MelonLoader">
+        <PanelSection title={game.modloader_name}>
           <PanelSectionRow>
             <div style={{ color: 'var(--gpColorTextSecondary)', lineHeight: '1.5', marginBottom: '12px' }}>
-              MelonLoader is required to use mods with {game.name}. Install it below to get started.
+              {game.modloader_name} is required to use mods with {game.name}. Install it below to get started.
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
@@ -239,7 +241,7 @@ const ModLoaderTab: FC<{
             </PanelSection>
           )}
 
-          <PanelSection title="MelonLoader">
+          <PanelSection title={game.modloader_name}>
             <PanelSectionRow>
               <div style={{ fontSize: '0.9em', marginBottom: '4px' }}>
                 <span style={{ color: 'var(--gpColorTextSecondary)' }}>Version: </span>
@@ -284,7 +286,7 @@ const ModLoaderTab: FC<{
           <PanelSection title="Danger Zone">
             <PanelSectionRow>
               <ButtonItem layout="below" onClick={handleUninstall} disabled={busy}>
-                Uninstall MelonLoader
+                Uninstall {game.modloader_name}
               </ButtonItem>
             </PanelSectionRow>
           </PanelSection>

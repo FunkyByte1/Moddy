@@ -14,8 +14,16 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for o
 ## Supported Games
 
 - **Slime Rancher 2** — MelonLoader, Starlight, SR2 Gyro Aim
+- **Risk of Rain 2** — BepInEx
 
 More games coming soon.
+
+## Mod Sources
+
+Mods and modloaders are downloaded directly from their original publishers:
+
+- **GitHub Releases** — for projects that publish built assets there (e.g. MelonLoader, Starlight, R2API).
+- **[Thunderstore](https://thunderstore.io)** — for the wider Risk of Rain 2 / BepInEx mod ecosystem, accessed via Thunderstore's public API the same way [r2modman](https://github.com/ebkr/r2modmanPlus), [Thunderstore Mod Manager](https://www.overwolf.com/app/Thunderstore-Thunderstore_Mod_Manager), and [Gale](https://github.com/Kesomannen/gale) do. Moddy does not host, redistribute, or modify any mod content — it links to and downloads from the original sources, and each mod's license is set by its author.
 
 ## Development
 
@@ -44,19 +52,22 @@ TMP="/home/deck/moddy_tmp"
 
 pnpm run build
 
-ssh $DECK "mkdir -p $TMP/backend $TMP/dist"
-scp main.py plugin.json package.json registry.json "$DECK:$TMP/"
+ssh $DECK "mkdir -p $TMP/backend $TMP/dist && rm -rf $TMP/registry"
+scp main.py plugin.json package.json "$DECK:$TMP/"
+scp -r registry "$DECK:$TMP/"
 scp backend/registry.py backend/steam.py backend/modloaders.py backend/mods.py backend/github.py backend/utils.py "$DECK:$TMP/backend/"
 scp dist/index.js dist/index.js.map "$DECK:$TMP/dist/"
-ssh -t $DECK "sudo cp -r $TMP/* $PLUGIN_DIR/ && sudo chown -R deck:deck $PLUGIN_DIR && rm -rf $TMP"
+ssh $DECK "rm -f $PLUGIN_DIR/registry.json && cp -r $TMP/* $PLUGIN_DIR/ && rm -rf $TMP"
 ssh $DECK "sudo systemctl restart plugin_loader"
 ```
 
 Then `chmod +x deploy.sh && ./deploy.sh`.
 
+For passwordless deploys, take ownership of the plugin dir once (`sudo chown -R deck:deck /home/deck/homebrew/plugins/moddy`) and whitelist the restart command via sudoers (`echo 'deck ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart plugin_loader' | sudo tee /etc/sudoers.d/moddy-deploy && sudo chmod 0440 /etc/sudoers.d/moddy-deploy`).
+
 ### Adding a Game
 
-Edit `registry.json` to add a new game entry with its mod loader and mods. See existing entries for the v2 schema format.
+Drop a JSON file into `registry/games/` describing the game (id, Steam appid, mods dir, mod loader ids, and curated mod list). If the game uses a new mod loader, also add its definition under `registry/modloaders/`. No Python edits required. See existing entries for the schema.
 
 ## License
 

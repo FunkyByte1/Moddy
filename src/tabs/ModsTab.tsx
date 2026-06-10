@@ -215,7 +215,7 @@ const ModsTab: FC<{
   };
 
   return (
-    <Focusable style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+    <Focusable style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
       <Focusable
         style={{ width: '30%', overflowY: 'auto', paddingBottom: '60px', borderRight: '1px solid var(--gpColorSeparator)', padding: '8px' }}
         onMenuButton={onMenuButton}

@@ -1,0 +1,197 @@
+{
+  "id": "risk-of-rain-2",
+  "name": "Risk of Rain 2",
+  "appid": 632360,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "modloader_ids": ["bepinex"],
+  "mods": [
+    {
+      "id": "ror2.ror2-bepinex-pack",
+      "name": "RoR2BepInExPack",
+      "description": "Community patch that declares the RoR2 BepInExPack GUID required by R2API, and bundles Newtonsoft.Json.dll used by many RR2 mods.",
+      "author": "RiskofThunder",
+      "homepage": "https://thunderstore.io/package/RiskofThunder/RoR2BepInExPack/",
+      "thumbnail": "",
+      "modloader": "bepinex",
+      "source": {
+        "type": "thunderstore",
+        "owner": "RiskofThunder",
+        "repo": "RoR2BepInExPack",
+        "install_type": "zip_dir"
+      },
+      "filename": "RoR2BepInExPack",
+      "dependencies": []
+    },
+    {
+      "id": "ror2.hookgen-patcher",
+      "name": "HookGenPatcher",
+      "description": "BepInEx patcher that generates MMHOOK assemblies at runtime. Required by R2API and many mods.",
+      "author": "RiskofThunder",
+      "homepage": "https://thunderstore.io/package/RiskofThunder/HookGenPatcher/",
+      "thumbnail": "",
+      "modloader": "bepinex",
+      "source": {
+        "type": "thunderstore",
+        "owner": "RiskofThunder",
+        "repo": "HookGenPatcher",
+        "install_type": "zip_dir"
+      },
+      "filename": "HookGenPatcher",
+      "dependencies": []
+    },
+    {
+      "id": "ror2.r2api-core",
+      "name": "R2API Core",
+      "description": "Core modding API for Risk of Rain 2. Required by most RR2 mods.",
+      "author": "RiskofThunder",
+      "homepage": "https://thunderstore.io/package/RiskofThunder/R2API_Core/",
+      "thumbnail": "",
+      "modloader": "bepinex",
+      "source": {
+        "type": "thunderstore",
+        "owner": "RiskofThunder",
+        "repo": "R2API_Core",
+        "install_type": "zip_dir"
+      },
+      "filename": "R2API_Core",
+      "dependencies": ["ror2.ror2-bepinex-pack", "ror2.hookgen-patcher"]
+    },
+    {
+      "id": "ror2.drop-in-multiplayer",
+      "name": "Drop In Multiplayer",
+      "description": "Drop in and out of multiplayer with your friends mid-run.",
+      "author": "niwith",
+      "homepage": "https://thunderstore.io/package/niwith/DropinMultiplayer/",
+      "thumbnail": "",
+      "modloader": "bepinex",
+      "source": {
+        "type": "thunderstore",
+        "owner": "niwith",
+        "repo": "DropinMultiplayer",
+        "install_type": "zip_dir"
+      },
+      "filename": "DropInMultiplayer",
+      "dependencies": ["ror2.ror2-bepinex-pack", "ror2.hookgen-patcher", "ror2.r2api-core"]
+    },
+    {
+      "id": "ror2.remove-logbook-button",
+      "name": "Remove Logbook Button (test mod)",
+      "description": "Removes the Logbook button from the main menu and pause menu. Tiny mod useful for confirming BepInEx and mods are loading — if the button is gone, mods are working.",
+      "author": "Brynzananas",
+      "homepage": "https://thunderstore.io/package/Brynzananas/Remove_Logbook_Button_From_Main_Menu_And_Pause_Menu/",
+      "thumbnail": "",
+      "modloader": "bepinex",
+      "source": {
+        "type": "thunderstore",
+        "owner": "Brynzananas",
+        "repo": "Remove_Logbook_Button_From_Main_Menu_And_Pause_Menu",
+        "install_type": "zip_dir"
+      },
+      "filename": "RemoveLogbookButton",
+      "dependencies": ["ror2.hookgen-patcher"]
+    },
+    {
+      "id": "ror2.proper-save",
+      "name": "ProperSave",
+      "description": "Saves your progress at the start of each stage so you can continue a run later.",
+      "author": "KingEnderBrine",
+      "homepage": "https://thunderstore.io/package/KingEnderBrine/ProperSave/",
+      "thumbnail": "",
+      "modloader": "bepinex",
+      "source": {
+        "type": "thunderstore",
+        "owner": "KingEnderBrine",
+        "repo": "ProperSave",
+        "install_type": "zip_dir"
+      },
+      "filename": "ProperSave",
+      "dependencies": ["ror2.ror2-bepinex-pack", "ror2.hookgen-patcher"]
+    },
+    {
+      "id": "ror2.risk-of-options",
+      "name": "Risk of Options",
+      "description": "Adds an in-game settings menu that most modern mods register their configurations to. Widely used as a foundation for other mods' UI.",
+      "author": "Rune580",
+      "homepage": "https://thunderstore.io/package/Rune580/Risk_Of_Options/",
+      "thumbnail": "",
+      "modloader": "bepinex",
+      "source": {
+        "type": "thunderstore",
+        "owner": "Rune580",
+        "repo": "Risk_Of_Options",
+        "install_type": "zip_dir"
+      },
+      "filename": "RiskOfOptions",
+      "dependencies": []
+    },
+    {
+      "id": "ror2.scrollable-lobby-ui",
+      "name": "ScrollableLobbyUI",
+      "description": "Adds scrolling to the lobby UI (skills, loadout, character select, difficulty) so modded characters and items don't get cut off.",
+      "author": "KingEnderBrine",
+      "homepage": "https://thunderstore.io/package/KingEnderBrine/ScrollableLobbyUI/",
+      "thumbnail": "",
+      "modloader": "bepinex",
+      "source": {
+        "type": "thunderstore",
+        "owner": "KingEnderBrine",
+        "repo": "ScrollableLobbyUI",
+        "install_type": "zip_dir"
+      },
+      "filename": "ScrollableLobbyUI",
+      "dependencies": ["ror2.hookgen-patcher"]
+    },
+    {
+      "id": "ror2.empty-chests-be-gone",
+      "name": "EmptyChestsBeGone",
+      "description": "Removes already-opened chests and lootables from the world and minimap, reducing visual clutter.",
+      "author": "TheRealElysium",
+      "homepage": "https://thunderstore.io/package/TheRealElysium/EmptyChestsBeGone/",
+      "thumbnail": "",
+      "modloader": "bepinex",
+      "source": {
+        "type": "thunderstore",
+        "owner": "TheRealElysium",
+        "repo": "EmptyChestsBeGone",
+        "install_type": "zip_dir"
+      },
+      "filename": "ECBG",
+      "dependencies": []
+    },
+    {
+      "id": "ror2.misc-fixes",
+      "name": "MiscFixes",
+      "description": "Bundles a collection of small bug fixes for various base-game and Seekers of the Storm issues.",
+      "author": "score",
+      "homepage": "https://thunderstore.io/package/score/MiscFixes/",
+      "thumbnail": "",
+      "modloader": "bepinex",
+      "source": {
+        "type": "thunderstore",
+        "owner": "score",
+        "repo": "MiscFixes",
+        "install_type": "zip_dir"
+      },
+      "filename": "MiscFixes",
+      "dependencies": []
+    },
+    {
+      "id": "ror2.lunar-coin-share-on-pickup",
+      "name": "LunarCoinShareOnPickup",
+      "description": "When one player picks up a lunar coin, every player in the lobby receives one. Configurable shared/unshared amounts.",
+      "author": "dan8991iel",
+      "homepage": "https://thunderstore.io/package/dan8991iel/LunarCoinShareOnPickup/",
+      "thumbnail": "",
+      "modloader": "bepinex",
+      "source": {
+        "type": "thunderstore",
+        "owner": "dan8991iel",
+        "repo": "LunarCoinShareOnPickup",
+        "install_type": "zip_dir"
+      },
+      "filename": "LunarCoinShareOnPickup",
+      "dependencies": ["ror2.r2api-core"]
+    }
+  ]
+}

@@ -7,24 +7,6 @@ import github
 import utils
 from registry import GameProfile, ModloaderInfo
 
-# Files/folders each modloader installs into the game directory
-_MODLOADER_FILES = {
-    "melonloader": ["version.dll"],
-    "lovely": ["version.dll"],
-    "bepinex": ["winhttp.dll"],
-}
-_MODLOADER_DIRS = {
-    "melonloader": ["MelonLoader"],
-    "lovely": [],
-    "bepinex": ["BepInEx"],
-}
-# The indicator file/folder used to detect if modloader is installed
-_MODLOADER_INDICATOR = {
-    "melonloader": "MelonLoader",
-    "lovely": "version.dll",
-    "bepinex": "BepInEx",
-}
-
 # Version store — stored inside installed.json under "modloaders" key
 _modloader_versions: dict = {}
 
@@ -89,38 +71,41 @@ def clear_modloader_version(modloader_id: str) -> None:
 
 
 def is_modloader_installed(game: GameProfile, install_dir: str, modloader_id: str) -> bool:
-    indicator = _MODLOADER_INDICATOR.get(modloader_id)
-    if not indicator:
+    ml = game.get_modloader(modloader_id)
+    if not ml or not ml.indicator:
         return False
     return (
-        os.path.exists(os.path.join(install_dir, indicator)) or
-        os.path.exists(os.path.join(install_dir, indicator + ".disabled"))
+        os.path.exists(os.path.join(install_dir, ml.indicator)) or
+        os.path.exists(os.path.join(install_dir, ml.indicator + ".disabled"))
     )
 
 
 def is_modloader_enabled(game: GameProfile, install_dir: str, modloader_id: str) -> bool:
-    indicator = _MODLOADER_INDICATOR.get(modloader_id)
-    if not indicator:
+    ml = game.get_modloader(modloader_id)
+    if not ml or not ml.indicator:
         return False
-    return os.path.exists(os.path.join(install_dir, indicator))
+    return os.path.exists(os.path.join(install_dir, ml.indicator))
 
 
 def is_modloader_ready(game: GameProfile, install_dir: str, modloader_id: str) -> bool:
-    if modloader_id == "melonloader":
-        return os.path.isdir(os.path.join(install_dir, "MelonLoader", "Il2CppAssemblies"))
-    # All other modloaders (lovely, etc.) are ready as soon as installed
+    ml = game.get_modloader(modloader_id)
+    if not ml:
+        return False
+    if ml.ready_indicator:
+        return os.path.exists(os.path.join(install_dir, ml.ready_indicator))
     return is_modloader_installed(game, install_dir, modloader_id)
 
 
 async def enable_modloader(game: GameProfile, install_dir: str, modloader_id: str) -> bool:
-    files = _MODLOADER_FILES.get(modloader_id, [])
-    dirs = _MODLOADER_DIRS.get(modloader_id, [])
+    ml = game.get_modloader(modloader_id)
+    if not ml:
+        return False
     try:
-        for f in files:
+        for f in ml.files:
             src = os.path.join(install_dir, f + ".disabled")
             if os.path.isfile(src):
                 os.rename(src, os.path.join(install_dir, f))
-        for d in dirs:
+        for d in ml.dirs:
             src = os.path.join(install_dir, d + ".disabled")
             if os.path.isdir(src):
                 os.rename(src, os.path.join(install_dir, d))
@@ -132,14 +117,15 @@ async def enable_modloader(game: GameProfile, install_dir: str, modloader_id: st
 
 
 async def disable_modloader(game: GameProfile, install_dir: str, modloader_id: str) -> bool:
-    files = _MODLOADER_FILES.get(modloader_id, [])
-    dirs = _MODLOADER_DIRS.get(modloader_id, [])
+    ml = game.get_modloader(modloader_id)
+    if not ml:
+        return False
     try:
-        for f in files:
+        for f in ml.files:
             src = os.path.join(install_dir, f)
             if os.path.isfile(src):
                 os.rename(src, src + ".disabled")
-        for d in dirs:
+        for d in ml.dirs:
             src = os.path.join(install_dir, d)
             if os.path.isdir(src):
                 os.rename(src, src + ".disabled")
@@ -151,15 +137,16 @@ async def disable_modloader(game: GameProfile, install_dir: str, modloader_id: s
 
 
 async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id: str) -> bool:
-    files = _MODLOADER_FILES.get(modloader_id, [])
-    dirs = _MODLOADER_DIRS.get(modloader_id, [])
+    ml = game.get_modloader(modloader_id)
+    if not ml:
+        return False
     try:
-        for f in files:
+        for f in ml.files:
             for candidate in [f, f + ".disabled"]:
                 path = os.path.join(install_dir, candidate)
                 if os.path.isfile(path):
                     os.remove(path)
-        for d in dirs:
+        for d in ml.dirs:
             for candidate in [d, d + ".disabled"]:
                 path = os.path.join(install_dir, candidate)
                 if os.path.isdir(path):
@@ -176,7 +163,7 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
         return False
 
 
-def _rollback_melonloader(install_dir: str, backed_up: dict) -> None:
+def _rollback(install_dir: str, backed_up: dict) -> None:
     try:
         for original, bak in backed_up.items():
             if os.path.isfile(bak):
@@ -208,6 +195,8 @@ async def install_modloader(game: GameProfile, install_dir: str, modloader_id: s
 
 async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> bool:
     """Install a Thunderstore-sourced modloader (BepInExPack pattern)."""
+    tmp_zip = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_tmp.zip")
+    tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_extract")
     try:
         if version:
             url = github.get_thunderstore_download_url(ml.source.owner, ml.source.repo, version)
@@ -220,9 +209,6 @@ async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, m
             resolved_version = latest["version"]
             url = latest["download_url"]
 
-        tmp_zip = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_tmp.zip")
-        tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_extract")
-
         decky.logger.info(f"Downloading {ml.name} {resolved_version} from {url}")
         await utils.download(url, tmp_zip, game.appid)
 
@@ -232,13 +218,17 @@ async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, m
         with zipfile.ZipFile(tmp_zip, "r") as z:
             z.extractall(tmp_dir)
 
-        # BepInExPack has an inner folder named after the package — extract its contents
-        inner_folder = ml.source.repo  # e.g. "BepInExPack"
-        inner_path = os.path.join(tmp_dir, inner_folder)
-        if not os.path.isdir(inner_path):
-            # Try first subdirectory
-            subdirs = [d for d in os.listdir(tmp_dir) if os.path.isdir(os.path.join(tmp_dir, d))]
-            inner_path = os.path.join(tmp_dir, subdirs[0]) if subdirs else tmp_dir
+        # Thunderstore packs vary: sometimes BepInEx files are at zip root, sometimes
+        # nested under a folder like BepInExPack/. Locate the directory that actually
+        # contains the modloader's payload (one of ml.files, e.g. winhttp.dll), and copy
+        # from there. Falls back to tmp_dir if nothing matches.
+        inner_path = tmp_dir
+        marker = ml.files[0] if ml.files else None
+        if marker:
+            for root, _dirs, files in os.walk(tmp_dir):
+                if marker in files:
+                    inner_path = root
+                    break
 
         for item in os.listdir(inner_path):
             src = os.path.join(inner_path, item)
@@ -268,9 +258,6 @@ async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, m
 
 async def _install_github_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> bool:
     """Install a GitHub-sourced modloader (zip-based, like MelonLoader)."""
-    files = _MODLOADER_FILES.get(ml.id, [])
-    dirs = _MODLOADER_DIRS.get(ml.id, [])
-
     # Resolve version and download URL
     if version:
         url = github.get_download_url_for_version(ml.source.owner, ml.source.repo, version, ml.source.asset)
@@ -301,21 +288,21 @@ async def _install_github_modloader(game: GameProfile, install_dir: str, ml: Mod
             z.extractall(tmp_dir)
 
         # Verify expected files
-        for f in files:
+        for f in ml.files:
             if not os.path.isfile(os.path.join(tmp_dir, f)):
                 raise Exception(f"Expected file missing from zip: {f}")
-        for d in dirs:
+        for d in ml.dirs:
             if not os.path.isdir(os.path.join(tmp_dir, d)):
                 raise Exception(f"Expected directory missing from zip: {d}")
 
         # Back up existing files
-        for f in files:
+        for f in ml.files:
             dst = os.path.join(install_dir, f)
             if os.path.isfile(dst):
                 bak = dst + ".deckhand_bak"
                 shutil.copy2(dst, bak)
                 backed_up[dst] = bak
-        for d in dirs:
+        for d in ml.dirs:
             dst = os.path.join(install_dir, d)
             if os.path.isdir(dst):
                 bak = dst + ".deckhand_bak"
@@ -323,13 +310,13 @@ async def _install_github_modloader(game: GameProfile, install_dir: str, ml: Mod
                 backed_up[dst] = bak
 
         # Move into game directory
-        for f in files:
+        for f in ml.files:
             src = os.path.join(tmp_dir, f)
             dst = os.path.join(install_dir, f)
             if os.path.isfile(dst):
                 os.remove(dst)
             shutil.move(src, dst)
-        for d in dirs:
+        for d in ml.dirs:
             src = os.path.join(tmp_dir, d)
             dst = os.path.join(install_dir, d)
             if os.path.isdir(dst):
@@ -350,11 +337,11 @@ async def _install_github_modloader(game: GameProfile, install_dir: str, ml: Mod
 
     except utils.InstallCancelledError:
         decky.logger.info(f"{ml.name} installation was cancelled")
-        _rollback_melonloader(install_dir, backed_up)
+        _rollback(install_dir, backed_up)
         return False
     except Exception as e:
         decky.logger.error(f"{ml.name} installation failed: {e}")
-        _rollback_melonloader(install_dir, backed_up)
+        _rollback(install_dir, backed_up)
         return False
     finally:
         if os.path.exists(tmp_zip):

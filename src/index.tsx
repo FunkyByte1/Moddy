@@ -5,12 +5,7 @@ import { FaPuzzlePiece } from 'react-icons/fa';
 
 import contextMenuPatch, { LibraryContextMenu } from './contextMenuPatch';
 import ModPage from './ModPage';
-import { GameStatus, getSupportedGames } from './types';
-
-const SUPPORTED_APP_IDS = new Set<number>([
-  1657630, // Slime Rancher 2
-  632360,  // Risk of Rain 2
-]);
+import { GameStatus, getSupportedAppids, getSupportedGames } from './types';
 
 function Content() {
   const [games, setGames] = useState<GameStatus[]>([]);
@@ -33,13 +28,25 @@ function Content() {
           Press the Start button on a supported game to manage its mods.
         </div>
       </PanelSectionRow>
+      <PanelSectionRow>
+        <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em', marginTop: '12px' }}>
+          Mods downloaded from GitHub and thunderstore.io.
+        </div>
+      </PanelSectionRow>
     </PanelSection>
   );
 }
 
 export default definePlugin(() => {
   routerHook.addRoute('/moddy/:appid', ModPage, { exact: true });
-  const menuPatch = contextMenuPatch(LibraryContextMenu, SUPPORTED_APP_IDS);
+
+  // contextMenuPatch reads this set live at render time, so async population is fine —
+  // the "Configure Mods" menu item appears as soon as the backend responds.
+  const supportedAppIds = new Set<number>();
+  const menuPatch = contextMenuPatch(LibraryContextMenu, supportedAppIds);
+  getSupportedAppids().then(ids => {
+    for (const id of ids) supportedAppIds.add(id);
+  });
 
   return {
     name: 'Moddy',

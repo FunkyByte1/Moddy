@@ -14,6 +14,10 @@ import utils
 
 class Plugin:
 
+    async def get_supported_appids(self) -> list[int]:
+        """Return the list of Steam appids this plugin supports — used by the frontend to gate the context-menu patch."""
+        return [g.appid for g in registry.SUPPORTED_GAMES]
+
     async def get_supported_games(self) -> list:
         """Return all supported games with current install and mod status."""
         result = []
@@ -44,6 +48,8 @@ class Plugin:
                 "appid": game.appid,
                 "modloader": ml_id or "",
                 "modloader_name": ml.name if ml else "",
+                "modloader_launch_options": ml.launch_options if ml else "",
+                "modloader_needs_first_launch": bool(ml and ml.ready_indicator),
                 "installed": install_dir is not None,
                 "install_dir": install_dir or "",
                 "modloader_installed": modloader_installed,
@@ -185,11 +191,6 @@ class Plugin:
                     return False
                 resolved_version = latest["version"]
                 url = latest["download_url"]
-            # Download source archive from a branch — no versioned releases
-            branch = mod.source.branch or "main"
-            url = f"https://github.com/{mod.source.owner}/{mod.source.repo}/archive/refs/heads/{branch}.zip"
-            resolved_version = "latest"
-            decky.logger.info(f"Downloading {mod_id} from branch {branch}: {url}")
         elif mod.source.type == "url":
             url = mod.source.url
         else:

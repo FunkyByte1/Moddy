@@ -1,7 +1,7 @@
 import { ButtonItem, ModalRoot } from '@decky/ui';
 import { useState, useEffect, FC } from 'react';
 
-const FirstLaunchModal: FC<{ gameName: string; closeModal?: () => void }> = ({ gameName, closeModal }) => {
+const FirstLaunchModal: FC<{ gameName: string; modloaderName: string; closeModal?: () => void }> = ({ gameName, modloaderName, closeModal }) => {
   const [canClose, setCanClose] = useState(false);
 
   useEffect(() => {
@@ -19,7 +19,7 @@ const FirstLaunchModal: FC<{ gameName: string; closeModal?: () => void }> = ({ g
           Before installing any mods, you must launch <strong>{gameName}</strong> once and let it fully load into the game.
         </div>
         <div style={{ lineHeight: '1.6', marginBottom: '16px' }}>
-          The first launch may take <strong>2–3 minutes</strong> while MelonLoader sets itself up. Do not quit early — wait until you are fully in the game, then close it and return here.
+          The first launch may take <strong>2–3 minutes</strong> while {modloaderName} sets itself up. Do not quit early — wait until you are fully in the game, then close it and return here.
         </div>
         <div style={{ lineHeight: '1.6', color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', marginBottom: '16px' }}>
           Installing mods before this step may cause them to not work correctly.

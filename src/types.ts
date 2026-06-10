@@ -52,6 +52,8 @@ export interface GameStatus {
   appid: number;
   modloader: string;
   modloader_name: string;
+  modloader_launch_options: string;
+  modloader_needs_first_launch: boolean;
   installed: boolean;
   install_dir: string;
   modloader_installed: boolean;
@@ -61,17 +63,12 @@ export interface GameStatus {
   mods: ModInfo[];
 }
 
-export const MODLOADER_LAUNCH_OPTIONS: Record<string, string> = {
-  melonloader: 'WINEDLLOVERRIDES="version=n,b" %command%',
-  lovely: 'WINEDLLOVERRIDES="version=n,b" %command%',
-  bepinex: 'WINEDLLOVERRIDES="winhttp=n,b" %command%',
-};
-
 export const setLaunchOptions = (appid: number, options: string) => {
   (window as any).SteamClient.Apps.SetAppLaunchOptions(appid, options);
 };
 
 // Callables
+export const getSupportedAppids = callable<[], number[]>('get_supported_appids');
 export const getSupportedGames = callable<[], GameStatus[]>('get_supported_games');
 export const installModloader = callable<[appid: number, version: string | null], boolean>('install_modloader');
 export const uninstallModloader = callable<[appid: number], boolean>('uninstall_modloader');

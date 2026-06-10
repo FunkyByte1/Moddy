@@ -1,0 +1,15 @@
+{
+  "id": "melonloader",
+  "name": "MelonLoader",
+  "files": ["version.dll"],
+  "dirs": ["MelonLoader"],
+  "indicator": "MelonLoader",
+  "ready_indicator": "MelonLoader/Il2CppAssemblies",
+  "launch_options": "WINEDLLOVERRIDES=\"version=n,b\" %command%",
+  "source": {
+    "type": "github",
+    "owner": "LavaGang",
+    "repo": "MelonLoader",
+    "asset": "MelonLoader.x64.zip"
+  }
+}

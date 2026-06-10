@@ -1,20 +1,30 @@
 import json
 import ssl
 import os
+import time
 import urllib.request
 import decky
 
 _CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
+_USER_AGENT = "Moddy/0.1.0 (+https://github.com/FunkyByte1/Moddy)"
+_CACHE_TTL_SECONDS = 300  # 5 min — covers double-clicks and rapid "Check for Updates" without hiding fresh releases for long
+_cache: dict[str, tuple[float, dict | list]] = {}
 
 
 def _fetch_json(url: str) -> dict | list | None:
+    now = time.time()
+    cached = _cache.get(url)
+    if cached and now - cached[0] < _CACHE_TTL_SECONDS:
+        return cached[1]
     ctx = ssl.create_default_context()
     if os.path.isfile(_CA_BUNDLE):
         ctx = ssl.create_default_context(cafile=_CA_BUNDLE)
-    req = urllib.request.Request(url, headers={"User-Agent": "DeckyModManager/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
-            return json.loads(response.read().decode())
+            data = json.loads(response.read().decode())
+            _cache[url] = (now, data)
+            return data
     except Exception as e:
         decky.logger.error(f"Failed to fetch {url}: {e}")
         return None
@@ -74,41 +84,48 @@ def get_latest_download_url(owner: str, repo: str, asset: str) -> tuple[str, str
 
 
 # ── Thunderstore API ──────────────────────────────────────────────────────────
+# Uses Thunderstore's "experimental" package API (the v1 per-package endpoint
+# returns 404 as of 2025). This endpoint exposes only the latest version per
+# package — full version history is not available without authentication.
 
-def get_thunderstore_latest(author: str, name: str) -> dict | None:
-    """Get latest version info for a Thunderstore package."""
-    url = f"https://thunderstore.io/api/v1/package/{author}/{name}/"
+def _get_thunderstore_package(author: str, name: str) -> dict | None:
+    url = f"https://thunderstore.io/api/experimental/package/{author}/{name}/"
     data = _fetch_json(url)
     if not data or not isinstance(data, dict):
         return None
-    versions = data.get("versions", [])
-    if not versions:
+    return data
+
+
+def get_thunderstore_latest(author: str, name: str) -> dict | None:
+    """Get latest version info for a Thunderstore package."""
+    pkg = _get_thunderstore_package(author, name)
+    if not pkg:
         return None
-    latest = versions[0]  # Thunderstore returns newest first
+    latest = pkg.get("latest")
+    if not latest:
+        return None
     return {
         "version": latest["version_number"],
         "name": latest["full_name"],
         "download_url": latest["download_url"],
+        "dependencies": latest.get("dependencies", []),  # list of "<author>-<name>-<version>" strings
     }
 
 
 def get_thunderstore_all_versions(author: str, name: str) -> list[dict]:
-    """Get all versions for a Thunderstore package."""
-    url = f"https://thunderstore.io/api/v1/package/{author}/{name}/"
-    data = _fetch_json(url)
-    if not data or not isinstance(data, dict):
+    """Return the available versions for a Thunderstore package.
+    The experimental API only exposes the latest version, so this returns at most one entry.
+    """
+    latest = get_thunderstore_latest(author, name)
+    if not latest:
         return []
-    versions = data.get("versions", [])
-    return [
-        {
-            "version": v["version_number"],
-            "name": v["full_name"],
-            "download_url": v["download_url"],
-            "published_at": v.get("date_created", ""),
-            "download_urls": {f"{author}-{name}-{v['version_number']}.zip": v["download_url"]},
-        }
-        for v in versions
-    ]
+    return [{
+        "version": latest["version"],
+        "name": latest["name"],
+        "download_url": latest["download_url"],
+        "published_at": "",
+        "download_urls": {f"{author}-{name}-{latest['version']}.zip": latest["download_url"]},
+    }]
 
 
 def get_thunderstore_download_url(author: str, name: str, version: str) -> str:
