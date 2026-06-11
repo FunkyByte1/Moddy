@@ -6,6 +6,7 @@ import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile,
 import ModsTab from './tabs/ModsTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
 import ProfilesTab from './tabs/ProfilesTab';
+import BrowseTab from './tabs/BrowseTab';
 import OptionsModal from './components/modals/OptionsModal';
 import SaveProfileModal from './components/modals/SaveProfileModal';
 import FilterModal, { ModFilter, defaultModFilter } from './components/modals/FilterModal';
@@ -148,7 +149,17 @@ const ModPage: FC = () => {
         onSecondaryButton: handleFilterMenu,
         onSecondaryActionDescription: 'Filter',
       },
-    }, {
+    },
+    ...(game.thunderstore_community ? [{
+      id: 'browse',
+      title: 'Browse',
+      content: <BrowseTab game={game} onRefresh={refresh} />,
+      footer: {
+        onMenuButton: handleOptionsMenu,
+        onMenuActionDescription: 'Options',
+      },
+    }] : []),
+    {
       id: 'profiles',
       title: 'Profiles',
       content: (

@@ -66,13 +66,46 @@ def get_installed_version(mod_id: str) -> str | None:
     return store.get(mod_id, {}).get("version")
 
 
-def set_installed_record(mod_id: str, version: str, filename: str, paths: list[str] | None = None) -> None:
+def set_installed_record(
+    mod_id: str,
+    version: str,
+    filename: str,
+    paths: list[str] | None = None,
+    mod: ModInfo | None = None,
+) -> None:
+    """Persist an install record. If `mod` is provided, source/meta/install_type are
+    extracted from the ModInfo so the record is self-describing — this is what lets
+    browsed Thunderstore mods (which aren't in the curated registry) be uninstalled,
+    toggled, and update-checked later without needing a curated lookup."""
     store = _load_store()
-    record = {"version": version, "filename": filename}
+    record: dict = {"version": version, "filename": filename}
     if paths:
         record["paths"] = paths
+    if mod is not None:
+        record["source"] = {
+            "type": mod.source.type,
+            "owner": mod.source.owner,
+            "repo": mod.source.repo,
+            "asset": mod.source.asset,
+            "install_type": mod.source.install_type,
+        }
+        record["meta"] = {
+            "name": mod.name,
+            "author": mod.author,
+            "description": mod.description,
+            "homepage": mod.homepage,
+            "thumbnail": mod.thumbnail,
+            "modloader": mod.modloader,
+            "dependencies": list(mod.dependencies),
+        }
+        record["install_type"] = mod.source.install_type
     store[mod_id] = record
     _save_store(store)
+
+
+def get_installed_record(mod_id: str) -> dict | None:
+    """Return the full persisted install record for a mod, or None if untracked."""
+    return _load_store().get(mod_id)
 
 
 def clear_installed_record(mod_id: str) -> None:
@@ -102,16 +135,16 @@ def _folder_mod_has_enabled_dll(target_dirs: list[str]) -> bool:
 
 def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
     """
-    Return installed mods with id, filename, enabled state, and version.
+    Return installed mods with id, filename, enabled state, version, and meta.
     Source of truth: installed.json (covers multi-location mods like patchers that don't
-    live under BepInEx/plugins/). Falls back to a filesystem scan for mods that exist on
-    disk but were placed manually / outside the plugin's tracking.
+    live under BepInEx/plugins/, and browsed Thunderstore mods that aren't in the curated
+    registry at all). Also scans the filesystem for legacy / manually-placed entries.
     """
     mods_path = resolve_mods_path(game, install_dir)
     installed = []
     seen_ids: set[str] = set()
 
-    # 1) Tracked installs from installed.json
+    # 1) Tracked installs from installed.json — curated mods (have a game.mods entry)
     store = _load_store()
     for mod in game.mods:
         record = store.get(mod.id)
@@ -129,9 +162,33 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             "filename": mod.filename,
             "enabled": enabled,
             "version": record.get("version"),
+            "meta": record.get("meta"),
         })
 
-    # 2) Filesystem scan for legacy / manually-placed entries we haven't tracked
+    # 2) Tracked installs from installed.json — browsed mods (no curated game.mods entry)
+    for mod_id, record in store.items():
+        if mod_id in seen_ids:
+            continue
+        filename = record.get("filename")
+        if not filename:
+            continue
+        install_type = record.get("install_type") or (record.get("source") or {}).get("install_type") or "file"
+        paths = record.get("paths")
+        if install_type == "zip_dir" or paths:
+            target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
+            enabled = _folder_mod_has_enabled_dll(target_dirs)
+        else:
+            enabled = os.path.isfile(os.path.join(mods_path, filename))
+        seen_ids.add(mod_id)
+        installed.append({
+            "id": mod_id,
+            "filename": filename,
+            "enabled": enabled,
+            "version": record.get("version"),
+            "meta": record.get("meta"),
+        })
+
+    # 3) Filesystem scan for legacy / manually-placed entries we haven't tracked
     if os.path.isdir(mods_path):
         for entry in os.listdir(mods_path):
             entry_path = os.path.join(mods_path, entry)
@@ -147,6 +204,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                     "filename": actual_filename,
                     "enabled": enabled,
                     "version": get_installed_version(mod_id),
+                    "meta": None,
                 })
             elif os.path.isdir(entry_path) and not entry.endswith(".bak"):
                 mod = game.get_mod_by_filename(entry)
@@ -157,6 +215,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                     "filename": entry,
                     "enabled": True,
                     "version": get_installed_version(mod.id),
+                    "meta": None,
                 })
 
     return installed
@@ -200,7 +259,7 @@ async def _install_mod_file(game: GameProfile, mods_path: str, mod: ModInfo, ver
                 os.remove(dst)
 
         os.replace(tmp, dst)
-        set_installed_record(mod.id, version or "latest", mod.filename)
+        set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'})")
         return True
     except utils.InstallCancelledError:
@@ -238,12 +297,17 @@ async def _install_mod_zip_dir(game: GameProfile, install_dir: str, mods_path: s
         with zipfile.ZipFile(tmp_zip, "r") as z:
             members = z.namelist()
             top_level = {m.split("/")[0] for m in members if m and m != "/"}
+            top_files = [m for m in members if "/" not in m or not m.split("/")[1]]
 
         if "BepInEx" in top_level:
             return _extract_to_game_root(install_dir, mod, version, tmp_zip)
         bepinex_subdirs = top_level & {"plugins", "patchers", "monomod", "core"}
         if bepinex_subdirs:
             return _extract_bepinex_subdirs(install_dir, mod, version, tmp_zip, bepinex_subdirs)
+        # Bare-DLL layout: no recognized BepInEx folders, but loose .dll files at the
+        # zip root (e.g. PaladinMod, BiggerBazaar, Aetherium). Common Thunderstore shape.
+        if any(f.lower().endswith(".dll") for f in top_files):
+            return _extract_bare_dll(mods_path, mod, version, tmp_zip)
         return _extract_to_mods_folder(mods_path, mod, version, tmp_zip)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
@@ -273,7 +337,7 @@ def _extract_to_game_root(install_dir: str, mod: ModInfo, version: str | None, t
             if len(parts) >= 3:
                 extracted_dirs.add("/".join(parts[:3]))
             z.extract(member, install_dir)
-    set_installed_record(mod.id, version or "latest", mod.filename, paths=sorted(extracted_dirs))
+    set_installed_record(mod.id, version or "latest", mod.filename, paths=sorted(extracted_dirs), mod=mod)
     decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — merged into BepInEx tree")
     return True
 
@@ -296,8 +360,45 @@ def _extract_bepinex_subdirs(install_dir: str, mod: ModInfo, version: str | None
             if len(parts) >= 2 and parts[1]:
                 extracted_dirs.add(f"BepInEx/{parts[0]}/{parts[1]}")
             z.extract(member, bepinex_root)
-    set_installed_record(mod.id, version or "latest", mod.filename, paths=sorted(extracted_dirs))
+    set_installed_record(mod.id, version or "latest", mod.filename, paths=sorted(extracted_dirs), mod=mod)
     decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — merged into BepInEx tree")
+    return True
+
+
+_THUNDERSTORE_METADATA_FILES = {"manifest.json", "icon.png", "readme.md", "changelog.md", "license", "license.md", "license.txt"}
+
+
+def _extract_bare_dll(mods_path: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
+    """Install a bare-DLL Thunderstore mod: loose .dll/.pdb files at the zip root
+    (plus possibly sidecar asset folders) extracted into BepInEx/plugins/<mod.filename>/.
+    Thunderstore metadata files (manifest.json, icon.png, README.md, CHANGELOG.md, LICENSE)
+    are skipped to keep the plugin folder clean."""
+    import zipfile, shutil
+    dst_dir = os.path.join(mods_path, mod.filename)
+
+    if os.path.isdir(dst_dir):
+        old_version = get_installed_version(mod.id)
+        if old_version and old_version != "latest":
+            bak = dst_dir + f".v{old_version}.bak"
+            shutil.copytree(dst_dir, bak)
+        shutil.rmtree(dst_dir)
+    os.makedirs(dst_dir)
+
+    extracted = 0
+    with zipfile.ZipFile(tmp_zip, "r") as z:
+        for member in z.namelist():
+            if member.endswith("/"):
+                continue
+            parts = member.split("/")
+            top = parts[0]
+            # Skip Thunderstore metadata at the zip root
+            if len(parts) == 1 and top.lower() in _THUNDERSTORE_METADATA_FILES:
+                continue
+            z.extract(member, dst_dir)
+            extracted += 1
+
+    set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
+    decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {extracted} files in bare-DLL layout")
     return True
 
 
@@ -328,7 +429,7 @@ def _extract_to_mods_folder(mods_path: str, mod: ModInfo, version: str | None, t
             os.makedirs(dst_dir)
             z.extractall(dst_dir)
 
-    set_installed_record(mod.id, version or "latest", mod.filename)
+    set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
     decky.logger.info(f"Installed {mod.name} ({version or 'latest'})")
     return True
 
@@ -384,7 +485,7 @@ async def _install_mod_zip_into_game(game: GameProfile, install_dir: str, mod: M
                     else:
                         shutil.copy2(src, dst)
 
-        set_installed_record(mod.id, version or "latest", mod.filename)
+        set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) into game dir")
         return True
     except utils.InstallCancelledError:
@@ -442,15 +543,21 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
     """
     Remove a mod from the mods directory.
     Handles file-based, folder-based, and multi-location (paths-tracked) mods.
-    Removes all versioned backups too.
+    Removes all versioned backups too. Browsed Thunderstore mods that aren't in the
+    curated registry are uninstalled using the persisted record in installed.json.
     """
     import shutil
     mod = game.get_mod(mod_id)
-    filename = mod.filename if mod else mod_id
     mods_path = resolve_mods_path(game, install_dir)
     store = _load_store()
-    paths = store.get(mod_id, {}).get("paths")
-    is_dir_mod = mod and mod.source.install_type == "zip_dir"
+    record = store.get(mod_id, {})
+    filename = mod.filename if mod else record.get("filename", mod_id)
+    paths = record.get("paths")
+    install_type = (
+        mod.source.install_type if mod
+        else record.get("install_type") or (record.get("source") or {}).get("install_type")
+    )
+    is_dir_mod = install_type == "zip_dir"
     try:
         if paths:
             # Multi-location install (e.g. BepInEx patcher) — clean each tracked path
@@ -508,14 +615,24 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
       `*.dll` ↔ `*.dll.disabled`. BepInEx's plugin scanner only matches `*.dll`,
       so the renamed files are skipped on next launch.
     Takes effect on next game launch — BepInEx loads plugins once at startup.
+    Browsed Thunderstore mods (no curated ModInfo) use the persisted record.
     """
     mod = game.get_mod(mod_id)
     mods_path = resolve_mods_path(game, install_dir)
+    store = _load_store()
+    record = store.get(mod_id, {})
+    install_type = (
+        mod.source.install_type if mod
+        else record.get("install_type") or (record.get("source") or {}).get("install_type")
+    )
+    filename = mod.filename if mod else record.get("filename", mod_id)
 
-    if mod and mod.source.install_type == "zip_dir":
-        store = _load_store()
-        paths = store.get(mod_id, {}).get("paths")
-        target_dirs = _mod_target_dirs(mod, mods_path, install_dir, paths)
+    if install_type == "zip_dir":
+        paths = record.get("paths")
+        if mod:
+            target_dirs = _mod_target_dirs(mod, mods_path, install_dir, paths)
+        else:
+            target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
         renamed = 0
         try:
             for d in target_dirs:
@@ -532,13 +649,12 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
             if renamed == 0:
                 decky.logger.warning(f"No DLLs to {'enable' if enable else 'disable'} for {mod_id}")
                 return False
-            decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {mod.filename} ({renamed} dll{'s' if renamed != 1 else ''})")
+            decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} ({renamed} dll{'s' if renamed != 1 else ''})")
             return True
         except Exception as e:
             decky.logger.error(f"Failed to toggle {mod_id}: {e}")
             return False
 
-    filename = mod.filename if mod else mod_id
     try:
         if enable:
             src = os.path.join(mods_path, filename + ".bak")

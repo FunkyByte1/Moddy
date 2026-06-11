@@ -50,6 +50,8 @@ class GameProfile:
     mods_dir: str
     mods_dir_type: str = "game"          # "game" or "proton_appdata"
     mods_appdata_path: str = ""          # relative path within AppData/Roaming (for proton_appdata type)
+    thunderstore_community: str = ""     # Thunderstore community slug (e.g. "riskofrain2"); empty = curated-only
+    implicit_deps: list[str] = field(default_factory=list)  # Thunderstore full_names treated as deps of every browsed install
     modloaders: list[ModloaderInfo] = field(default_factory=list)
     mods: list[ModInfo] = field(default_factory=list)
 
@@ -168,6 +170,8 @@ def _load_game(path: str, ml_catalog: dict[str, ModloaderInfo]) -> GameProfile |
             mods_dir=mods_dir,
             mods_dir_type=data.get("mods_dir_type", "game"),
             mods_appdata_path=data.get("mods_appdata_path", ""),
+            thunderstore_community=data.get("thunderstore_community", ""),
+            implicit_deps=list(data.get("implicit_deps", [])),
             modloaders=resolved_modloaders,
             mods=mods,
         )

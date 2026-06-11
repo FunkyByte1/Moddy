@@ -21,11 +21,45 @@ export interface ModInfo {
   dependencies?: string[];  // list of mod IDs
 }
 
+export interface ModMeta {
+  name: string;
+  author: string;
+  description: string;
+  homepage: string;
+  thumbnail: string;
+  modloader: string;
+  dependencies: string[];
+}
+
 export interface InstalledMod {
   id: string;
   filename: string;
   enabled: boolean;
   version: string | null;
+  meta?: ModMeta | null;
+}
+
+export interface ThunderstorePackageLatest {
+  version_number: string;
+  description: string;
+  icon: string;
+  dependencies: string[];
+  download_url: string;
+  file_size: number;
+}
+
+export interface ThunderstorePackage {
+  name: string;
+  full_name: string;
+  owner: string;
+  package_url: string;
+  donation_link: string | null;
+  date_updated: string;
+  rating_score: number;
+  is_deprecated: boolean;
+  has_nsfw_content: boolean;
+  categories: string[];
+  latest: ThunderstorePackageLatest;
 }
 
 export interface ModRelease {
@@ -54,6 +88,7 @@ export interface GameStatus {
   modloader_name: string;
   modloader_launch_options: string;
   modloader_needs_first_launch: boolean;
+  thunderstore_community: string;
   installed: boolean;
   install_dir: string;
   modloader_installed: boolean;
@@ -85,6 +120,9 @@ export const getModReleases = callable<[appid: number, mod_id: string], ModRelea
 export const checkModUpdates = callable<[appid: number], ModUpdate[]>('check_mod_updates');
 export const getBackedUpVersions = callable<[appid: number, mod_id: string], string[]>('get_backed_up_versions');
 export const deleteModVersion = callable<[appid: number, mod_id: string, version: string], boolean>('delete_mod_version');
+export const getThunderstoreCatalog = callable<[appid: number], ThunderstorePackage[]>('get_thunderstore_catalog');
+export const installThunderstoreMod = callable<[appid: number, full_name: string, version: string | null], boolean | null>('install_thunderstore_mod');
+export const getBrowseDenylist = callable<[], string[]>('get_browse_denylist');
 
 export interface ProfileMod {
   id: string;
