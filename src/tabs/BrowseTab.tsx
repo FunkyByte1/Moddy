@@ -1,4 +1,4 @@
-import { ButtonItem, DialogButton, Focusable, PanelSection, PanelSectionRow, TextField } from '@decky/ui';
+import { ButtonItem, DialogButton, Focusable, PanelSection, PanelSectionRow, TextField, showModal } from '@decky/ui';
 import { toaster } from '@decky/api';
 import { FC, useState, useEffect, useMemo, useRef, CSSProperties } from 'react';
 import { FixedSizeList } from 'react-window';
@@ -8,8 +8,11 @@ import {
   ThunderstorePackage,
   getThunderstoreCatalog,
   installThunderstoreMod,
+  uninstallMod,
+  toggleMod,
   getBrowseDenylist,
 } from '../types';
+import DependentsModal from '../components/modals/DependentsModal';
 
 interface Props {
   game: GameStatus;
@@ -120,7 +123,8 @@ const DetailPanel: FC<{
   installing: string | null;
   isInstalled: boolean;
   onInstall: (pkg: ThunderstorePackage) => void;
-}> = ({ pkg, installing, isInstalled, onInstall }) => {
+  onUninstall: (pkg: ThunderstorePackage) => void;
+}> = ({ pkg, installing, isInstalled, onInstall, onUninstall }) => {
   if (!pkg) {
     return (
       <div style={{ color: 'var(--gpColorTextSecondary)', padding: 16 }}>
@@ -164,10 +168,16 @@ const DetailPanel: FC<{
         <PanelSectionRow>
           <ButtonItem
             layout="below"
-            disabled={isInstalled || isBusy}
-            onClick={() => onInstall(pkg)}
+            disabled={isBusy}
+            onClick={() => (isInstalled ? onUninstall(pkg) : onInstall(pkg))}
           >
-            {isInstalled ? 'Installed' : isBusy ? 'Installing…' : 'Install'}
+            {isBusy
+              ? isInstalled
+                ? 'Removing…'
+                : 'Installing…'
+              : isInstalled
+                ? 'Uninstall'
+                : 'Install'}
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
@@ -273,6 +283,49 @@ const BrowseTab: FC<Props> = ({ game, onRefresh }) => {
     }
   };
 
+  const handleUninstall = (pkg: ThunderstorePackage) => {
+    // Installed mods record their deps as versioned Thunderstore strings
+    // ("Owner-Mod-1.2.3"); the install id drops the trailing version segment.
+    const fn = pkg.full_name.toLowerCase();
+    const dependents = game.installed_mods.filter(m =>
+      (m.meta?.dependencies ?? []).some(
+        d => d.split('-').slice(0, -1).join('-').toLowerCase() === fn
+      )
+    );
+
+    const run = async (depAction: 'disable' | 'delete' | 'none') => {
+      setInstalling(pkg.full_name);
+      try {
+        if (depAction === 'delete') {
+          for (const dep of dependents) await uninstallMod(game.appid, dep.id);
+        } else if (depAction === 'disable') {
+          for (const dep of dependents) await toggleMod(game.appid, dep.id, false);
+        }
+        const ok = await uninstallMod(game.appid, pkg.full_name);
+        toaster.toast({
+          title: 'Moddy',
+          body: ok ? `Uninstalled ${pkg.name}` : `Failed to uninstall ${pkg.name}`,
+        });
+        await onRefresh();
+      } finally {
+        setInstalling(null);
+      }
+    };
+
+    if (dependents.length > 0) {
+      showModal(
+        <DependentsModal
+          dependentNames={dependents.map(m => m.meta?.name ?? m.filename.replace(/\.dll$/, '') ?? m.id)}
+          onDisable={close => { close(); run('disable'); }}
+          onIgnore={close => { close(); run('none'); }}
+          onDelete={close => { close(); run('delete'); }}
+        />
+      );
+      return;
+    }
+    run('none');
+  };
+
   const itemData: RowData = useMemo(
     () => ({ packages: filtered, selectedIndex, installedIds, onSelect: setSelectedIndex }),
     [filtered, selectedIndex, installedIds]
@@ -353,6 +406,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh }) => {
           installing={installing}
           isInstalled={selectedIsInstalled}
           onInstall={handleInstall}
+          onUninstall={handleUninstall}
         />
       </Focusable>
     </Focusable>
