@@ -10,6 +10,7 @@ import BrowseTab from './tabs/BrowseTab';
 import OptionsModal from './components/modals/OptionsModal';
 import SaveProfileModal from './components/modals/SaveProfileModal';
 import FilterModal, { ModFilter, defaultModFilter } from './components/modals/FilterModal';
+import BrowseFilterModal, { BrowseFilter, defaultBrowseFilter } from './components/modals/BrowseFilterModal';
 
 const ModPage: FC = () => {
   const appid = parseInt(window.location.pathname.split('/').pop() ?? '0');
@@ -20,6 +21,8 @@ const ModPage: FC = () => {
   const [updates, setUpdates] = useState<ModUpdate[]>([]);
   const [activeTab, setActiveTab] = useState<string>('modloader');
   const [filter, setFilter] = useState<ModFilter>(defaultModFilter);
+  const [browseFilter, setBrowseFilter] = useState<BrowseFilter>(defaultBrowseFilter);
+  const [browseCategories, setBrowseCategories] = useState<string[]>([]);
   const [profilesRefreshKey, setProfilesRefreshKey] = useState(0);
   const [selectionMode, setSelectionMode] = useState(false);
 
@@ -59,6 +62,16 @@ const ModPage: FC = () => {
   const handleFilterMenu = () => {
     showModal(
       <FilterModal filter={filter} onChange={setFilter} />
+    );
+  };
+
+  const handleBrowseFilterMenu = () => {
+    showModal(
+      <BrowseFilterModal
+        filter={browseFilter}
+        categories={browseCategories}
+        onChange={setBrowseFilter}
+      />
     );
   };
 
@@ -153,10 +166,20 @@ const ModPage: FC = () => {
     ...(game.thunderstore_community ? [{
       id: 'browse',
       title: 'Browse',
-      content: <BrowseTab game={game} onRefresh={refresh} />,
+      content: (
+        <BrowseTab
+          game={game}
+          onRefresh={refresh}
+          filter={browseFilter}
+          onFilterButton={handleBrowseFilterMenu}
+          onCategoriesChange={setBrowseCategories}
+        />
+      ),
       footer: {
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
+        onSecondaryButton: handleBrowseFilterMenu,
+        onSecondaryActionDescription: 'Filter',
       },
     }] : []),
     {

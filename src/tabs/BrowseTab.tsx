@@ -13,10 +13,14 @@ import {
   getBrowseDenylist,
 } from '../types';
 import DependentsModal from '../components/modals/DependentsModal';
+import { BrowseFilter } from '../components/modals/BrowseFilterModal';
 
 interface Props {
   game: GameStatus;
   onRefresh: () => Promise<void>;
+  filter: BrowseFilter;
+  onFilterButton: () => void;
+  onCategoriesChange: (categories: string[]) => void;
 }
 
 // Pixel sizes tuned for the Decky tab area at Steam Deck native res.
@@ -207,7 +211,7 @@ const DetailPanel: FC<{
   );
 };
 
-const BrowseTab: FC<Props> = ({ game, onRefresh }) => {
+const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCategoriesChange }) => {
   const [catalog, setCatalog] = useState<ThunderstorePackage[]>([]);
   const [denylist, setDenylist] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -245,11 +249,34 @@ const BrowseTab: FC<Props> = ({ game, onRefresh }) => {
     [game.installed_mods]
   );
 
+  // All categories present in the (non-denylisted) catalog, surfaced to the
+  // parent so the filter modal can list them.
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of catalog) {
+      if (denylist.has(p.full_name.toLowerCase())) continue;
+      for (const c of p.categories) set.add(c);
+    }
+    return [...set].sort();
+  }, [catalog, denylist]);
+
+  useEffect(() => {
+    onCategoriesChange(categories);
+  }, [categories, onCategoriesChange]);
+
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
-    let list = catalog.filter(
-      p => !p.is_deprecated && !p.has_nsfw_content && !denylist.has(p.full_name.toLowerCase())
-    );
+    let list = catalog.filter(p => {
+      if (denylist.has(p.full_name.toLowerCase())) return false;
+      if (p.is_deprecated && !filter.showDeprecated) return false;
+      if (p.has_nsfw_content && !filter.showNsfw) return false;
+      const isInstalled = installedIds.has(p.full_name.toLowerCase());
+      if (isInstalled && !filter.installed) return false;
+      if (!isInstalled && !filter.notInstalled) return false;
+      if (filter.categories.length > 0 && !p.categories.some(c => filter.categories.includes(c)))
+        return false;
+      return true;
+    });
     if (q) {
       list = list.filter(
         p =>
@@ -259,14 +286,15 @@ const BrowseTab: FC<Props> = ({ game, onRefresh }) => {
     }
     list.sort((a, b) => b.rating_score - a.rating_score);
     return list;
-  }, [catalog, query, denylist]);
+  }, [catalog, query, denylist, filter, installedIds]);
 
-  // Reset selection when the filtered list changes (search edits, etc.) so the
-  // detail panel never points at a stale index that's now out of bounds.
+  // Reset selection when the filtered list changes (search edits, filter
+  // changes) so the detail panel never points at a stale index that's now out
+  // of bounds.
   useEffect(() => {
     setSelectedIndex(0);
     listRef.current?.scrollToItem(0);
-  }, [query]);
+  }, [query, filter]);
 
   const handleInstall = async (pkg: ThunderstorePackage) => {
     setInstalling(pkg.full_name);
@@ -375,7 +403,11 @@ const BrowseTab: FC<Props> = ({ game, onRefresh }) => {
   }
 
   return (
-    <Focusable style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+    <Focusable
+      style={{ display: 'flex', height: '100%', overflow: 'hidden' }}
+      onSecondaryButton={onFilterButton}
+      onSecondaryActionDescription="Filter"
+    >
       <Focusable
         style={{
           width: LEFT_PANEL_WIDTH,
