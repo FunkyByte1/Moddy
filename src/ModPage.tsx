@@ -1,6 +1,6 @@
 import { Tabs, showModal } from '@decky/ui';
 import { toaster, addEventListener, removeEventListener } from '@decky/api';
-import { useState, useEffect, FC } from 'react';
+import { useState, useEffect, useRef, FC } from 'react';
 
 import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles } from './types';
 import ModsTab from './tabs/ModsTab';
@@ -19,7 +19,7 @@ const ModPage: FC = () => {
   const [progress, setProgress] = useState(0);
   const [modloaderReadyOverride, setModloaderReadyOverride] = useState(false);
   const [updates, setUpdates] = useState<ModUpdate[]>([]);
-  const [activeTab, setActiveTab] = useState<string>('modloader');
+  const [selectedTab, setSelectedTab] = useState<string | null>(null);
   const [filter, setFilter] = useState<ModFilter>(defaultModFilter);
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>(defaultBrowseFilter);
   const [browseCategories, setBrowseCategories] = useState<string[]>([]);
@@ -43,12 +43,22 @@ const ModPage: FC = () => {
     return () => removeEventListener('install_progress', listener);
   }, []);
 
-  // Once modloader is ready, switch to mods tab
+  const modloaderReady = !!game && (game.modloader_ready || modloaderReadyOverride);
+
+  // Default tab is derived, not set post-mount: Tabs must mount already on the
+  // right tab. Mounting on 'modloader' and switching to 'mods' a frame later
+  // strands gamepad focus in the hidden Mod Loader content — Steam only
+  // re-focuses contents on tab changes it initiates itself, so the next R1
+  // press routes input back to the stale tab.
+  const activeTab = selectedTab ?? (modloaderReady ? 'mods' : 'modloader');
+
+  // Still jump to Mods when the modloader becomes ready mid-session (e.g.
+  // right after installing it from the Mod Loader tab).
+  const prevReadyRef = useRef(modloaderReady);
   useEffect(() => {
-    if (game?.modloader_ready || modloaderReadyOverride) {
-      setActiveTab('mods');
-    }
-  }, [game?.modloader_ready, modloaderReadyOverride]);
+    if (modloaderReady && !prevReadyRef.current) setSelectedTab('mods');
+    prevReadyRef.current = modloaderReady;
+  }, [modloaderReady]);
 
   if (!game) return <div style={{ padding: '16px' }}>Game not supported or not installed.</div>;
 
@@ -114,8 +124,6 @@ const ModPage: FC = () => {
       />
     );
   };
-
-  const modloaderReady = game.modloader_ready || modloaderReadyOverride;
 
   // Build tab list — Mod Loader always first, Mods + Profiles only when ready
   const tabs = [
@@ -213,7 +221,7 @@ const ModPage: FC = () => {
       <Tabs
         autoFocusContents
         activeTab={activeTab}
-        onShowTab={(tab: string) => setActiveTab(tab)}
+        onShowTab={(tab: string) => setSelectedTab(tab)}
         tabs={tabs}
       />
     </div>
