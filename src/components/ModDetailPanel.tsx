@@ -74,9 +74,9 @@ const ModDetailPanel: FC<{
         <div style={{ fontSize: '0.85em', marginBottom: '12px' }}>
           <div style={{ color: 'var(--gpColorTextSecondary)', marginBottom: '4px' }}>Dependencies:</div>
           {entry.info.dependencies.map(depId => {
-            const depInstalled = game.installed_mods.find(m => m.id === depId);
+            const depInstalled = game.installed_mods.find(m => m.id.toLowerCase() === depId.toLowerCase());
             const depEnabled = depInstalled?.enabled ?? false;
-            const depName = game.mods.find(m => m.id === depId)?.name ?? depId;
+            const depName = game.mods.find(m => m.id === depId)?.name ?? depInstalled?.meta?.name ?? depId;
             return (
               <div key={depId} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
                 <span style={{ color: depEnabled ? '#5ba85b' : '#f8a623' }}>

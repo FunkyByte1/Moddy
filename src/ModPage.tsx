@@ -4,12 +4,14 @@ import { useState, useEffect, useRef, FC } from 'react';
 
 import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles } from './types';
 import ModsTab from './tabs/ModsTab';
+import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
 import ProfilesTab from './tabs/ProfilesTab';
 import BrowseTab from './tabs/BrowseTab';
 import OptionsModal from './components/modals/OptionsModal';
 import SaveProfileModal from './components/modals/SaveProfileModal';
 import FilterModal, { ModFilter, defaultModFilter } from './components/modals/FilterModal';
+import InstalledFilterModal, { InstalledFilter, defaultInstalledFilter } from './components/modals/InstalledFilterModal';
 import BrowseFilterModal, { BrowseFilter, defaultBrowseFilter } from './components/modals/BrowseFilterModal';
 
 const ModPage: FC = () => {
@@ -21,6 +23,7 @@ const ModPage: FC = () => {
   const [updates, setUpdates] = useState<ModUpdate[]>([]);
   const [selectedTab, setSelectedTab] = useState<string | null>(null);
   const [filter, setFilter] = useState<ModFilter>(defaultModFilter);
+  const [installedFilter, setInstalledFilter] = useState<InstalledFilter>(defaultInstalledFilter);
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>(defaultBrowseFilter);
   const [browseCategories, setBrowseCategories] = useState<string[]>([]);
   const [profilesRefreshKey, setProfilesRefreshKey] = useState(0);
@@ -50,13 +53,14 @@ const ModPage: FC = () => {
   // strands gamepad focus in the hidden Mod Loader content — Steam only
   // re-focuses contents on tab changes it initiates itself, so the next R1
   // press routes input back to the stale tab.
-  const activeTab = selectedTab ?? (modloaderReady ? 'mods' : 'modloader');
+  const defaultManageTab = game?.thunderstore_community ? 'installed' : 'mods';
+  const activeTab = selectedTab ?? (modloaderReady ? defaultManageTab : 'modloader');
 
   // Still jump to Mods when the modloader becomes ready mid-session (e.g.
   // right after installing it from the Mod Loader tab).
   const prevReadyRef = useRef(modloaderReady);
   useEffect(() => {
-    if (modloaderReady && !prevReadyRef.current) setSelectedTab('mods');
+    if (modloaderReady && !prevReadyRef.current) setSelectedTab(defaultManageTab);
     prevReadyRef.current = modloaderReady;
   }, [modloaderReady]);
 
@@ -72,6 +76,12 @@ const ModPage: FC = () => {
   const handleFilterMenu = () => {
     showModal(
       <FilterModal filter={filter} onChange={setFilter} />
+    );
+  };
+
+  const handleInstalledFilterMenu = () => {
+    showModal(
+      <InstalledFilterModal filter={installedFilter} onChange={setInstalledFilter} />
     );
   };
 
@@ -119,7 +129,7 @@ const ModPage: FC = () => {
           }
         }}
         onSaveProfile={handleSaveProfile}
-        onToggleSelectionMode={activeTab === 'mods' ? (close) => { close(); setSelectionMode(m => !m); } : undefined}
+        onToggleSelectionMode={activeTab === 'mods' || activeTab === 'installed' ? (close) => { close(); setSelectionMode(m => !m); } : undefined}
         selectionMode={selectionMode}
       />
     );
@@ -143,7 +153,38 @@ const ModPage: FC = () => {
         onMenuActionDescription: 'Options',
       },
     },
-    ...(modloaderReady ? [{
+    ...(modloaderReady ? [
+    // Thunderstore games manage installed mods here and discover new ones in
+    // Browse; non-Thunderstore games keep the curated Mods tab as their only
+    // install path.
+    game.thunderstore_community ? {
+      id: 'installed',
+      title: 'Installed',
+      content: (
+        <InstalledTab
+          game={game}
+          onRefresh={refresh}
+          updates={updates}
+          setUpdates={setUpdates}
+          installing={installing}
+          progress={progress}
+          setInstalling={setInstalling}
+          setProgress={setProgress}
+          onCancel={handleCancelInstall}
+          onMenuButton={handleOptionsMenu}
+          onFilterButton={handleInstalledFilterMenu}
+          filter={installedFilter}
+          selectionMode={selectionMode}
+          setSelectionMode={setSelectionMode}
+        />
+      ),
+      footer: {
+        onMenuButton: handleOptionsMenu,
+        onMenuActionDescription: 'Options',
+        onSecondaryButton: handleInstalledFilterMenu,
+        onSecondaryActionDescription: 'Filter',
+      },
+    } : {
       id: 'mods',
       title: 'Mods',
       content: (
