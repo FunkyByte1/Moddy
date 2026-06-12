@@ -121,6 +121,7 @@ export const checkModUpdates = callable<[appid: number], ModUpdate[]>('check_mod
 export const getBackedUpVersions = callable<[appid: number, mod_id: string], string[]>('get_backed_up_versions');
 export const deleteModVersion = callable<[appid: number, mod_id: string, version: string], boolean>('delete_mod_version');
 export const getThunderstoreCatalog = callable<[appid: number], ThunderstorePackage[]>('get_thunderstore_catalog');
+export const refreshThunderstoreCatalog = callable<[appid: number], boolean>('refresh_thunderstore_catalog');
 export const installThunderstoreMod = callable<[appid: number, full_name: string, version: string | null], boolean | null>('install_thunderstore_mod');
 export const getBrowseDenylist = callable<[], string[]>('get_browse_denylist');
 

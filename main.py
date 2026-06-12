@@ -303,6 +303,14 @@ class Plugin:
             return []
         return github.get_thunderstore_community_catalog(game.thunderstore_community)
 
+    async def refresh_thunderstore_catalog(self, appid: int) -> bool:
+        """Force a fresh catalog pull from Thunderstore, keeping the existing cache
+        if the fetch fails. Returns True only if a fresh copy was actually fetched."""
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.thunderstore_community:
+            return False
+        return github.refresh_thunderstore_community_catalog(game.thunderstore_community)
+
     # Thunderstore packages that should never be installed as plugins via Browse —
     # modloaders (already provided by Mod Loader tab) and desktop mod-manager apps.
     # Case-insensitive comparison. Frontend uses get_browse_denylist() to keep these

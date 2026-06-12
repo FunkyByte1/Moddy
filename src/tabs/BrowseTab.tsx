@@ -21,6 +21,9 @@ interface Props {
   filter: BrowseFilter;
   onFilterButton: () => void;
   onCategoriesChange: (categories: string[]) => void;
+  // Bumped by the Options-menu "Refresh Mod Catalog" action to force a re-fetch
+  // after the backend cache has been invalidated.
+  refreshKey?: number;
 }
 
 // Pixel sizes tuned for the Decky tab area at Steam Deck native res.
@@ -211,7 +214,7 @@ const DetailPanel: FC<{
   );
 };
 
-const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCategoriesChange }) => {
+const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCategoriesChange, refreshKey }) => {
   const [catalog, setCatalog] = useState<ThunderstorePackage[]>([]);
   const [denylist, setDenylist] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -242,7 +245,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
       }
     })();
     return () => { cancelled = true; };
-  }, [game.appid]);
+  }, [game.appid, refreshKey]);
 
   const installedIds = useMemo(
     () => new Set(game.installed_mods.map(m => m.id.toLowerCase())),

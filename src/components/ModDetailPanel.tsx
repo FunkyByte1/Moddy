@@ -46,16 +46,21 @@ const ModDetailPanel: FC<{
         </div>
       )}
 
-      {entry.info.thumbnail && (
-        <img src={entry.info.thumbnail} style={{ width: '100%', maxHeight: '150px', objectFit: 'cover', borderRadius: '4px', marginBottom: '12px' }} />
-      )}
-
-      <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '4px' }}>{entry.name}</div>
-      {entry.info.author && (
-        <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', marginBottom: '8px' }}>
-          by {entry.info.author}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', marginBottom: '8px' }}>
+        {entry.info.thumbnail && (
+          <div style={{ width: '64px', height: '64px', flexShrink: 0, borderRadius: '4px', overflow: 'hidden', background: 'rgba(255,255,255,0.08)' }}>
+            <img src={entry.info.thumbnail} style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }} />
+          </div>
+        )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '4px' }}>{entry.name}</div>
+          {entry.info.author && (
+            <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em' }}>
+              by {entry.info.author}
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {entry.version && (
         <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', marginBottom: '8px' }}>

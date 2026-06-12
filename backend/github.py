@@ -138,9 +138,10 @@ def get_thunderstore_download_url(author: str, name: str, version: str) -> str:
 # version history. For RoR2 in 2026 that's ~47 MB / 7k packages. The UI only
 # needs the latest version of each package, so we trim aggressively on the
 # server before handing it across the WebSocket bridge. Cached on disk with a
-# 30-minute TTL so the Browse tab opens instantly after the first fetch.
+# 1-day TTL so the Browse tab opens instantly and we stay courteous to the
+# Thunderstore API; users can force a fresh pull from the Options menu.
 
-_CATALOG_CACHE_TTL_SECONDS = 1800
+_CATALOG_CACHE_TTL_SECONDS = 86400
 
 
 def _catalog_cache_path(community: str) -> str:
@@ -176,20 +177,23 @@ def _trim_thunderstore_package(pkg: dict) -> dict | None:
     }
 
 
-def get_thunderstore_community_catalog(community: str) -> list[dict]:
+def get_thunderstore_community_catalog(community: str, force: bool = False) -> list[dict]:
     """Fetch (or load from disk cache) the Thunderstore catalog for a community,
-    trimmed to UI-relevant fields. Returns [] on failure with no stale cache available."""
+    trimmed to UI-relevant fields. Returns [] on failure with no stale cache available.
+    When force=True, skip the fresh-cache shortcut and pull from the network, but
+    still fall back to the existing cache if that fetch fails."""
     cache_path = _catalog_cache_path(community)
     now = time.time()
 
-    try:
-        if os.path.isfile(cache_path):
-            with open(cache_path, "r") as f:
-                cached = json.load(f)
-            if now - cached.get("fetched_at", 0) < _CATALOG_CACHE_TTL_SECONDS:
-                return cached.get("packages", [])
-    except Exception as e:
-        decky.logger.warning(f"Catalog cache read failed for {community}: {e}")
+    if not force:
+        try:
+            if os.path.isfile(cache_path):
+                with open(cache_path, "r") as f:
+                    cached = json.load(f)
+                if now - cached.get("fetched_at", 0) < _CATALOG_CACHE_TTL_SECONDS:
+                    return cached.get("packages", [])
+        except Exception as e:
+            decky.logger.warning(f"Catalog cache read failed for {community}: {e}")
 
     url = f"https://thunderstore.io/c/{community}/api/v1/package/"
     ctx = ssl.create_default_context()
@@ -230,6 +234,26 @@ def get_thunderstore_community_catalog(community: str) -> list[dict]:
         decky.logger.warning(f"Catalog cache write failed for {community}: {e}")
 
     return trimmed
+
+
+def refresh_thunderstore_community_catalog(community: str) -> bool:
+    """Pull a fresh copy of the community catalog from Thunderstore, bypassing the
+    cache-freshness check. Used by the Options-menu manual refresh. The existing
+    cached catalog is kept if the fresh fetch fails, so a failed refresh never
+    leaves the user with an empty catalog. Returns True only if a fresh copy was
+    actually fetched (the cache timestamp advanced), False if it fell back."""
+    cache_path = _catalog_cache_path(community)
+
+    def fetched_at() -> float:
+        try:
+            with open(cache_path, "r") as f:
+                return json.load(f).get("fetched_at", 0)
+        except Exception:
+            return 0
+
+    before = fetched_at()
+    get_thunderstore_community_catalog(community, force=True)
+    return fetched_at() > before
 
 
 def find_thunderstore_package(community: str, full_name: str) -> dict | None:

@@ -8,10 +8,11 @@ const ModListItem: FC<{
   selected: boolean;
   selectionMode?: boolean;
   isChecked?: boolean;
+  showThumbnail?: boolean;
   onToggle: (id: string, enable: boolean) => void;
   onSelectToggle?: (id: string) => void;
   onFocus: () => void;
-}> = ({ entry, selected, selectionMode, isChecked, onToggle, onSelectToggle, onFocus }) => (
+}> = ({ entry, selected, selectionMode, isChecked, showThumbnail, onToggle, onSelectToggle, onFocus }) => (
   <Focusable
     onFocus={onFocus}
     onActivate={() => {
@@ -38,6 +39,17 @@ const ModListItem: FC<{
         flexShrink: 0,
       }}>
         {isChecked ? '✓' : ''}
+      </div>
+    )}
+    {showThumbnail && (
+      <div style={{
+        width: '32px', height: '32px', marginRight: '10px', flexShrink: 0,
+        borderRadius: '3px', overflow: 'hidden', background: 'rgba(255,255,255,0.08)',
+      }}>
+        {entry.info.thumbnail && (
+          <img src={entry.info.thumbnail} alt="" loading="lazy"
+            style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }} />
+        )}
       </div>
     )}
     <div style={{ flex: 1, minWidth: 0 }}>

@@ -421,7 +421,7 @@ const InstalledTab: FC<{
         ) : modEntries.map((entry, i) => (
           <ModListItem key={entry.id} entry={entry} selected={i === selectedIndex}
             selectionMode={selectionMode} isChecked={selectedIds.has(entry.id)}
-            onToggle={handleToggleMod} onSelectToggle={toggleSelected}
+            showThumbnail onToggle={handleToggleMod} onSelectToggle={toggleSelected}
             onFocus={() => setSelectedIndex(i)} />
         ))}
       </Focusable>

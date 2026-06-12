@@ -7,8 +7,9 @@ const OptionsModal: FC<{
   canSaveProfile: boolean;
   onToggleSelectionMode?: (closeModal: () => void) => void;
   selectionMode?: boolean;
+  onRefreshCatalog?: (closeModal: () => void) => void;
   closeModal?: () => void;
-}> = ({ onCheckUpdates, onSaveProfile, canSaveProfile, onToggleSelectionMode, selectionMode, closeModal }) => {
+}> = ({ onCheckUpdates, onSaveProfile, canSaveProfile, onToggleSelectionMode, selectionMode, onRefreshCatalog, closeModal }) => {
   const close = closeModal ?? (() => {});
   return (
     <ModalRoot closeModal={closeModal}>
@@ -25,6 +26,13 @@ const OptionsModal: FC<{
           <div style={{ marginBottom: '8px' }}>
             <ButtonItem layout="below" onClick={() => onToggleSelectionMode(close)}>
               {selectionMode ? 'Exit Selection Mode' : 'Select Multiple Mods…'}
+            </ButtonItem>
+          </div>
+        )}
+        {onRefreshCatalog && (
+          <div style={{ marginBottom: '8px' }}>
+            <ButtonItem layout="below" onClick={() => onRefreshCatalog(close)}>
+              Refresh Mod Catalog
             </ButtonItem>
           </div>
         )}

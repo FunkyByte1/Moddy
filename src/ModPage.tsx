@@ -2,7 +2,7 @@ import { Tabs, showModal } from '@decky/ui';
 import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, useRef, FC } from 'react';
 
-import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles } from './types';
+import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog } from './types';
 import ModsTab from './tabs/ModsTab';
 import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
@@ -27,6 +27,7 @@ const ModPage: FC = () => {
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>(defaultBrowseFilter);
   const [browseCategories, setBrowseCategories] = useState<string[]>([]);
   const [profilesRefreshKey, setProfilesRefreshKey] = useState(0);
+  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
   const [selectionMode, setSelectionMode] = useState(false);
 
   const refresh = async () => {
@@ -131,6 +132,13 @@ const ModPage: FC = () => {
         onSaveProfile={handleSaveProfile}
         onToggleSelectionMode={activeTab === 'mods' || activeTab === 'installed' ? (close) => { close(); setSelectionMode(m => !m); } : undefined}
         selectionMode={selectionMode}
+        onRefreshCatalog={game.thunderstore_community ? async (close) => {
+          close();
+          toaster.toast({ title: 'Moddy', body: 'Refreshing mod catalog…' });
+          const ok = await refreshThunderstoreCatalog(game.appid);
+          setCatalogRefreshKey(k => k + 1);
+          toaster.toast({ title: 'Moddy', body: ok ? 'Mod catalog refreshed' : 'Failed to refresh catalog' });
+        } : undefined}
       />
     );
   };
@@ -222,6 +230,7 @@ const ModPage: FC = () => {
           filter={browseFilter}
           onFilterButton={handleBrowseFilterMenu}
           onCategoriesChange={setBrowseCategories}
+          refreshKey={catalogRefreshKey}
         />
       ),
       footer: {
