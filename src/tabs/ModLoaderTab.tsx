@@ -15,7 +15,7 @@ import {
   GameStatus, ModRelease, ModloaderUpdate,
   installModloader, uninstallModloader, enableModloader, disableModloader,
   cancelInstall, getModloaderVersion, getModloaderReleases, checkModloaderUpdate,
-  setLaunchOptions,
+  addModloaderLaunchOptions, removeModloaderLaunchOptions,
 } from '../types';
 import FirstLaunchModal from '../components/modals/FirstLaunchModal';
 
@@ -89,7 +89,7 @@ const ModLoaderTab: FC<{
     setLocalInstalling(false);
     setInstalling(false);
     if (ok) {
-      if (game.modloader_launch_options) setLaunchOptions(game.appid, game.modloader_launch_options);
+      if (game.modloader_launch_options) addModloaderLaunchOptions(game.appid, game.modloader_launch_options);
       await onRefresh();
       await loadVersion();
       if (game.modloader_needs_first_launch) {
@@ -120,7 +120,7 @@ const ModLoaderTab: FC<{
           setBusy(true);
           const ok = await uninstallModloader(game.appid);
           if (ok) {
-            setLaunchOptions(game.appid, '');
+            removeModloaderLaunchOptions(game.appid, game.modloader_launch_options);
             setInstalledVersion(null);
             setModloaderUpdate(null);
             toaster.toast({ title: 'Moddy', body: `${game.modloader_name} uninstalled` });
@@ -139,7 +139,8 @@ const ModLoaderTab: FC<{
     const ok = enable ? await enableModloader(game.appid) : await disableModloader(game.appid);
     if (ok) {
       if (game.modloader_launch_options) {
-        setLaunchOptions(game.appid, enable ? game.modloader_launch_options : '');
+        if (enable) addModloaderLaunchOptions(game.appid, game.modloader_launch_options);
+        else removeModloaderLaunchOptions(game.appid, game.modloader_launch_options);
       }
     } else {
       toaster.toast({ title: 'Moddy', body: `Failed to ${enable ? 'enable' : 'disable'} ${game.modloader_name}` });

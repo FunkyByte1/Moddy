@@ -2,13 +2,14 @@ import { Tabs, showModal } from '@decky/ui';
 import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, useRef, FC } from 'react';
 
-import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog } from './types';
+import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, resetGame, removeModloaderLaunchOptions } from './types';
 import ModsTab from './tabs/ModsTab';
 import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
 import ProfilesTab from './tabs/ProfilesTab';
 import BrowseTab from './tabs/BrowseTab';
 import OptionsModal from './components/modals/OptionsModal';
+import ResetGameModal from './components/modals/ResetGameModal';
 import SaveProfileModal from './components/modals/SaveProfileModal';
 import FilterModal, { ModFilter, defaultModFilter } from './components/modals/FilterModal';
 import InstalledFilterModal, { InstalledFilter, defaultInstalledFilter } from './components/modals/InstalledFilterModal';
@@ -115,6 +116,37 @@ const ModPage: FC = () => {
     );
   };
 
+  const handleResetGame = (close: () => void) => {
+    close();
+    showModal(
+      <ResetGameModal
+        gameName={game.name}
+        onConfirm={async (closeModal) => {
+          closeModal();
+          toaster.toast({ title: 'Moddy', body: `Resetting ${game.name}…` });
+          const result = await resetGame(game.appid);
+          if (result.ok || result.mods_removed > 0 || result.modloader_removed) {
+            removeModloaderLaunchOptions(game.appid, game.modloader_launch_options);
+            setUpdates([]);
+            setSelectionMode(false);
+            // The modloader is gone now; drop the session "ready" override and any
+            // stale tab selection so the UI falls back to the Mod Loader tab instead
+            // of leaving the mod-management tabs mounted with no loader behind them.
+            setModloaderReadyOverride(false);
+            setSelectedTab(null);
+          }
+          await refresh();
+          toaster.toast({
+            title: 'Moddy',
+            body: result.ok
+              ? `${game.name} reset to its original state`
+              : 'Reset finished with some errors — check the log',
+          });
+        }}
+      />
+    );
+  };
+
   const handleOptionsMenu = () => {
     showModal(
       <OptionsModal
@@ -139,6 +171,8 @@ const ModPage: FC = () => {
           setCatalogRefreshKey(k => k + 1);
           toaster.toast({ title: 'Moddy', body: ok ? 'Mod catalog refreshed' : 'Failed to refresh catalog' });
         } : undefined}
+        onResetGame={handleResetGame}
+        canResetGame={game.installed_mods.length > 0 || game.modloader_installed}
       />
     );
   };

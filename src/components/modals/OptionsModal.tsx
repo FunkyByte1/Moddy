@@ -8,8 +8,10 @@ const OptionsModal: FC<{
   onToggleSelectionMode?: (closeModal: () => void) => void;
   selectionMode?: boolean;
   onRefreshCatalog?: (closeModal: () => void) => void;
+  onResetGame?: (closeModal: () => void) => void;
+  canResetGame?: boolean;
   closeModal?: () => void;
-}> = ({ onCheckUpdates, onSaveProfile, canSaveProfile, onToggleSelectionMode, selectionMode, onRefreshCatalog, closeModal }) => {
+}> = ({ onCheckUpdates, onSaveProfile, canSaveProfile, onToggleSelectionMode, selectionMode, onRefreshCatalog, onResetGame, canResetGame, closeModal }) => {
   const close = closeModal ?? (() => {});
   return (
     <ModalRoot closeModal={closeModal}>
@@ -44,6 +46,18 @@ const OptionsModal: FC<{
         {!canSaveProfile && (
           <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em', marginLeft: '4px' }}>
             Install at least one mod to save a profile.
+          </div>
+        )}
+        {onResetGame && (
+          <div style={{ marginTop: '16px' }}>
+            <ButtonItem layout="below" disabled={!canResetGame} onClick={() => onResetGame(close)}>
+              Reset Game…
+            </ButtonItem>
+            {!canResetGame && (
+              <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em', marginLeft: '4px' }}>
+                Nothing to reset — no mods or mod loader installed.
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -80,6 +80,12 @@ export interface ModloaderUpdate {
   latest: string;
 }
 
+export interface ResetResult {
+  ok: boolean;
+  mods_removed: number;
+  modloader_removed: boolean;
+}
+
 export interface GameStatus {
   id: string;
   name: string;
@@ -102,6 +108,53 @@ export const setLaunchOptions = (appid: number, options: string) => {
   (window as any).SteamClient.Apps.SetAppLaunchOptions(appid, options);
 };
 
+// Read the app's current Steam launch-options string (the field shared with the user).
+export const getLaunchOptions = (appid: number): string =>
+  (window as any).appDetailsStore?.GetAppDetails?.(appid)?.strLaunchOptions ?? '';
+
+const tidyLaunchOptions = (s: string) => s.replace(/\s+/g, ' ').trim();
+
+// Merge a modloader's launch-options fragment into the existing field instead of
+// overwriting it, so any options the user set themselves survive. Idempotent: if our
+// fragment is already present (e.g. re-enabling), the field is left untouched.
+// A modloader template wraps the %command% placeholder (e.g.
+// `WINEDLLOVERRIDES="winhttp=n,b" %command%`); the prefix carries env vars that must sit
+// before the game command, so we ensure a %command% anchor exists and slot our parts
+// around the user's.
+export const addModloaderLaunchOptions = (appid: number, modloaderOptions: string) => {
+  if (!modloaderOptions) return;
+  const current = getLaunchOptions(appid);
+  const [prefix = '', suffix = ''] = modloaderOptions.split('%command%').map(tidyLaunchOptions);
+  if ((!prefix || current.includes(prefix)) && (!suffix || current.includes(suffix))) return;
+  if (!current) {
+    setLaunchOptions(appid, modloaderOptions);
+    return;
+  }
+  // Keep the user's options on their original side of %command% (their env vars stay
+  // before the command, their args after). With no anchor, the whole field is args.
+  const anchor = current.indexOf('%command%');
+  const userPre = anchor >= 0 ? tidyLaunchOptions(current.slice(0, anchor)) : '';
+  const userPost = anchor >= 0 ? tidyLaunchOptions(current.slice(anchor + '%command%'.length)) : tidyLaunchOptions(current);
+  const merged = [prefix, userPre, '%command%', userPost, suffix].filter(Boolean).join(' ');
+  setLaunchOptions(appid, tidyLaunchOptions(merged));
+};
+
+// Remove only the fragment(s) a modloader contributes to the launch-options field,
+// leaving any options the user added themselves intact. A modloader template wraps
+// the %command% placeholder (e.g. `WINEDLLOVERRIDES="winhttp=n,b" %command%`); we
+// strip the literal text on either side of %command% rather than clearing the field.
+export const removeModloaderLaunchOptions = (appid: number, modloaderOptions: string) => {
+  if (!modloaderOptions) return;
+  const current = getLaunchOptions(appid);
+  if (!current) return;
+  const fragments = modloaderOptions.split('%command%').map(tidyLaunchOptions).filter(Boolean);
+  let next = current;
+  for (const frag of fragments) next = next.split(frag).join('');
+  next = tidyLaunchOptions(next);
+  // Nothing but the bare placeholder (or nothing) left → field is back to default.
+  setLaunchOptions(appid, next === '%command%' ? '' : next);
+};
+
 // Callables
 export const getSupportedAppids = callable<[], number[]>('get_supported_appids');
 export const getSupportedGames = callable<[], GameStatus[]>('get_supported_games');
@@ -113,6 +166,7 @@ export const getModloaderVersion = callable<[appid: number], string | null>('get
 export const getModloaderReleases = callable<[appid: number], ModRelease[]>('get_modloader_releases');
 export const checkModloaderUpdate = callable<[appid: number], ModloaderUpdate | null>('check_modloader_update');
 export const cancelInstall = callable<[], void>('cancel_install');
+export const resetGame = callable<[appid: number], ResetResult>('reset_game');
 export const installMod = callable<[appid: number, mod_id: string, version: string | null], boolean | null>('install_mod');
 export const uninstallMod = callable<[appid: number, mod_id: string], boolean>('uninstall_mod');
 export const toggleMod = callable<[appid: number, mod_id: string, enable: boolean], boolean>('toggle_mod');

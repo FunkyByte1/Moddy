@@ -427,6 +427,60 @@ class Plugin:
         )
         return await mods.install_mod(game, install_dir, mod, version=target_version, url=url)
 
+    async def reset_game(self, appid: int) -> dict:
+        """Reset a game to its unmodded state: uninstall every tracked mod, then every
+        installed modloader, then remove any orphaned mods directory left behind.
+        Returns a summary: {ok, mods_removed, modloader_removed}.
+        Order matters — mods are removed before the modloader so their install records
+        get cleared while their files still exist (uninstalling the modloader wipes the
+        whole BepInEx/ tree, which would orphan those records)."""
+        import shutil
+        game = registry.get_game_by_appid(appid)
+        if not game:
+            return {"ok": False, "mods_removed": 0, "modloader_removed": False}
+        install_dir = steam.find_game_install_dir(appid)
+        if not install_dir:
+            return {"ok": False, "mods_removed": 0, "modloader_removed": False}
+
+        mods_removed = 0
+        failures = 0
+        for entry in mods.get_installed_mods(game, install_dir):
+            if await mods.uninstall_mod(game, install_dir, entry["id"]):
+                mods_removed += 1
+            else:
+                failures += 1
+
+        modloader_removed = False
+        for ml in game.modloaders:
+            if not modloaders.is_modloader_installed(game, install_dir, ml.id):
+                continue
+            if await modloaders.uninstall_modloader(game, install_dir, ml.id):
+                modloader_removed = True
+            else:
+                failures += 1
+
+        # Clean up an orphaned mods directory (e.g. MelonLoader's Mods/ folder, which
+        # lives outside the modloader dir and so survives its uninstall). For BepInEx
+        # this path sits under BepInEx/ and is already gone — the guard makes it a no-op.
+        try:
+            mods_path = mods.resolve_mods_path(game, install_dir)
+            if os.path.isdir(mods_path):
+                shutil.rmtree(mods_path)
+                decky.logger.info(f"Removed orphaned mods dir {mods_path}")
+        except Exception as e:
+            decky.logger.error(f"Failed to remove mods dir during reset: {e}")
+            failures += 1
+
+        decky.logger.info(
+            f"Reset {game.name}: removed {mods_removed} mod(s), "
+            f"modloader_removed={modloader_removed}, failures={failures}"
+        )
+        return {
+            "ok": failures == 0,
+            "mods_removed": mods_removed,
+            "modloader_removed": modloader_removed,
+        }
+
     async def cancel_install(self) -> None:
         utils.cancel_install()
 
