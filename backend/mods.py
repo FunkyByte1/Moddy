@@ -165,7 +165,11 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             "meta": record.get("meta"),
         })
 
-    # 2) Tracked installs from installed.json — browsed mods (no curated game.mods entry)
+    # 2) Tracked installs from installed.json — browsed mods (no curated game.mods entry).
+    #    The store is keyed only by mod_id and shared across all games, so scope each
+    #    browsed mod to THIS game by requiring its files to physically exist under this
+    #    game's install dir (enabled or disabled form). Without this, mods installed for
+    #    one game leak into every other game's list as "disabled".
     for mod_id, record in store.items():
         if mod_id in seen_ids:
             continue
@@ -176,9 +180,17 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
         paths = record.get("paths")
         if install_type == "zip_dir" or paths:
             target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
+            if not any(os.path.exists(d) for d in target_dirs):
+                continue  # installed for a different game
             enabled = _folder_mod_has_enabled_dll(target_dirs)
         else:
-            enabled = os.path.isfile(os.path.join(mods_path, filename))
+            target = os.path.join(mods_path, filename)
+            if os.path.isfile(target):
+                enabled = True
+            elif os.path.isfile(target + ".bak"):
+                enabled = False
+            else:
+                continue  # installed for a different game
         seen_ids.add(mod_id)
         installed.append({
             "id": mod_id,
