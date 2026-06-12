@@ -12,11 +12,18 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for o
 - Controller-native UI with d-pad navigation
 
 ## Supported Games
+### Currently Supported:
 
-- **Slime Rancher 2** — MelonLoader, Starlight, SR2 Gyro Aim
-- **Risk of Rain 2** — BepInEx
+- Slime Rancher 2
+- Risk of Rain 2
 
-More games coming soon.
+### Planned:
+- Stardew Valley
+- Resident Evil 4
+- Balatro
+- Haste
+- and more :)
+
 
 ## Mod Sources
 
