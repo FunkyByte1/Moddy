@@ -260,16 +260,29 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     [game.installed_mods]
   );
 
-  // All categories present in the (non-denylisted) catalog, surfaced to the
-  // parent so the filter modal can list them.
+  // Library categories ("Libraries"/"API") are governed by the dedicated
+  // "Show Libraries" toggle, so they're kept out of the generic category list to
+  // avoid two controls fighting over the same mods.
+  const libraryCategorySet = useMemo(
+    () => new Set((game.library_categories ?? []).map(c => c.toLowerCase())),
+    [game.library_categories]
+  );
+
+  const isLibraryPkg = (p: ThunderstorePackage) =>
+    p.categories.some(c => libraryCategorySet.has(c.toLowerCase()));
+
+  // All non-library categories present in the (non-denylisted) catalog, surfaced to
+  // the parent so the filter modal can list them.
   const categories = useMemo(() => {
     const set = new Set<string>();
     for (const p of catalog) {
       if (denylist.has(p.full_name.toLowerCase())) continue;
-      for (const c of p.categories) set.add(c);
+      for (const c of p.categories) {
+        if (!libraryCategorySet.has(c.toLowerCase())) set.add(c);
+      }
     }
     return [...set].sort();
-  }, [catalog, denylist]);
+  }, [catalog, denylist, libraryCategorySet]);
 
   useEffect(() => {
     onCategoriesChange(categories);
@@ -281,6 +294,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
       if (denylist.has(p.full_name.toLowerCase())) return false;
       if (p.is_deprecated && !filter.showDeprecated) return false;
       if (p.has_nsfw_content && !filter.showNsfw) return false;
+      if (filter.hideLibraries && isLibraryPkg(p)) return false;
       const isInstalled = installedIds.has(p.full_name.toLowerCase());
       if (isInstalled && !filter.installed) return false;
       if (!isInstalled && !filter.notInstalled) return false;
@@ -297,7 +311,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     }
     list.sort((a, b) => b.rating_score - a.rating_score);
     return list;
-  }, [catalog, query, denylist, filter, installedIds]);
+  }, [catalog, query, denylist, filter, installedIds, libraryCategorySet]);
 
   // Reset selection when the filtered list changes (search edits, filter
   // changes) so the detail panel never points at a stale index that's now out

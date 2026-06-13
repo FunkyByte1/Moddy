@@ -76,6 +76,7 @@ const InstalledTab: FC<{
       installed: true, enabled: im.enabled, version: im.version,
       hasUpdate: !!updates.find(u => u.id === im.id),
       dependenciesMet,
+      isLibrary: !!im.is_library,
       info: {
         id: im.id, name, description: meta?.description ?? '', filename: im.filename,
         source: { type: 'unknown', owner: '', repo: '', asset: '' },

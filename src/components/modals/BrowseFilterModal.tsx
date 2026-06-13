@@ -6,6 +6,7 @@ export interface BrowseFilter {
   notInstalled: boolean;
   showDeprecated: boolean;
   showNsfw: boolean;
+  hideLibraries: boolean; // hide library/framework mods (default true)
   categories: string[]; // selected categories; empty = all categories
 }
 
@@ -14,11 +15,15 @@ export const defaultBrowseFilter: BrowseFilter = {
   notInstalled: true,
   showDeprecated: false,
   showNsfw: false,
+  hideLibraries: true,
   categories: [],
 };
 
-const isDefault = (f: BrowseFilter): boolean =>
-  f.installed && f.notInstalled && !f.showDeprecated && !f.showNsfw && f.categories.length === 0;
+// The library default differs by catalog (Thunderstore hides, BMI shows), so it's
+// compared against the passed-in default rather than assumed.
+const isDefault = (f: BrowseFilter, d: BrowseFilter): boolean =>
+  f.installed && f.notInstalled && !f.showDeprecated && !f.showNsfw &&
+  f.hideLibraries === d.hideLibraries && f.categories.length === 0;
 
 const Section: FC<{ title: string; children: ReactNode }> = ({ title, children }) => (
   <div style={{ marginBottom: '12px' }}>
@@ -32,9 +37,10 @@ const Section: FC<{ title: string; children: ReactNode }> = ({ title, children }
 const BrowseFilterModal: FC<{
   filter: BrowseFilter;
   categories: string[];
+  defaultFilter?: BrowseFilter;
   onChange: (filter: BrowseFilter) => void;
   closeModal?: () => void;
-}> = ({ filter, categories, onChange, closeModal }) => {
+}> = ({ filter, categories, defaultFilter = defaultBrowseFilter, onChange, closeModal }) => {
   const [local, setLocal] = useState<BrowseFilter>(filter);
   const update = (next: BrowseFilter) => { setLocal(next); onChange(next); };
 
@@ -58,8 +64,8 @@ const BrowseFilterModal: FC<{
         <div style={{ marginBottom: '12px' }}>
           <ButtonItem
             layout="below"
-            disabled={isDefault(local)}
-            onClick={() => update({ ...defaultBrowseFilter })}
+            disabled={isDefault(local, defaultFilter)}
+            onClick={() => update({ ...defaultFilter })}
           >
             Reset Filters
           </ButtonItem>
@@ -86,6 +92,11 @@ const BrowseFilterModal: FC<{
             label="Show NSFW"
             checked={local.showNsfw}
             onChange={(v) => update({ ...local, showNsfw: v })}
+          />
+          <DialogCheckbox
+            label="Show Libraries"
+            checked={!local.hideLibraries}
+            onChange={(v) => update({ ...local, hideLibraries: !v })}
           />
         </Section>
         {categories.length > 0 && (

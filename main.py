@@ -14,6 +14,32 @@ import bmi
 import utils
 
 
+def _catalog_for_game(game: "registry.GameProfile") -> list[dict]:
+    """The Browse catalog backing a game (BMI or Thunderstore), or [] if none / on error.
+    Served from the same on-disk cache the Browse tab uses, so this is cheap to reuse."""
+    try:
+        if game.catalog.get("type") == "bmi" and game.catalog.get("repo"):
+            return bmi.get_bmi_catalog(game.catalog["repo"], game.catalog.get("branch", "main"))
+        if game.thunderstore_community:
+            return github.get_thunderstore_community_catalog(game.thunderstore_community)
+    except Exception as e:
+        decky.logger.warning(f"Could not load catalog for {game.id}: {e}")
+    return []
+
+
+def _library_full_names(game: "registry.GameProfile", lib_cats: list[str]) -> set[str]:
+    """Lowercased catalog full_names whose categories mark them as libraries."""
+    if not lib_cats:
+        return set()
+    lib_set = {c.lower() for c in lib_cats}
+    names: set[str] = set()
+    for p in _catalog_for_game(game):
+        if any(c.lower() in lib_set for c in p.get("categories", [])):
+            names.add(p.get("full_name", "").lower())
+    names.discard("")
+    return names
+
+
 class Plugin:
 
     async def get_supported_appids(self) -> list[int]:
@@ -44,6 +70,22 @@ class Plugin:
             )
             installed_mods_list = mods.get_installed_mods(game, install_dir) if install_dir else []
 
+            # Flag library mods so the UI can hide them from the mod lists by default.
+            # A mod is a library if its catalog entry carries a library category
+            # ("Libraries" on Thunderstore, "API" on BMI) or it's a declared framework
+            # (Steamodded, Talisman) — both are infrastructure for other mods, not things
+            # users browse for directly. The catalog lookup is skipped when there are no
+            # installed mods to classify, so it never runs for unmodded games.
+            lib_cats = registry.library_categories(game)
+            framework_ids = {fw.get("id", k).lower() for k, fw in game.frameworks.items()}
+            lib_names = (
+                _library_full_names(game, lib_cats)
+                if (installed_mods_list and lib_cats) else set()
+            )
+            for im in installed_mods_list:
+                idl = im["id"].lower()
+                im["is_library"] = idl in lib_names or idl in framework_ids
+
             result.append({
                 "id": game.id,
                 "name": game.name,
@@ -57,6 +99,8 @@ class Plugin:
                 "thunderstore_community": game.thunderstore_community,
                 # Which Browse catalog backs this game: "bmi", "thunderstore", or "" (curated-only).
                 "catalog_type": game.catalog.get("type") or ("thunderstore" if game.thunderstore_community else ""),
+                # Catalog categories the UI treats as "library" (hidden by default).
+                "library_categories": lib_cats,
                 "installed": install_dir is not None,
                 "install_dir": install_dir or "",
                 "modloader_installed": modloader_installed,
@@ -74,6 +118,7 @@ class Plugin:
                         "thumbnail": m.thumbnail,
                         "modloader": m.modloader,
                         "dependencies": m.dependencies,
+                        "is_library": m.is_library,
                         "source": {
                             "type": m.source.type,
                             "owner": m.source.owner,

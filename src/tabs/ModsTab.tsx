@@ -54,7 +54,7 @@ const ModsTab: FC<{
       installed: !!installed, enabled: installed?.enabled ?? false,
       version: installed?.version ?? null,
       hasUpdate: !!updates.find(u => u.id === mod.id),
-      dependenciesMet, info: mod,
+      dependenciesMet, isLibrary: !!mod.is_library, info: mod,
     };
   });
 
@@ -63,7 +63,7 @@ const ModsTab: FC<{
       allEntries.push({
         id: installed.id, name: installed.filename.replace('.dll', ''),
         installed: true, enabled: installed.enabled, version: installed.version,
-        hasUpdate: false, dependenciesMet: true,
+        hasUpdate: false, dependenciesMet: true, isLibrary: !!installed.is_library,
         info: { id: installed.id, name: installed.filename.replace('.dll', ''), description: '', filename: installed.filename, source: { type: 'unknown', owner: '', repo: '', asset: '' } },
       });
     }

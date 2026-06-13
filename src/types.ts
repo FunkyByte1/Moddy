@@ -19,6 +19,7 @@ export interface ModInfo {
   thumbnail?: string;
   modloader?: string;
   dependencies?: string[];  // list of mod IDs
+  is_library?: boolean;     // a library/framework for other mods — hidden from lists by default
 }
 
 export interface ModMeta {
@@ -37,6 +38,7 @@ export interface InstalledMod {
   enabled: boolean;
   version: string | null;
   meta?: ModMeta | null;
+  is_library?: boolean;  // stamped by the backend from the catalog/frameworks
 }
 
 export interface ThunderstorePackageLatest {
@@ -99,6 +101,8 @@ export interface GameStatus {
   thunderstore_community: string;
   // Which Browse catalog backs this game: 'bmi', 'thunderstore', or '' (curated-only).
   catalog_type: string;
+  // Catalog categories the UI treats as "library" (hidden from mod lists by default).
+  library_categories: string[];
   installed: boolean;
   install_dir: string;
   modloader_installed: boolean;

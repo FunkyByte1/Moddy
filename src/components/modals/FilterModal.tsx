@@ -8,6 +8,7 @@ export interface ModFilter {
   notInstalled: boolean;
   enabled: boolean;
   disabled: boolean;
+  hideLibraries: boolean;  // hide library/framework mods (default true)
 }
 
 export const defaultModFilter: ModFilter = {
@@ -15,18 +16,22 @@ export const defaultModFilter: ModFilter = {
   notInstalled: true,
   enabled: true,
   disabled: true,
+  hideLibraries: true,
 };
 
 export function modMatchesFilter(entry: ModEntry, filter: ModFilter): boolean {
+  if (filter.hideLibraries && entry.isLibrary) return false;
   if (!entry.installed) return filter.notInstalled && filter.disabled;
   if (!filter.installed) return false;
   return entry.enabled ? filter.enabled : filter.disabled;
 }
 
+// "Select All" governs only the install/enable status boxes, not the library toggle.
 const allSelected = (f: ModFilter): boolean =>
   f.installed && f.notInstalled && f.enabled && f.disabled;
 
-const setAllFilters = (value: boolean): ModFilter => ({
+const setAllFilters = (value: boolean, f: ModFilter): ModFilter => ({
+  ...f,
   installed: value,
   notInstalled: value,
   enabled: value,
@@ -57,7 +62,7 @@ const FilterModal: FC<{
         <div style={{ marginBottom: '12px' }}>
           <ButtonItem
             layout="below"
-            onClick={() => update(setAllFilters(!allSelected(local)))}
+            onClick={() => update(setAllFilters(!allSelected(local), local))}
           >
             {allSelected(local) ? 'Deselect All' : 'Select All'}
           </ButtonItem>
@@ -84,6 +89,13 @@ const FilterModal: FC<{
             label="Disabled"
             checked={local.disabled}
             onChange={(v) => update({ ...local, disabled: v })}
+          />
+        </Section>
+        <Section title="Libraries">
+          <DialogCheckbox
+            label="Show Libraries"
+            checked={!local.hideLibraries}
+            onChange={(v) => update({ ...local, hideLibraries: !v })}
           />
         </Section>
       </div>

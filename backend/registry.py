@@ -28,6 +28,7 @@ class ModInfo:
     thumbnail: str = ""
     modloader: str = ""
     dependencies: list[str] = field(default_factory=list)  # list of mod IDs
+    is_library: bool = False  # a library/framework for other mods — hidden from mod lists by default
 
 
 @dataclass
@@ -183,6 +184,7 @@ def _load_game(path: str, ml_catalog: dict[str, ModloaderInfo]) -> GameProfile |
                 thumbnail=m.get("thumbnail", ""),
                 modloader=m.get("modloader", ""),
                 dependencies=m.get("dependencies", []),
+                is_library=bool(m.get("is_library", False)),
             ))
 
         return GameProfile(
@@ -244,3 +246,23 @@ SUPPORTED_GAMES: list[GameProfile] = _load_registry()
 
 def get_game_by_appid(appid: int) -> GameProfile | None:
     return next((g for g in SUPPORTED_GAMES if g.appid == appid), None)
+
+
+# Catalog categories that mark a mod as a library/framework for other mods rather
+# than something a user installs directly. Keyed by Browse catalog type; a game can
+# override via `catalog.library_categories` in its registry JSON.
+_DEFAULT_LIBRARY_CATEGORIES = {
+    "bmi": ["API"],
+    "thunderstore": ["Libraries"],
+}
+
+
+def library_categories(game: GameProfile) -> list[str]:
+    """The catalog categories that count as "library" for this game. Read from
+    `catalog.library_categories` if set, else defaulted by catalog type. Empty list
+    means the game has no library concept (e.g. curated-only with no catalog)."""
+    explicit = game.catalog.get("library_categories")
+    if explicit is not None:
+        return list(explicit)
+    catalog_type = game.catalog.get("type") or ("thunderstore" if game.thunderstore_community else "")
+    return list(_DEFAULT_LIBRARY_CATEGORIES.get(catalog_type, []))

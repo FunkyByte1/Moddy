@@ -8,5 +8,6 @@ export interface ModEntry {
   version: string | null;
   hasUpdate: boolean;
   dependenciesMet: boolean;
+  isLibrary: boolean;
   info: ModInfo;
 }

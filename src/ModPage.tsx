@@ -66,6 +66,20 @@ const ModPage: FC = () => {
     prevReadyRef.current = modloaderReady;
   }, [modloaderReady]);
 
+  // Libraries are hidden by default everywhere except BMI: BMI exposes its libraries
+  // ("API" mods) for direct install, so hiding them would be surprising, whereas
+  // Thunderstore libraries are auto-installed dependencies worth decluttering. Flip the
+  // library defaults to "show" once, on first load, for BMI-backed games.
+  const libDefaultsApplied = useRef(false);
+  useEffect(() => {
+    if (!game || libDefaultsApplied.current) return;
+    libDefaultsApplied.current = true;
+    if (game.catalog_type === 'bmi') {
+      setBrowseFilter(f => ({ ...f, hideLibraries: false }));
+      setInstalledFilter(f => ({ ...f, hideLibraries: false }));
+    }
+  }, [game]);
+
   if (!game) return <div style={{ padding: '16px' }}>Game not supported or not installed.</div>;
 
   const handleCancelInstall = async () => {
@@ -92,6 +106,7 @@ const ModPage: FC = () => {
       <BrowseFilterModal
         filter={browseFilter}
         categories={browseCategories}
+        defaultFilter={game.catalog_type === 'bmi' ? { ...defaultBrowseFilter, hideLibraries: false } : defaultBrowseFilter}
         onChange={setBrowseFilter}
       />
     );

@@ -7,15 +7,18 @@ export interface InstalledFilter {
   enabled: boolean;
   disabled: boolean;
   onlyUpdates: boolean;
+  hideLibraries: boolean;  // hide library/framework mods (default true)
 }
 
 export const defaultInstalledFilter: InstalledFilter = {
   enabled: true,
   disabled: true,
   onlyUpdates: false,
+  hideLibraries: true,
 };
 
 export function installedMatchesFilter(entry: ModEntry, filter: InstalledFilter): boolean {
+  if (filter.hideLibraries && entry.isLibrary) return false;
   if (filter.onlyUpdates && !entry.hasUpdate) return false;
   return entry.enabled ? filter.enabled : filter.disabled;
 }
@@ -68,6 +71,13 @@ const InstalledFilterModal: FC<{
             label="Updates available only"
             checked={local.onlyUpdates}
             onChange={(v) => update({ ...local, onlyUpdates: v })}
+          />
+        </Section>
+        <Section title="Libraries">
+          <DialogCheckbox
+            label="Show Libraries"
+            checked={!local.hideLibraries}
+            onChange={(v) => update({ ...local, hideLibraries: !v })}
           />
         </Section>
       </div>
