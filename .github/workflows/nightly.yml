@@ -34,9 +34,12 @@ jobs:
           chmod +x release.sh
           ./release.sh "nightly-${GITHUB_SHA::7}"
 
-      - name: Publish rolling nightly release
+      - name: Publish rolling nightly release to public repo
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with contents:write on FunkyByte1/Moddy-releases (the public repo).
+          # GITHUB_TOKEN can't write cross-repo, so a fine-grained PAT is required.
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          PUBLIC_REPO: FunkyByte1/Moddy-releases
         run: |
           set -e
           TAG=nightly
@@ -46,10 +49,13 @@ jobs:
           cp "$ZIP" "$STABLE_ZIP"
 
           # Remove the previous nightly release + tag so the new one rolls forward.
-          gh release delete "$TAG" --yes --cleanup-tag || true
+          gh release delete "$TAG" --repo "$PUBLIC_REPO" --yes --cleanup-tag || true
 
+          # No --target: the source commit doesn't exist in the public repo, so the
+          # tag is created at the public repo's default branch. The SHA is recorded
+          # in the notes for traceability.
           gh release create "$TAG" "$ZIP" "$STABLE_ZIP" \
+            --repo "$PUBLIC_REPO" \
             --title "Nightly ($SHORT_SHA)" \
             --notes "Automated build from \`main\` at commit ${GITHUB_SHA}. Unstable — expect bugs." \
-            --prerelease \
-            --target "$GITHUB_SHA"
+            --prerelease
