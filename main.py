@@ -125,6 +125,7 @@ class Plugin:
                             "repo": m.source.repo,
                             "asset": m.source.asset,
                             "install_type": m.source.install_type,
+                            "workshop_id": m.source.workshop_id,
                         },
                     }
                     for m in game.mods
@@ -255,6 +256,9 @@ class Plugin:
                 url = latest["download_url"]
         elif mod.source.type == "url":
             url = mod.source.url
+        elif mod.source.type == "steamworkshop":
+            # No download/URL — install == subscribe via the running Steam client.
+            return await mods.install_workshop_mod(game, mod)
         else:
             decky.logger.error(f"Unsupported mod source type: {mod.source.type}")
             return False

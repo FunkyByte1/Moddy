@@ -7,13 +7,14 @@ import decky
 
 @dataclass
 class ModSource:
-    type: str          # "github" | "github_source" | "thunderstore" | "url"
+    type: str          # "github" | "github_source" | "thunderstore" | "url" | "steamworkshop"
     owner: str = ""    # GitHub owner / Thunderstore author
     repo: str = ""     # GitHub repo / Thunderstore package name
     asset: str = ""    # Asset filename to download (for type="github")
     branch: str = "main"  # Branch to download (for type="github_source")
     url: str = ""      # Direct URL (for type="url")
-    install_type: str = "file"  # "file" | "zip_dir" | "zip_into_game"
+    install_type: str = "file"  # "file" | "zip_dir" | "zip_into_game" | "steamworkshop"
+    workshop_id: str = ""  # Steam Workshop published file id (for type="steamworkshop")
 
 
 @dataclass
@@ -42,6 +43,7 @@ class ModloaderInfo:
     ready_indicator: str | None = None                    # optional: path that must exist to be "ready" (post-first-launch)
     launch_options: str = ""                              # Steam launch options to apply when enabled
     mod_toggle: str = "dll"                               # how a folder mod is enabled/disabled: "dll" (rename *.dll) or "lovelyignore" (.lovelyignore marker)
+    native: bool = False                                  # provided by the platform (e.g. Steam Workshop) — nothing to install/enable; always "ready"
 
 
 @dataclass
@@ -67,6 +69,11 @@ class GameProfile:
 
     def get_mod_by_filename(self, filename: str) -> ModInfo | None:
         return next((m for m in self.mods if m.filename == filename), None)
+
+    def uses_steam_workshop(self) -> bool:
+        """True if this game's mods are delivered via Steam Workshop subscriptions
+        (a native modloader) rather than files Moddy downloads into a mods folder."""
+        return any(ml.native for ml in self.modloaders)
 
     def mod_toggle_style(self) -> str:
         """How folder mods are enabled/disabled for this game, derived from its modloaders.
@@ -96,6 +103,7 @@ def _parse_source(s: dict) -> ModSource:
         branch=s.get("branch", "main"),
         url=s.get("url", ""),
         install_type=s.get("install_type", "file"),
+        workshop_id=str(s.get("workshop_id", "")),
     )
 
 
@@ -139,6 +147,7 @@ def _load_modloaders() -> dict[str, ModloaderInfo]:
                 ready_indicator=data.get("ready_indicator"),
                 launch_options=data.get("launch_options", ""),
                 mod_toggle=data.get("mod_toggle", "dll"),
+                native=bool(data.get("native", False)),
             )
         except Exception as e:
             decky.logger.error(f"Failed to load modloader from {where}: {e}")

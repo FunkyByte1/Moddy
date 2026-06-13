@@ -72,7 +72,11 @@ def clear_modloader_version(modloader_id: str) -> None:
 
 def is_modloader_installed(game: GameProfile, install_dir: str, modloader_id: str) -> bool:
     ml = game.get_modloader(modloader_id)
-    if not ml or not ml.indicator:
+    if not ml:
+        return False
+    if ml.native:
+        return True  # platform-provided (e.g. Steam Workshop) — nothing to install
+    if not ml.indicator:
         return False
     return (
         os.path.exists(os.path.join(install_dir, ml.indicator)) or
@@ -82,7 +86,11 @@ def is_modloader_installed(game: GameProfile, install_dir: str, modloader_id: st
 
 def is_modloader_enabled(game: GameProfile, install_dir: str, modloader_id: str) -> bool:
     ml = game.get_modloader(modloader_id)
-    if not ml or not ml.indicator:
+    if not ml:
+        return False
+    if ml.native:
+        return True
+    if not ml.indicator:
         return False
     return os.path.exists(os.path.join(install_dir, ml.indicator))
 
@@ -91,6 +99,8 @@ def is_modloader_ready(game: GameProfile, install_dir: str, modloader_id: str) -
     ml = game.get_modloader(modloader_id)
     if not ml:
         return False
+    if ml.native:
+        return True
     if ml.ready_indicator:
         return os.path.exists(os.path.join(install_dir, ml.ready_indicator))
     return is_modloader_installed(game, install_dir, modloader_id)
@@ -100,6 +110,8 @@ async def enable_modloader(game: GameProfile, install_dir: str, modloader_id: st
     ml = game.get_modloader(modloader_id)
     if not ml:
         return False
+    if ml.native:
+        return True
     try:
         for f in ml.files:
             src = os.path.join(install_dir, f + ".disabled")
@@ -120,6 +132,8 @@ async def disable_modloader(game: GameProfile, install_dir: str, modloader_id: s
     ml = game.get_modloader(modloader_id)
     if not ml:
         return False
+    if ml.native:
+        return True
     try:
         for f in ml.files:
             src = os.path.join(install_dir, f)
@@ -140,6 +154,8 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
     ml = game.get_modloader(modloader_id)
     if not ml:
         return False
+    if ml.native:
+        return True
     try:
         for f in ml.files:
             for candidate in [f, f + ".disabled"]:
@@ -185,6 +201,8 @@ async def install_modloader(game: GameProfile, install_dir: str, modloader_id: s
     if not ml:
         decky.logger.error(f"Unknown modloader: {modloader_id}")
         return False
+    if ml.native:
+        return True  # platform-provided (e.g. Steam Workshop) — nothing to install
     if ml.source.type == "github":
         return await _install_github_modloader(game, install_dir, ml, version)
     if ml.source.type == "thunderstore":

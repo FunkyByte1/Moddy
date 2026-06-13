@@ -1,0 +1,6 @@
+{
+  "id": "steamworkshop",
+  "name": "Steam Workshop",
+  "native": true,
+  "source": { "type": "builtin" }
+}

@@ -88,6 +88,7 @@ def set_installed_record(
             "repo": mod.source.repo,
             "asset": mod.source.asset,
             "install_type": mod.source.install_type,
+            "workshop_id": mod.source.workshop_id,
         }
         record["meta"] = {
             "name": mod.name,
@@ -106,6 +107,16 @@ def set_installed_record(
 def get_installed_record(mod_id: str) -> dict | None:
     """Return the full persisted install record for a mod, or None if untracked."""
     return _load_store().get(mod_id)
+
+
+def set_mod_enabled(mod_id: str, enabled: bool) -> None:
+    """Persist a mod's enabled flag in its install record. Used by Workshop mods,
+    whose enable/disable is a local Steam flag (SetWorkshopItemsDisabledLocally,
+    applied in the frontend) rather than file presence on disk."""
+    store = _load_store()
+    if mod_id in store:
+        store[mod_id]["enabled"] = enabled
+        _save_store(store)
 
 
 def clear_installed_record(mod_id: str) -> None:
@@ -175,7 +186,12 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             continue
         seen_ids.add(mod.id)
         paths = record.get("paths")
-        if mod.source.install_type == "zip_dir" or paths:
+        if mod.source.type == "steamworkshop":
+            # Workshop mods are present once subscribed; "enabled" is a local Steam flag
+            # tracked in the record (toggled via SetWorkshopItemsDisabledLocally), default
+            # enabled. Unsubscribe is the uninstall.
+            enabled = record.get("enabled", True)
+        elif mod.source.install_type == "zip_dir" or paths:
             enabled = _folder_mod_enabled(_mod_target_dirs(mod, mods_path, install_dir, paths), toggle_style)
         else:
             target = os.path.join(mods_path, mod.filename)
@@ -187,6 +203,11 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             "version": record.get("version"),
             "meta": record.get("meta"),
         })
+
+    # Workshop games have no on-disk mods folder Moddy manages — their state is the
+    # set of tracked subscriptions above. Skip the filesystem scans entirely.
+    if game.uses_steam_workshop():
+        return installed
 
     # 2) Tracked installs from installed.json — browsed mods (no curated game.mods entry).
     #    The store is keyed only by mod_id and shared across all games, so scope each
@@ -272,6 +293,18 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
     if mod.source.install_type == "zip_into_game":
         return await _install_mod_zip_into_game(game, install_dir, mod, version, url)
     return await _install_mod_file(game, mods_path, mod, version, url)
+
+
+async def install_workshop_mod(game: GameProfile, mod: ModInfo) -> bool | None:
+    """Record a Steam Workshop mod as installed. The actual subscribe happens in the
+    frontend via SteamClient.Apps.SubscribeWorkshopItem (an external SteamAPI_Init
+    process would register as "game running" and reset Game Mode); here we only
+    persist the install record so Moddy can list and manage the mod."""
+    if not mod.source.workshop_id:
+        decky.logger.error(f"Workshop mod {mod.id} has no workshop_id")
+        return False
+    set_installed_record(mod.id, "subscribed", mod.filename, mod=mod)
+    return True
 
 
 async def _install_mod_file(game: GameProfile, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
@@ -586,6 +619,15 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
     mods_path = resolve_mods_path(game, install_dir)
     store = _load_store()
     record = store.get(mod_id, {})
+
+    # Steam Workshop mods: the frontend unsubscribes via SteamClient (which deletes
+    # the files); the backend just drops the tracking record.
+    rec_source = record.get("source") or {}
+    source_type = mod.source.type if mod else rec_source.get("type")
+    if source_type == "steamworkshop":
+        clear_installed_record(mod_id)
+        return True
+
     filename = mod.filename if mod else record.get("filename", mod_id)
     paths = record.get("paths")
     install_type = (
@@ -685,6 +727,16 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
     mods_path = resolve_mods_path(game, install_dir)
     store = _load_store()
     record = store.get(mod_id, {})
+
+    # Steam Workshop enable/disable: the active/inactive flip happens in the frontend
+    # via SetWorkshopItemsDisabledLocally (keeps the files, no unsubscribe). Here we
+    # just persist the resulting enabled state so Moddy lists and snapshots it correctly.
+    rec_source = record.get("source") or {}
+    if (mod.source.type if mod else rec_source.get("type")) == "steamworkshop":
+        set_mod_enabled(mod_id, enable)
+        decky.logger.info(f"Workshop mod {mod_id} enabled={enable}")
+        return True
+
     install_type = (
         mod.source.install_type if mod
         else record.get("install_type") or (record.get("source") or {}).get("install_type")
