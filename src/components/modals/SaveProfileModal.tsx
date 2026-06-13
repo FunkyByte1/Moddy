@@ -1,5 +1,6 @@
 import { ButtonItem, ModalRoot, TextField } from '@decky/ui';
 import { useState, FC } from 'react';
+import { useAutoKeyboard } from './useAutoKeyboard';
 
 const SaveProfileModal: FC<{
   existingNames: string[];
@@ -10,9 +11,17 @@ const SaveProfileModal: FC<{
   const [name, setName] = useState('');
   const trimmed = name.trim();
   const conflict = existingNames.includes(trimmed);
+  const kbRef = useAutoKeyboard();
+
+  // Pressing Enter / R2 closes the on-screen keyboard and fires the dialog's OK
+  // action; wire it to Save so it does the same thing as clicking the button.
+  const submit = () => {
+    if (trimmed.length === 0) return;
+    onSave(trimmed, close);
+  };
 
   return (
-    <ModalRoot closeModal={closeModal}>
+    <ModalRoot closeModal={closeModal} onOK={submit}>
       <div style={{ padding: '16px' }}>
         <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '8px' }}>
           Save Profile
@@ -20,7 +29,7 @@ const SaveProfileModal: FC<{
         <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.9em', marginBottom: '12px' }}>
           A snapshot of every installed mod (and whether it is enabled) will be saved under this name.
         </div>
-        <div style={{ marginBottom: '12px' }}>
+        <div ref={kbRef} style={{ marginBottom: '12px' }}>
           <TextField
             label="Profile name"
             value={name}
@@ -37,7 +46,7 @@ const SaveProfileModal: FC<{
           <ButtonItem
             layout="below"
             disabled={trimmed.length === 0}
-            onClick={() => onSave(trimmed, close)}
+            onClick={submit}
           >
             {conflict ? 'Overwrite' : 'Save'}
           </ButtonItem>

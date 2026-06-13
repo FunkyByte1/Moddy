@@ -11,6 +11,8 @@ import BrowseTab from './tabs/BrowseTab';
 import OptionsModal from './components/modals/OptionsModal';
 import ResetGameModal from './components/modals/ResetGameModal';
 import SaveProfileModal from './components/modals/SaveProfileModal';
+import SaveProfilePickerModal from './components/modals/SaveProfilePickerModal';
+import OverwriteProfileModal from './components/modals/OverwriteProfileModal';
 import FilterModal, { ModFilter, defaultModFilter } from './components/modals/FilterModal';
 import InstalledFilterModal, { InstalledFilter, defaultInstalledFilter } from './components/modals/InstalledFilterModal';
 import BrowseFilterModal, { BrowseFilter, defaultBrowseFilter } from './components/modals/BrowseFilterModal';
@@ -112,20 +114,53 @@ const ModPage: FC = () => {
     );
   };
 
-  const handleSaveProfile = async (close: () => void) => {
-    close();
-    const existing = await getProfiles(game.appid);
+  const persistProfile = async (name: string) => {
+    const ok = await saveProfile(game.appid, name);
+    toaster.toast({
+      title: 'Moddy',
+      body: ok ? `Saved profile "${name}"` : 'Failed to save profile',
+    });
+    if (ok) setProfilesRefreshKey(k => k + 1);
+  };
+
+  const openNameEntry = (existingNames: string[]) => {
     showModal(
       <SaveProfileModal
-        existingNames={existing.map(p => p.name)}
+        existingNames={existingNames}
         onSave={async (name, closeSave) => {
           closeSave();
-          const ok = await saveProfile(game.appid, name);
-          toaster.toast({
-            title: 'Moddy',
-            body: ok ? `Saved profile "${name}"` : 'Failed to save profile',
-          });
-          if (ok) setProfilesRefreshKey(k => k + 1);
+          await persistProfile(name);
+        }}
+      />
+    );
+  };
+
+  const handleSaveProfile = async (close: () => void) => {
+    close();
+    const existingNames = (await getProfiles(game.appid)).map(p => p.name);
+    // Nothing to overwrite yet — skip the picker and go straight to naming.
+    if (existingNames.length === 0) {
+      openNameEntry(existingNames);
+      return;
+    }
+    showModal(
+      <SaveProfilePickerModal
+        existingNames={existingNames}
+        onNewProfile={(closePicker) => {
+          closePicker();
+          openNameEntry(existingNames);
+        }}
+        onOverwrite={(name, closePicker) => {
+          closePicker();
+          showModal(
+            <OverwriteProfileModal
+              profileName={name}
+              onConfirm={async (closeConfirm) => {
+                closeConfirm();
+                await persistProfile(name);
+              }}
+            />
+          );
         }}
       />
     );

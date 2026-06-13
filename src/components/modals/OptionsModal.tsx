@@ -19,6 +19,16 @@ const OptionsModal: FC<{
         <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '16px' }}>
           Options
         </div>
+        <div style={{ marginBottom: '4px' }}>
+          <ButtonItem layout="below" disabled={!canSaveProfile} onClick={() => onSaveProfile(close)}>
+            Save Current Mods as Profile…
+          </ButtonItem>
+        </div>
+        {!canSaveProfile && (
+          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em', marginLeft: '4px', marginBottom: '8px' }}>
+            Install at least one mod to save a profile.
+          </div>
+        )}
         <div style={{ marginBottom: '8px' }}>
           <ButtonItem layout="below" onClick={() => onCheckUpdates(close)}>
             Check for Mod Updates
@@ -36,16 +46,6 @@ const OptionsModal: FC<{
             <ButtonItem layout="below" onClick={() => onRefreshCatalog(close)}>
               Refresh Mod Catalog
             </ButtonItem>
-          </div>
-        )}
-        <div style={{ marginBottom: '4px' }}>
-          <ButtonItem layout="below" disabled={!canSaveProfile} onClick={() => onSaveProfile(close)}>
-            Save Current Mods as Profile…
-          </ButtonItem>
-        </div>
-        {!canSaveProfile && (
-          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em', marginLeft: '4px' }}>
-            Install at least one mod to save a profile.
           </div>
         )}
         {onResetGame && (
