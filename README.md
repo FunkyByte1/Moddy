@@ -5,7 +5,7 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for o
 ## Features
 
 - Browse and install mods without leaving Game Mode
-- MelonLoader installation and management
+- Mod loader installation and management (MelonLoader, BepInEx, Lovely)
 - Version selection with rollback support
 - Dependency resolution and cascade disable/uninstall
 - Update checking for mods and mod loader
@@ -16,11 +16,11 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for o
 
 - Slime Rancher 2
 - Risk of Rain 2
+- Balatro
 
 ### Planned:
 - Stardew Valley
 - Resident Evil 4
-- Balatro
 - Haste
 - and more :)
 
@@ -31,6 +31,12 @@ Mods and modloaders are downloaded directly from their original publishers:
 
 - **GitHub Releases** — for projects that publish built assets there (e.g. MelonLoader, Starlight, R2API).
 - **[Thunderstore](https://thunderstore.io)** — for the wider Risk of Rain 2 / BepInEx mod ecosystem, accessed via Thunderstore's public API the same way [r2modman](https://github.com/ebkr/r2modmanPlus), [Thunderstore Mod Manager](https://www.overwolf.com/app/Thunderstore-Thunderstore_Mod_Manager), and [Gale](https://github.com/Kesomannen/gale) do. Moddy does not host, redistribute, or modify any mod content — it links to and downloads from the original sources, and each mod's license is set by its author.
+- **[Balatro Mod Index](https://github.com/skyline69/balatro-mod-index)** — for Balatro mods, Moddy reads the community mod index maintained by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project (© 2025 Efe, MIT-licensed). Moddy reads the index directly from its public GitHub repository to list mods, then downloads each mod from its own original source. Huge thanks to that project and its contributors for curating the index.
+
+## Acknowledgements
+
+- The **Balatro Mod Index** (catalog data) is by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project, © 2025 Efe, licensed under the [MIT License](https://github.com/skyline69/balatro-mod-index/blob/main/LICENSE). Moddy uses only the index data — none of that project's source code.
+- Balatro modding is powered by the [Lovely injector](https://github.com/ethangreen-dev/lovely-injector) and [Steamodded](https://github.com/Steamodded/smods), installed from their official releases.
 
 ## Disclaimer
 
@@ -76,7 +82,7 @@ pnpm run build
 ssh $DECK "mkdir -p $TMP/backend $TMP/dist && rm -rf $TMP/registry"
 scp main.py plugin.json package.json "$DECK:$TMP/"
 scp -r registry "$DECK:$TMP/"
-scp backend/registry.py backend/steam.py backend/modloaders.py backend/mods.py backend/github.py backend/utils.py "$DECK:$TMP/backend/"
+scp backend/*.py "$DECK:$TMP/backend/"
 scp dist/index.js dist/index.js.map "$DECK:$TMP/dist/"
 ssh $DECK "rm -f $PLUGIN_DIR/registry.json && cp -r $TMP/* $PLUGIN_DIR/ && rm -rf $TMP"
 ssh $DECK "sudo systemctl restart plugin_loader"

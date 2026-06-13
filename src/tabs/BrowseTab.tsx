@@ -8,6 +8,8 @@ import {
   ThunderstorePackage,
   getThunderstoreCatalog,
   installThunderstoreMod,
+  getBmiCatalog,
+  installBmiMod,
   uninstallMod,
   toggleMod,
   getBrowseDenylist,
@@ -164,7 +166,12 @@ const DetailPanel: FC<{
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 18, lineHeight: '22px' }}>{pkg.name}</div>
           <div style={{ fontSize: 12, color: 'var(--gpColorTextSecondary)', marginTop: 2 }}>
-            by {pkg.owner} · v{pkg.latest.version_number} · {pkg.rating_score} likes
+            by {pkg.owner} · v{pkg.latest.version_number}
+            {pkg.rating_score > 0
+              ? ` · ${pkg.rating_score} likes`
+              : pkg.date_updated
+                ? ` · updated ${pkg.date_updated.slice(0, 10)}`
+                : ''}
           </div>
           {pkg.is_deprecated && (
             <div style={{ fontSize: 11, color: '#f8a623', marginTop: 4 }}>⚠ Deprecated</div>
@@ -215,6 +222,7 @@ const DetailPanel: FC<{
 };
 
 const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCategoriesChange, refreshKey }) => {
+  const isBmi = game.catalog_type === 'bmi';
   const [catalog, setCatalog] = useState<ThunderstorePackage[]>([]);
   const [denylist, setDenylist] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -229,7 +237,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
       setLoading(true);
       try {
         const [data, deny] = await Promise.all([
-          getThunderstoreCatalog(game.appid),
+          isBmi ? getBmiCatalog(game.appid) : getThunderstoreCatalog(game.appid),
           getBrowseDenylist(),
         ]);
         if (!cancelled) {
@@ -238,7 +246,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
         }
       } catch {
         if (!cancelled) {
-          toaster.toast({ title: 'Moddy', body: 'Failed to fetch Thunderstore catalog' });
+          toaster.toast({ title: 'Moddy', body: 'Failed to fetch mod catalog' });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -302,7 +310,9 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
   const handleInstall = async (pkg: ThunderstorePackage) => {
     setInstalling(pkg.full_name);
     try {
-      const result = await installThunderstoreMod(game.appid, pkg.full_name, null);
+      const result = isBmi
+        ? await installBmiMod(game.appid, pkg.full_name, null)
+        : await installThunderstoreMod(game.appid, pkg.full_name, null);
       if (result === true) {
         toaster.toast({ title: 'Moddy', body: `Installed ${pkg.name}` });
         await onRefresh();
@@ -434,6 +444,11 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
           </div>
         </div>
         {listSlot}
+        {isBmi && (
+          <div style={{ padding: '6px 8px', fontSize: 10, color: 'var(--gpColorTextSecondary)' }}>
+            Catalog from the community Balatro Mod Index (MIT).
+          </div>
+        )}
       </Focusable>
       <Focusable style={{ flex: 1, overflowY: 'auto', paddingBottom: 60 }}>
         <DetailPanel

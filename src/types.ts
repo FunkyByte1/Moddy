@@ -95,6 +95,8 @@ export interface GameStatus {
   modloader_launch_options: string;
   modloader_needs_first_launch: boolean;
   thunderstore_community: string;
+  // Which Browse catalog backs this game: 'bmi', 'thunderstore', or '' (curated-only).
+  catalog_type: string;
   installed: boolean;
   install_dir: string;
   modloader_installed: boolean;
@@ -177,6 +179,10 @@ export const deleteModVersion = callable<[appid: number, mod_id: string, version
 export const getThunderstoreCatalog = callable<[appid: number], ThunderstorePackage[]>('get_thunderstore_catalog');
 export const refreshThunderstoreCatalog = callable<[appid: number], boolean>('refresh_thunderstore_catalog');
 export const installThunderstoreMod = callable<[appid: number, full_name: string, version: string | null], boolean | null>('install_thunderstore_mod');
+// Balatro Mod Index (BMI) catalog — same ThunderstorePackage item shape as Thunderstore.
+export const getBmiCatalog = callable<[appid: number], ThunderstorePackage[]>('get_bmi_catalog');
+export const refreshBmiCatalog = callable<[appid: number], boolean>('refresh_bmi_catalog');
+export const installBmiMod = callable<[appid: number, mod_id: string, version: string | null], boolean | null>('install_bmi_mod');
 export const getBrowseDenylist = callable<[], string[]>('get_browse_denylist');
 
 export interface ProfileMod {

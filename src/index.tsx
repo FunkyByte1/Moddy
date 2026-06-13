@@ -30,7 +30,7 @@ function Content() {
       </PanelSectionRow>
       <PanelSectionRow>
         <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em', marginTop: '12px' }}>
-          Mods downloaded from GitHub and thunderstore.io.
+          Mods downloaded from GitHub, thunderstore.io, and the community Balatro Mod Index.
         </div>
       </PanelSectionRow>
     </PanelSection>

@@ -72,6 +72,12 @@ def get_download_url_for_version(owner: str, repo: str, version: str, asset: str
     return None
 
 
+def get_github_source_url(owner: str, repo: str, branch: str = "main") -> str:
+    """Direct download URL for a GitHub repo's branch archive (source zip).
+    Used for mods/frameworks distributed as repo source rather than release assets."""
+    return f"https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.zip"
+
+
 def get_latest_download_url(owner: str, repo: str, asset: str) -> tuple[str, str] | None:
     """Returns (version, download_url) for the latest release containing the given asset."""
     latest = get_latest_release(owner, repo)

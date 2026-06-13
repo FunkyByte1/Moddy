@@ -10,6 +10,7 @@ import modloaders
 import mods
 import profiles
 import github
+import bmi
 import utils
 
 
@@ -52,6 +53,8 @@ class Plugin:
                 "modloader_launch_options": ml.launch_options if ml else "",
                 "modloader_needs_first_launch": bool(ml and ml.ready_indicator),
                 "thunderstore_community": game.thunderstore_community,
+                # Which Browse catalog backs this game: "bmi", "thunderstore", or "" (curated-only).
+                "catalog_type": game.catalog.get("type") or ("thunderstore" if game.thunderstore_community else ""),
                 "installed": install_dir is not None,
                 "install_dir": install_dir or "",
                 "modloader_installed": modloader_installed,
@@ -311,6 +314,95 @@ class Plugin:
             return False
         return github.refresh_thunderstore_community_catalog(game.thunderstore_community)
 
+    # ── Balatro Mod Index (BMI) catalog ───────────────────────────────────────
+    async def get_bmi_catalog(self, appid: int) -> list:
+        """Return the BMI catalog (trimmed-Thunderstore item shape) for a game whose
+        Browse source is BMI, or [] otherwise. Cached on disk for 1 day."""
+        game = registry.get_game_by_appid(appid)
+        if not game or game.catalog.get("type") != "bmi" or not game.catalog.get("repo"):
+            return []
+        return bmi.get_bmi_catalog(game.catalog["repo"], game.catalog.get("branch", "main"))
+
+    async def refresh_bmi_catalog(self, appid: int) -> bool:
+        """Force a fresh BMI catalog pull, keeping the existing cache if the fetch fails.
+        Returns True only if a fresh copy was actually fetched."""
+        game = registry.get_game_by_appid(appid)
+        if not game or game.catalog.get("type") != "bmi" or not game.catalog.get("repo"):
+            return False
+        return bmi.refresh_bmi_catalog(game.catalog["repo"], game.catalog.get("branch", "main"))
+
+    async def install_bmi_mod(self, appid: int, mod_id: str, version: str | None = None) -> bool | None:
+        """Install a BMI mod by its catalog full_name. Installs any required framework
+        (Steamodded / Talisman) into the Mods folder first, then the mod itself from its
+        direct downloadURL. Returns True=success, False=failed, None=cancelled."""
+        game = registry.get_game_by_appid(appid)
+        if not game or game.catalog.get("type") != "bmi" or not game.catalog.get("repo"):
+            return False
+        install_dir = steam.find_game_install_dir(appid)
+        if not install_dir:
+            return False
+        item = bmi.find_bmi_package(game.catalog["repo"], mod_id, game.catalog.get("branch", "main"))
+        if not item:
+            decky.logger.error(f"BMI mod not found in catalog: {mod_id}")
+            return False
+
+        # Frameworks first (best-effort — a framework failure is logged but doesn't abort
+        # the mod install, matching the Thunderstore dependency behaviour).
+        if item.get("requires_steamodded"):
+            await self._ensure_framework(game, install_dir, "steamodded")
+        if item.get("requires_talisman"):
+            await self._ensure_framework(game, install_dir, "talisman")
+
+        latest = item.get("latest", {})
+        url = latest.get("download_url")
+        if not url:
+            decky.logger.error(f"BMI mod {mod_id} has no downloadURL")
+            return False
+        target_version = version or latest.get("version_number") or "latest"
+        mod = registry.ModInfo(
+            id=item["full_name"],
+            name=item["name"],
+            description=latest.get("description", ""),
+            filename=item["folder_name"],
+            source=registry.ModSource(type="url", url=url, install_type="zip_dir"),
+            author=item.get("owner", ""),
+            homepage=item.get("package_url", ""),
+            thumbnail=latest.get("icon", ""),
+            modloader=game.modloaders[0].id if game.modloaders else "",
+            dependencies=[],
+        )
+        return await mods.install_mod(game, install_dir, mod, version=target_version, url=url)
+
+    async def _ensure_framework(self, game: "registry.GameProfile", install_dir: str, key: str) -> bool:
+        """Install a framework mod (e.g. Steamodded, Talisman) into the Mods folder if it
+        isn't already present. Frameworks are declared per-game under `frameworks` in the
+        game JSON and downloaded as GitHub branch archives into Mods/<filename>/."""
+        fw = game.frameworks.get(key)
+        if not fw:
+            decky.logger.warning(f"No framework config '{key}' for {game.id}")
+            return False
+        fw_id = fw.get("id", key)
+        if mods.get_installed_record(fw_id) is not None:
+            return True  # already installed
+        src = fw.get("source", {})
+        owner, repo = src.get("owner", ""), src.get("repo", "")
+        if not owner or not repo:
+            decky.logger.warning(f"Framework '{key}' for {game.id} has no GitHub source")
+            return False
+        url = github.get_github_source_url(owner, repo, src.get("branch", "main"))
+        mod = registry.ModInfo(
+            id=fw_id,
+            name=fw.get("name", key),
+            description=fw.get("description", ""),
+            filename=fw.get("filename", fw_id),
+            source=registry.ModSource(type="url", url=url, install_type="zip_dir"),
+            author=owner,
+            homepage=f"https://github.com/{owner}/{repo}",
+            modloader=game.modloaders[0].id if game.modloaders else "",
+        )
+        decky.logger.info(f"Installing framework {fw.get('name', key)} for {game.id}")
+        return bool(await mods.install_mod(game, install_dir, mod, version="latest", url=url))
+
     # Thunderstore packages that should never be installed as plugins via Browse —
     # modloaders (already provided by Mod Loader tab) and desktop mod-manager apps.
     # Case-insensitive comparison. Frontend uses get_browse_denylist() to keep these
@@ -320,6 +412,7 @@ class Plugin:
         "riskofthunder-bepinexpack",
         "ebkr-r2modman",
         "kesomannen-galemodmanager",
+        "thunderstore-lovely",  # Balatro injector — installed via the Mod Loader tab, not as a Mods/ plugin
     }
 
     async def get_browse_denylist(self) -> list[str]:

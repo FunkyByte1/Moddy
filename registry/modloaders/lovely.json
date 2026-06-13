@@ -1,0 +1,15 @@
+{
+  "id": "lovely",
+  "name": "Lovely Injector",
+  "files": ["version.dll"],
+  "dirs": [],
+  "indicator": "version.dll",
+  "ready_indicator": null,
+  "launch_options": "WINEDLLOVERRIDES=\"version=n,b\" %command%",
+  "source": {
+    "type": "github",
+    "owner": "ethangreen-dev",
+    "repo": "lovely-injector",
+    "asset": "lovely-x86_64-pc-windows-msvc.zip"
+  }
+}

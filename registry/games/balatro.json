@@ -1,0 +1,31 @@
+{
+  "id": "balatro",
+  "name": "Balatro",
+  "appid": 2379780,
+  "mods_dir": "Mods",
+  "mods_dir_type": "proton_appdata",
+  "mods_appdata_path": "Balatro",
+  "modloader_ids": ["lovely"],
+  "catalog": {
+    "type": "bmi",
+    "repo": "skyline69/balatro-mod-index",
+    "branch": "main"
+  },
+  "frameworks": {
+    "steamodded": {
+      "id": "balatro.steamodded",
+      "name": "Steamodded",
+      "filename": "Steamodded",
+      "description": "Balatro modding framework required by most content mods.",
+      "source": { "type": "github_source", "owner": "Steamodded", "repo": "smods", "branch": "main" }
+    },
+    "talisman": {
+      "id": "balatro.talisman",
+      "name": "Talisman",
+      "filename": "Talisman",
+      "description": "Big-number / optimization framework for Balatro.",
+      "source": { "type": "github_source", "owner": "MathIsFun0", "repo": "Talisman", "branch": "main" }
+    }
+  },
+  "mods": []
+}

@@ -2,7 +2,7 @@ import { Tabs, showModal } from '@decky/ui';
 import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, useRef, FC } from 'react';
 
-import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, resetGame, removeModloaderLaunchOptions } from './types';
+import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions } from './types';
 import ModsTab from './tabs/ModsTab';
 import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
@@ -55,7 +55,7 @@ const ModPage: FC = () => {
   // strands gamepad focus in the hidden Mod Loader content — Steam only
   // re-focuses contents on tab changes it initiates itself, so the next R1
   // press routes input back to the stale tab.
-  const defaultManageTab = game?.thunderstore_community ? 'installed' : 'mods';
+  const defaultManageTab = game?.catalog_type ? 'installed' : 'mods';
   const activeTab = selectedTab ?? (modloaderReady ? defaultManageTab : 'modloader');
 
   // Still jump to Mods when the modloader becomes ready mid-session (e.g.
@@ -164,10 +164,12 @@ const ModPage: FC = () => {
         onSaveProfile={handleSaveProfile}
         onToggleSelectionMode={activeTab === 'mods' || activeTab === 'installed' ? (close) => { close(); setSelectionMode(m => !m); } : undefined}
         selectionMode={selectionMode}
-        onRefreshCatalog={game.thunderstore_community ? async (close) => {
+        onRefreshCatalog={game.catalog_type ? async (close) => {
           close();
           toaster.toast({ title: 'Moddy', body: 'Refreshing mod catalog…' });
-          const ok = await refreshThunderstoreCatalog(game.appid);
+          const ok = game.catalog_type === 'bmi'
+            ? await refreshBmiCatalog(game.appid)
+            : await refreshThunderstoreCatalog(game.appid);
           setCatalogRefreshKey(k => k + 1);
           toaster.toast({ title: 'Moddy', body: ok ? 'Mod catalog refreshed' : 'Failed to refresh catalog' });
         } : undefined}
@@ -196,10 +198,10 @@ const ModPage: FC = () => {
       },
     },
     ...(modloaderReady ? [
-    // Thunderstore games manage installed mods here and discover new ones in
-    // Browse; non-Thunderstore games keep the curated Mods tab as their only
-    // install path.
-    game.thunderstore_community ? {
+    // Catalog-backed games (Thunderstore or BMI) manage installed mods here and
+    // discover new ones in Browse; curated-only games keep the Mods tab as their
+    // only install path.
+    game.catalog_type ? {
       id: 'installed',
       title: 'Installed',
       content: (
@@ -254,7 +256,7 @@ const ModPage: FC = () => {
         onSecondaryActionDescription: 'Filter',
       },
     },
-    ...(game.thunderstore_community ? [{
+    ...(game.catalog_type ? [{
       id: 'browse',
       title: 'Browse',
       content: (
