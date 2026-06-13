@@ -220,6 +220,11 @@ class Plugin:
             return False
         mod = game.get_mod(mod_id)
         if not mod:
+            # Non-curated Workshop sub (synthetic id workshop.<appid>.<fileid>): the
+            # frontend already subscribed via SteamClient; just record it.
+            parts = mod_id.split(".")
+            if game.uses_steam_workshop() and len(parts) == 3 and parts[0] == "workshop" and parts[2].isdigit():
+                return await mods.install_synthetic_workshop(game, mod_id, parts[2])
             decky.logger.error(f"Unknown mod: {mod_id}")
             return False
 
@@ -331,6 +336,16 @@ class Plugin:
         if not install_dir:
             return False
         return await mods.uninstall_mod(game, install_dir, mod_id)
+
+    async def reconcile_workshop_subscriptions(self, appid: int, items: list) -> bool:
+        """Sync installed.json with the game's actual Steam Workshop subscriptions
+        (the frontend supplies them via GetSubscribedWorkshopItems). Returns True if
+        the tracked set changed. The frontend must NOT call this when its query failed
+        — an empty list legitimately means "nothing subscribed" and clears records."""
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.uses_steam_workshop():
+            return False
+        return mods.reconcile_workshop(game, items or [])
 
     async def toggle_mod(self, appid: int, mod_id: str, enable: bool) -> bool:
         game = registry.get_game_by_appid(appid)

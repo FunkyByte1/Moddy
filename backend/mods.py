@@ -119,6 +119,98 @@ def set_mod_enabled(mod_id: str, enabled: bool) -> None:
         _save_store(store)
 
 
+def _workshop_record(
+    fileid: str, appid: int, name: str, thumbnail: str, description: str,
+    filename: str, mod: "ModInfo | None" = None,
+) -> dict:
+    """Build an installed.json record for a subscribed Workshop mod. `appid` scopes
+    the (globally-keyed) store to a game; metadata comes from the curated ModInfo
+    when known, else from what Steam reported for the subscription."""
+    return {
+        "version": "subscribed",
+        "filename": filename,
+        "appid": appid,
+        "install_type": "steamworkshop",
+        "source": {
+            "type": "steamworkshop", "owner": "", "repo": "", "asset": "",
+            "install_type": "steamworkshop", "workshop_id": fileid,
+        },
+        "meta": {
+            "name": name,
+            "author": mod.author if mod else "",
+            "description": description,
+            "homepage": mod.homepage if mod else f"https://steamcommunity.com/sharedfiles/filedetails/?id={fileid}",
+            "thumbnail": thumbnail,
+            "modloader": "steamworkshop",
+            "dependencies": list(mod.dependencies) if mod else [],
+        },
+    }
+
+
+def reconcile_workshop(game: GameProfile, items: list[dict]) -> bool:
+    """Sync installed.json with the game's ACTUAL Steam Workshop subscriptions,
+    supplied by the frontend (GetSubscribedWorkshopItems). Adds a record for every
+    subscribed item — curated metadata when the item matches a curated mod, else the
+    Steam-provided title/preview as a synthetic `workshop.<appid>.<fileid>` entry —
+    and drops records for this game whose item is no longer subscribed. Existing
+    records (and their enabled flags) are preserved. Returns True if anything changed.
+
+    Each item is {id, name?, thumbnail?, description?}. An empty list is a valid
+    "nothing subscribed" state and will clear this game's Workshop records; the
+    frontend must pass None (skip) rather than [] when the query actually failed."""
+    store = _load_store()
+    subscribed = {str(it.get("id") or "").strip(): it for it in items if str(it.get("id") or "").strip()}
+    curated_by_wid = {
+        m.source.workshop_id: m for m in game.mods
+        if m.source.type == "steamworkshop" and m.source.workshop_id
+    }
+    curated_ids = {m.id for m in game.mods}
+    changed = False
+
+    # 1) ensure a record exists for each subscribed item
+    for fid, it in subscribed.items():
+        m = curated_by_wid.get(fid)
+        if m:
+            if m.id not in store:
+                store[m.id] = _workshop_record(fid, game.appid, m.name, m.thumbnail, m.description, m.filename, mod=m)
+                changed = True
+        else:
+            sid = f"workshop.{game.appid}.{fid}"
+            if sid not in store:
+                rec = _workshop_record(
+                    fid, game.appid,
+                    (it.get("name") or f"Workshop item {fid}"),
+                    it.get("thumbnail") or "",
+                    it.get("description") or "",
+                    it.get("name") or fid,
+                )
+                # Map the item's required-item file ids to Moddy mod ids so the UI's
+                # dependents logic works for non-curated subs (curated dep -> curated id,
+                # otherwise the synthetic id for that file).
+                rec["meta"]["dependencies"] = [
+                    curated_by_wid[c].id if c in curated_by_wid else f"workshop.{game.appid}.{c}"
+                    for c in (it.get("dependencies") or [])
+                ]
+                store[sid] = rec
+                changed = True
+
+    # 2) drop this game's Workshop records that are no longer subscribed
+    for mod_id in list(store.keys()):
+        rec = store[mod_id]
+        src = rec.get("source") or {}
+        if src.get("type") != "steamworkshop":
+            continue
+        if not (mod_id in curated_ids or rec.get("appid") == game.appid):
+            continue  # belongs to a different game
+        if src.get("workshop_id", "") not in subscribed:
+            del store[mod_id]
+            changed = True
+
+    if changed:
+        _save_store(store)
+    return changed
+
+
 def clear_installed_record(mod_id: str) -> None:
     store = _load_store()
     if mod_id in store:
@@ -205,8 +297,24 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
         })
 
     # Workshop games have no on-disk mods folder Moddy manages — their state is the
-    # set of tracked subscriptions above. Skip the filesystem scans entirely.
+    # set of tracked subscriptions. Beyond the curated mods above, list any other
+    # subscribed Workshop items reconciled into the store for this game (synthetic
+    # `workshop.<appid>.<fileid>` records). Skip the filesystem scans entirely.
     if game.uses_steam_workshop():
+        for mod_id, record in store.items():
+            if mod_id in seen_ids:
+                continue
+            src = record.get("source") or {}
+            if src.get("type") != "steamworkshop" or record.get("appid") != game.appid:
+                continue
+            seen_ids.add(mod_id)
+            installed.append({
+                "id": mod_id,
+                "filename": record.get("filename", mod_id),
+                "enabled": record.get("enabled", True),
+                "version": record.get("version"),
+                "meta": record.get("meta"),
+            })
         return installed
 
     # 2) Tracked installs from installed.json — browsed mods (no curated game.mods entry).
@@ -303,7 +411,21 @@ async def install_workshop_mod(game: GameProfile, mod: ModInfo) -> bool | None:
     if not mod.source.workshop_id:
         decky.logger.error(f"Workshop mod {mod.id} has no workshop_id")
         return False
-    set_installed_record(mod.id, "subscribed", mod.filename, mod=mod)
+    store = _load_store()
+    store[mod.id] = _workshop_record(
+        mod.source.workshop_id, game.appid, mod.name, mod.thumbnail, mod.description, mod.filename, mod=mod,
+    )
+    _save_store(store)
+    return True
+
+
+async def install_synthetic_workshop(game: GameProfile, mod_id: str, fileid: str) -> bool:
+    """Record a non-curated Workshop subscription by its synthetic id. The frontend has
+    already subscribed via SteamClient; reconcile enriches title/deps on the next refresh."""
+    store = _load_store()
+    if mod_id not in store:
+        store[mod_id] = _workshop_record(fileid, game.appid, f"Workshop item {fileid}", "", "", fileid)
+        _save_store(store)
     return True
 
 

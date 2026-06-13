@@ -43,6 +43,40 @@ const ModsTab: FC<{
 
   const installedIds = new Set(game.installed_mods.map(m => m.id));
 
+  // Installed mods that depend on `id` — combines curated game.mods dependencies with
+  // installed mods' own meta.dependencies (Workshop subs carry their required items
+  // there), so the dependents prompt covers non-curated mods too.
+  const dependentsOf = (id: string, enabledOnly = false): { id: string; name: string }[] => {
+    const out = new Map<string, string>();
+    for (const m of game.mods) {
+      if ((m.dependencies ?? []).includes(id) && installedIds.has(m.id)) {
+        const im = game.installed_mods.find(x => x.id === m.id);
+        if (!enabledOnly || im?.enabled) out.set(m.id, m.name);
+      }
+    }
+    for (const im of game.installed_mods) {
+      if ((im.meta?.dependencies ?? []).includes(id) && (!enabledOnly || im.enabled)) {
+        out.set(im.id, im.meta?.name || im.filename.replace('.dll', ''));
+      }
+    }
+    return [...out].map(([mid, name]) => ({ id: mid, name }));
+  };
+
+  // Forward deps of a mod id — what it depends on. Curated mods declare them in the
+  // registry; non-curated Workshop subs carry their required items in meta.dependencies.
+  const dependenciesOf = (id: string): string[] => {
+    const curated = game.mods.find(m => m.id === id);
+    if (curated) return curated.dependencies ?? [];
+    return game.installed_mods.find(m => m.id === id)?.meta?.dependencies ?? [];
+  };
+
+  const modNameOf = (id: string): string => {
+    const m = game.mods.find(x => x.id === id);
+    if (m) return m.name;
+    const im = game.installed_mods.find(x => x.id === id);
+    return im?.meta?.name || im?.filename.replace('.dll', '') || id;
+  };
+
   const allEntries: ModEntry[] = game.mods.map(mod => {
     const installed = game.installed_mods.find(m => m.id === mod.id);
     const dependenciesMet = !installed || !installed.enabled ||
@@ -60,11 +94,20 @@ const ModsTab: FC<{
 
   game.installed_mods.forEach(installed => {
     if (!allEntries.find(e => e.id === installed.id)) {
+      // Non-curated installs (e.g. Workshop mods subscribed outside Moddy) carry their
+      // display info in `meta`; fall back to the filename for legacy/manual entries.
+      const displayName = installed.meta?.name || installed.filename.replace('.dll', '');
       allEntries.push({
-        id: installed.id, name: installed.filename.replace('.dll', ''),
+        id: installed.id, name: displayName,
         installed: true, enabled: installed.enabled, version: installed.version,
         hasUpdate: false, dependenciesMet: true, isLibrary: !!installed.is_library,
-        info: { id: installed.id, name: installed.filename.replace('.dll', ''), description: '', filename: installed.filename, source: { type: 'unknown', owner: '', repo: '', asset: '' } },
+        info: {
+          id: installed.id, name: displayName,
+          description: installed.meta?.description || '', filename: installed.filename,
+          author: installed.meta?.author, homepage: installed.meta?.homepage,
+          thumbnail: installed.meta?.thumbnail,
+          source: { type: 'unknown', owner: '', repo: '', asset: '' },
+        },
       });
     }
   });
@@ -114,7 +157,7 @@ const ModsTab: FC<{
   const handleDeleteMod = async (mod: ModInfo) => {
     const currentVersion = game.installed_mods.find(m => m.id === mod.id)?.version ?? null;
     const backedUp = await getBackedUpVersions(game.appid, mod.id);
-    const dependents = game.mods.filter(m => (m.dependencies ?? []).includes(mod.id) && installedIds.has(m.id));
+    const dependents = dependentsOf(mod.id);
 
     const showDeleteModal = () => showModal(
       <DeleteVersionModal
@@ -140,41 +183,38 @@ const ModsTab: FC<{
 
   const handleToggleMod = async (id: string, enable: boolean) => {
     if (enable) {
-      const mod = game.mods.find(m => m.id === id);
-      if (mod) {
-        const missingDeps = (mod.dependencies ?? []).filter(depId => !game.installed_mods.find(m => m.id === depId && m.enabled));
-        if (missingDeps.length > 0) {
-          const missingNames = missingDeps.map(depId => game.mods.find(m => m.id === depId)?.name ?? depId);
-          const notInstalled = missingDeps.filter(depId => !game.installed_mods.find(m => m.id === depId));
-          const disabled = missingDeps.filter(depId => game.installed_mods.find(m => m.id === depId && !m.enabled));
-          showModal(
-            <DependencyInstallModal
-              modName={mod.name} dependencyNames={missingNames}
-              actionLabel={notInstalled.length > 0 ? 'Install & Enable' : 'Enable dependencies'}
-              onInstall={async (close: () => void) => {
-                close(); setBusy(true); setInstalling(true); setProgress(0);
-                for (const depId of notInstalled) {
-                  const depMod = game.mods.find(m => m.id === depId);
-                  if (depMod) {
-                    const ok = await installMod(game.appid, depId, null);
-                    if (ok === null) { setInstalling(false); setBusy(false); await onRefresh(); return; }
-                    if (!ok) { toaster.toast({ title: 'Moddy', body: `Failed to install ${depMod.name}` }); setInstalling(false); setBusy(false); await onRefresh(); return; }
-                  }
-                }
-                setInstalling(false);
-                for (const depId of disabled) await toggleMod(game.appid, depId, true);
-                await toggleMod(game.appid, id, true);
-                await onRefresh(); setBusy(false);
-              }}
-            />
-          );
-          return;
-        }
+      // Enabling a mod whose dependencies aren't satisfied: offer to install/enable them
+      // first. Works for curated mods and non-curated Workshop subs (deps from meta).
+      const deps = dependenciesOf(id);
+      const missingDeps = deps.filter(depId => !game.installed_mods.find(m => m.id === depId && m.enabled));
+      if (missingDeps.length > 0) {
+        const missingNames = missingDeps.map(modNameOf);
+        const notInstalled = missingDeps.filter(depId => !installedIds.has(depId));
+        const disabled = missingDeps.filter(depId => game.installed_mods.find(m => m.id === depId && !m.enabled));
+        showModal(
+          <DependencyInstallModal
+            modName={modNameOf(id)} dependencyNames={missingNames}
+            actionLabel={notInstalled.length > 0 ? 'Install & Enable' : 'Enable dependencies'}
+            onInstall={async (close: () => void) => {
+              close(); setBusy(true); setInstalling(true); setProgress(0);
+              for (const depId of notInstalled) {
+                const ok = await installMod(game.appid, depId, null);
+                if (ok === null) { setInstalling(false); setBusy(false); await onRefresh(); return; }
+                if (!ok) { toaster.toast({ title: 'Moddy', body: `Failed to install ${modNameOf(depId)}` }); setInstalling(false); setBusy(false); await onRefresh(); return; }
+              }
+              setInstalling(false);
+              for (const depId of disabled) await toggleMod(game.appid, depId, true);
+              await toggleMod(game.appid, id, true);
+              await onRefresh(); setBusy(false);
+            }}
+          />
+        );
+        return;
       }
     }
 
     if (!enable) {
-      const dependents = game.mods.filter(m => (m.dependencies ?? []).includes(id) && game.installed_mods.find(im => im.id === m.id && im.enabled));
+      const dependents = dependentsOf(id, true);
       if (dependents.length > 0) {
         showModal(
           <DependentsModal
@@ -319,11 +359,13 @@ const ModsTab: FC<{
   const handleBulkUninstall = async () => {
     if (bulkUninstallTargets.length === 0) return;
     const targetSet = new Set(bulkUninstallTargets);
-    const dependents = game.mods.filter(m =>
-      installedIds.has(m.id) &&
-      !targetSet.has(m.id) &&
-      (m.dependencies ?? []).some(d => targetSet.has(d))
-    );
+    const depMap = new Map<string, string>();
+    for (const target of bulkUninstallTargets) {
+      for (const d of dependentsOf(target)) {
+        if (!targetSet.has(d.id)) depMap.set(d.id, d.name);
+      }
+    }
+    const dependents = [...depMap].map(([id, name]) => ({ id, name }));
 
     const uninstallAll = async () => {
       let failed = 0;

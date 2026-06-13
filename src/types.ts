@@ -176,8 +176,13 @@ export const removeModloaderLaunchOptions = (appid: number, modloaderOptions: st
 const _workshopIds = new Map<string, string>();    // `${appid}:${mod_id}` -> publishedfileid
 const _workshopDeps = new Map<string, string[]>(); // `${appid}:${mod_id}` -> dependency mod ids
 
-const workshopIdFor = (appid: number, modId: string): string | undefined =>
-  _workshopIds.get(`${appid}:${modId}`);
+const workshopIdFor = (appid: number, modId: string): string | undefined => {
+  const direct = _workshopIds.get(`${appid}:${modId}`);
+  if (direct) return direct;
+  // Non-curated reconciled subscriptions use a synthetic id: workshop.<appid>.<fileid>
+  const m = modId.match(/^workshop\.\d+\.(\d+)$/);
+  return m ? m[1] : undefined;
+};
 
 const subscribeWorkshopItem = (appid: number, workshopId: string, subscribed: boolean): void => {
   const apps = (window as any).SteamClient?.Apps;
@@ -203,10 +208,52 @@ const setWorkshopItemDisabled = (appid: number, workshopId: string, disabled: bo
 // Callables
 export const getSupportedAppids = callable<[], number[]>('get_supported_appids');
 
-const _getSupportedGames = callable<[], GameStatus[]>('get_supported_games');
-// Wrapper: keep the workshop id lookup current from each game's curated mod list.
-export const getSupportedGames = async (): Promise<GameStatus[]> => {
-  const games = await _getSupportedGames();
+const workshopFileId = (it: any): string =>
+  String(it?.publishedfileid ?? it?.ulPublishedFileID ?? '');
+
+// Normalize a SteamClient WorkshopItem (rich variant) to what the backend reconcile
+// expects. `children` carries the item's required items (its dependencies).
+const normalizeWorkshopItem = (it: any) => ({
+  id: workshopFileId(it),
+  name: it?.title ?? '',
+  thumbnail: it?.preview_url ?? '',
+  description: it?.short_description ?? '',
+  dependencies: (Array.isArray(it?.children) ? it.children : []).map((c: any) =>
+    typeof c === 'string' ? c : workshopFileId(c)).filter(Boolean),
+});
+
+// Read the user's actual subscriptions for an app, normalized. Returns null if the
+// query failed/unavailable so callers SKIP reconciling — an empty array would be read
+// as "nothing subscribed" and wipe the tracked set. GetSubscribedWorkshopItems is often
+// "lean" (ids only), so we enrich titles/previews/children via the details call.
+const getSubscribedWorkshopItems = async (appid: number): Promise<ReturnType<typeof normalizeWorkshopItem>[] | null> => {
+  const apps = (window as any).SteamClient?.Apps;
+  if (typeof apps?.GetSubscribedWorkshopItems !== 'function') return null;
+  try {
+    const subs = await apps.GetSubscribedWorkshopItems(appid);
+    const ids = (Array.isArray(subs) ? subs : []).map(workshopFileId).filter(Boolean);
+    if (ids.length === 0) return [];
+    const byId = new Map<string, any>();
+    if (typeof apps.GetSubscribedWorkshopItemDetails === 'function') {
+      try {
+        const det = await apps.GetSubscribedWorkshopItemDetails(appid, ids);
+        const list = Array.isArray(det) ? det
+          : Array.isArray(det?.items) ? det.items
+          : Array.isArray(det?.response) ? det.response : [];
+        for (const d of list) { const id = workshopFileId(d); if (id) byId.set(id, d); }
+      } catch (e) { console.error('[Moddy] GetSubscribedWorkshopItemDetails failed', e); }
+    }
+    return ids.map(id => normalizeWorkshopItem({ ...(byId.get(id) || {}), publishedfileid: id }));
+  } catch (e) {
+    console.error('[Moddy] GetSubscribedWorkshopItems failed', e);
+    return null;
+  }
+};
+
+const reconcileWorkshopSubscriptions =
+  callable<[appid: number, items: any[]], boolean>('reconcile_workshop_subscriptions');
+
+const indexWorkshopMods = (games: GameStatus[]): void => {
   for (const g of games) {
     for (const m of g.mods || []) {
       if (m.source?.type === 'steamworkshop' && m.source.workshop_id) {
@@ -214,6 +261,27 @@ export const getSupportedGames = async (): Promise<GameStatus[]> => {
         _workshopDeps.set(`${g.appid}:${m.id}`, m.dependencies || []);
       }
     }
+  }
+};
+
+const _getSupportedGames = callable<[], GameStatus[]>('get_supported_games');
+// Wrapper: index curated Workshop mods, then reconcile each Workshop game's tracked
+// list against the user's real Steam subscriptions (captures auto-installed deps and
+// mods subscribed/unsubscribed outside Moddy). Re-fetches once if anything changed so
+// the returned data reflects the synced state.
+export const getSupportedGames = async (): Promise<GameStatus[]> => {
+  let games = await _getSupportedGames();
+  indexWorkshopMods(games);
+  let changed = false;
+  for (const g of games) {
+    if (g.modloader !== 'steamworkshop') continue;
+    const items = await getSubscribedWorkshopItems(g.appid);
+    if (items === null) continue;  // query failed — don't reconcile against an empty set
+    if (await reconcileWorkshopSubscriptions(g.appid, items)) changed = true;
+  }
+  if (changed) {
+    games = await _getSupportedGames();
+    indexWorkshopMods(games);
   }
   return games;
 };
