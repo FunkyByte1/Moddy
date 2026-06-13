@@ -40,6 +40,7 @@ class ModloaderInfo:
     indicator: str = ""                                   # path used to detect install (relative to game dir)
     ready_indicator: str | None = None                    # optional: path that must exist to be "ready" (post-first-launch)
     launch_options: str = ""                              # Steam launch options to apply when enabled
+    mod_toggle: str = "dll"                               # how a folder mod is enabled/disabled: "dll" (rename *.dll) or "lovelyignore" (.lovelyignore marker)
 
 
 @dataclass
@@ -65,6 +66,24 @@ class GameProfile:
 
     def get_mod_by_filename(self, filename: str) -> ModInfo | None:
         return next((m for m in self.mods if m.filename == filename), None)
+
+    def mod_toggle_style(self) -> str:
+        """How folder mods are enabled/disabled for this game, derived from its modloaders.
+        "lovelyignore" for Lovely/Steamodded games (Lua mods, no DLLs); "dll" otherwise."""
+        for ml in self.modloaders:
+            if ml.mod_toggle == "lovelyignore":
+                return "lovelyignore"
+        return "dll"
+
+    def bundled_frameworks(self) -> list[tuple[str, dict]]:
+        """Frameworks flagged `bundled` — installed/removed alongside the modloader and
+        hidden from the Mods list (they're infrastructure, like the loader itself).
+        Returns (key, framework-def) pairs, e.g. ("steamodded", {...})."""
+        return [(k, fw) for k, fw in self.frameworks.items() if fw.get("bundled")]
+
+    def bundled_framework_ids(self) -> set[str]:
+        """Mod ids of the bundled frameworks (e.g. {"balatro.steamodded"})."""
+        return {fw.get("id", k) for k, fw in self.bundled_frameworks()}
 
 
 def _parse_source(s: dict) -> ModSource:
@@ -118,6 +137,7 @@ def _load_modloaders() -> dict[str, ModloaderInfo]:
                 indicator=data.get("indicator", ""),
                 ready_indicator=data.get("ready_indicator"),
                 launch_options=data.get("launch_options", ""),
+                mod_toggle=data.get("mod_toggle", "dll"),
             )
         except Exception as e:
             decky.logger.error(f"Failed to load modloader from {where}: {e}")

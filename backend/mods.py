@@ -122,8 +122,27 @@ def _mod_target_dirs(mod: ModInfo, mods_path: str, install_dir: str, paths: list
     return [os.path.join(mods_path, mod.filename)]
 
 
-def _folder_mod_has_enabled_dll(target_dirs: list[str]) -> bool:
-    """A zip_dir mod is 'enabled' iff at least one *.dll (not *.dll.disabled) exists in its tracked dirs."""
+_LOVELYIGNORE = ".lovelyignore"
+
+
+def _folder_mod_enabled(target_dirs: list[str], style: str = "dll") -> bool:
+    """Whether a zip_dir folder mod is currently enabled.
+
+    "dll"  (BepInEx): enabled iff at least one *.dll (not *.dll.disabled) exists in its
+           tracked dirs — BepInEx only loads files ending in .dll.
+    "lovelyignore" (Lovely/Steamodded): Lua mods have no DLLs; Lovely and Steamodded skip
+           any mod folder containing a top-level `.lovelyignore` file. Enabled iff the mod
+           folder exists and none of its tracked dirs carries that marker.
+    """
+    if style == "lovelyignore":
+        exists = False
+        for d in target_dirs:
+            if not os.path.isdir(d):
+                continue
+            exists = True
+            if os.path.isfile(os.path.join(d, _LOVELYIGNORE)):
+                return False
+        return exists
     for d in target_dirs:
         if not os.path.isdir(d):
             continue
@@ -141,6 +160,10 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
     registry at all). Also scans the filesystem for legacy / manually-placed entries.
     """
     mods_path = resolve_mods_path(game, install_dir)
+    toggle_style = game.mod_toggle_style()
+    # Bundled frameworks (e.g. Steamodded) install with the modloader and are managed from
+    # the Mod Loader tab, so they're never listed as content mods.
+    hidden_ids = game.bundled_framework_ids()
     installed = []
     seen_ids: set[str] = set()
 
@@ -153,7 +176,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
         seen_ids.add(mod.id)
         paths = record.get("paths")
         if mod.source.install_type == "zip_dir" or paths:
-            enabled = _folder_mod_has_enabled_dll(_mod_target_dirs(mod, mods_path, install_dir, paths))
+            enabled = _folder_mod_enabled(_mod_target_dirs(mod, mods_path, install_dir, paths), toggle_style)
         else:
             target = os.path.join(mods_path, mod.filename)
             enabled = os.path.isfile(target)
@@ -171,7 +194,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
     #    game's install dir (enabled or disabled form). Without this, mods installed for
     #    one game leak into every other game's list as "disabled".
     for mod_id, record in store.items():
-        if mod_id in seen_ids:
+        if mod_id in seen_ids or mod_id in hidden_ids:
             continue
         filename = record.get("filename")
         if not filename:
@@ -182,7 +205,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
             if not any(os.path.exists(d) for d in target_dirs):
                 continue  # installed for a different game
-            enabled = _folder_mod_has_enabled_dll(target_dirs)
+            enabled = _folder_mod_enabled(target_dirs, toggle_style)
         else:
             target = os.path.join(mods_path, filename)
             if os.path.isfile(target):
@@ -619,15 +642,44 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
         return False
 
 
+def _toggle_lovelyignore(target_dirs: list[str], mod_id: str, filename: str, enable: bool) -> bool:
+    """Enable/disable a Lovely/Steamodded Lua mod by removing/creating a `.lovelyignore`
+    marker in each of the mod's folders. Returns False if no mod folder was found."""
+    touched = 0
+    try:
+        for d in target_dirs:
+            if not os.path.isdir(d):
+                continue
+            touched += 1
+            marker = os.path.join(d, _LOVELYIGNORE)
+            if enable:
+                if os.path.isfile(marker):
+                    os.remove(marker)
+            elif not os.path.isfile(marker):
+                with open(marker, "w"):
+                    pass
+        if touched == 0:
+            decky.logger.warning(f"No mod folder to {'enable' if enable else 'disable'} for {mod_id}")
+            return False
+        decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} (.lovelyignore)")
+        return True
+    except Exception as e:
+        decky.logger.error(f"Failed to toggle {mod_id}: {e}")
+        return False
+
+
 async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: bool) -> bool:
     """Enable or disable a mod.
 
     File-based mods: renames the DLL between `<name>` and `<name>.bak`.
-    Folder-based (zip_dir) mods: walks the mod's tracked dirs and renames every
-      `*.dll` ↔ `*.dll.disabled`. BepInEx's plugin scanner only matches `*.dll`,
-      so the renamed files are skipped on next launch.
-    Takes effect on next game launch — BepInEx loads plugins once at startup.
-    Browsed Thunderstore mods (no curated ModInfo) use the persisted record.
+    Folder-based (zip_dir) mods, "dll" style (BepInEx): walks the mod's tracked dirs and
+      renames every `*.dll` ↔ `*.dll.disabled`. BepInEx's plugin scanner only matches
+      `*.dll`, so the renamed files are skipped on next launch.
+    Folder-based (zip_dir) mods, "lovelyignore" style (Lovely/Steamodded): Lua mods have no
+      DLLs, so disabling drops a `.lovelyignore` marker in the mod folder (and enabling
+      removes it). Both Lovely and Steamodded skip any folder containing that file.
+    Takes effect on next game launch — modloaders scan once at startup.
+    Browsed mods (no curated ModInfo) use the persisted record.
     """
     mod = game.get_mod(mod_id)
     mods_path = resolve_mods_path(game, install_dir)
@@ -645,6 +697,10 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
             target_dirs = _mod_target_dirs(mod, mods_path, install_dir, paths)
         else:
             target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
+
+        if game.mod_toggle_style() == "lovelyignore":
+            return _toggle_lovelyignore(target_dirs, mod_id, filename, enable)
+
         renamed = 0
         try:
             for d in target_dirs:

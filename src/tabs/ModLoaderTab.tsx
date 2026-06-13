@@ -64,6 +64,9 @@ const ModLoaderTab: FC<{
   const [modloaderUpdate, setModloaderUpdate] = useState<ModloaderUpdate | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
 
+  const bundled = game.modloader_bundled ?? [];
+  const bundledText = bundled.join(' and ');
+
   const loadVersion = async () => {
     const v = await getModloaderVersion(game.appid);
     setInstalledVersion(v);
@@ -202,6 +205,7 @@ const ModLoaderTab: FC<{
           <PanelSectionRow>
             <div style={{ color: 'var(--gpColorTextSecondary)', lineHeight: '1.5', marginBottom: '12px' }}>
               {game.modloader_name} is required to use mods with {game.name}. Install it below to get started.
+              {bundledText && ` ${bundledText}, required by nearly every mod, is installed automatically alongside it.`}
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
@@ -254,6 +258,14 @@ const ModLoaderTab: FC<{
                 )}
               </div>
             </PanelSectionRow>
+            {bundledText && (
+              <PanelSectionRow>
+                <div style={{ fontSize: '0.9em', marginBottom: '4px' }}>
+                  <span style={{ color: 'var(--gpColorTextSecondary)' }}>Includes: </span>
+                  <span>{bundledText}</span>
+                </div>
+              </PanelSectionRow>
+            )}
             <PanelSectionRow>
               <ToggleField
                 label={game.modloader_enabled ? 'Enabled' : 'Disabled'}

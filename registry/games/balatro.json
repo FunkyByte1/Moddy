@@ -17,6 +17,7 @@
       "name": "Steamodded",
       "filename": "Steamodded",
       "description": "Balatro modding framework required by most content mods.",
+      "bundled": true,
       "source": { "type": "github_source", "owner": "Steamodded", "repo": "smods", "branch": "main" }
     },
     "talisman": {

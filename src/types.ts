@@ -94,6 +94,8 @@ export interface GameStatus {
   modloader_name: string;
   modloader_launch_options: string;
   modloader_needs_first_launch: boolean;
+  // Frameworks bundled with the loader (e.g. Steamodded), shown on the Mod Loader tab.
+  modloader_bundled: string[];
   thunderstore_community: string;
   // Which Browse catalog backs this game: 'bmi', 'thunderstore', or '' (curated-only).
   catalog_type: string;

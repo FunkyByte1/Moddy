@@ -6,6 +6,7 @@
   "indicator": "version.dll",
   "ready_indicator": null,
   "launch_options": "WINEDLLOVERRIDES=\"version=n,b\" %command%",
+  "mod_toggle": "lovelyignore",
   "source": {
     "type": "github",
     "owner": "ethangreen-dev",

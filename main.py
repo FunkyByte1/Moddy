@@ -52,6 +52,8 @@ class Plugin:
                 "modloader_name": ml.name if ml else "",
                 "modloader_launch_options": ml.launch_options if ml else "",
                 "modloader_needs_first_launch": bool(ml and ml.ready_indicator),
+                # Frameworks bundled with the loader (e.g. Steamodded) — shown on the Mod Loader tab.
+                "modloader_bundled": [fw.get("name", k) for k, fw in game.bundled_frameworks()],
                 "thunderstore_community": game.thunderstore_community,
                 # Which Browse catalog backs this game: "bmi", "thunderstore", or "" (curated-only).
                 "catalog_type": game.catalog.get("type") or ("thunderstore" if game.thunderstore_community else ""),
@@ -92,7 +94,13 @@ class Plugin:
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return False
-        return await modloaders.install_modloader(game, install_dir, game.modloaders[0].id, version)
+        ok = await modloaders.install_modloader(game, install_dir, game.modloaders[0].id, version)
+        if ok:
+            # Bundled frameworks (e.g. Steamodded) ship with the loader since nearly every
+            # mod needs them. Best-effort: a framework hiccup doesn't fail the loader install.
+            for key, _fw in game.bundled_frameworks():
+                await self._ensure_framework(game, install_dir, key)
+        return ok
 
     async def get_modloader_version(self, appid: int) -> str | None:
         game = registry.get_game_by_appid(appid)
@@ -132,6 +140,10 @@ class Plugin:
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return False
+        # Remove bundled frameworks first — they're part of the loader, not content mods.
+        for fw_id in game.bundled_framework_ids():
+            if mods.get_installed_record(fw_id) is not None:
+                await mods.uninstall_mod(game, install_dir, fw_id)
         return await modloaders.uninstall_modloader(game, install_dir, game.modloaders[0].id)
 
     async def enable_modloader(self, appid: int) -> bool:
