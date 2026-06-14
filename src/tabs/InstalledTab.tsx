@@ -15,6 +15,7 @@ import VersionPickerModal from '../components/modals/VersionPickerModal';
 import DeleteVersionModal from '../components/modals/DeleteVersionModal';
 import DependentsModal from '../components/modals/DependentsModal';
 import DependencyInstallModal from '../components/modals/DependencyInstallModal';
+import { showOrphanCleanup, RemovalMode } from '../orphanCleanup';
 
 // Thunderstore deps are recorded as versioned full_names ("Owner-Mod-1.2.3");
 // the install id drops the trailing version segment.
@@ -105,6 +106,10 @@ const InstalledTab: FC<{
       ? installMod(game.appid, id, version)
       : installThunderstoreMod(game.appid, id, version);
 
+  // After removing/disabling mods, offer to clean up library deps they orphaned.
+  const cleanupOrphans = (removedIds: string[], mode: RemovalMode) =>
+    showOrphanCleanup({ game, denylist, removedIds, mode, onRefresh, setBusy });
+
   const handleToggleMod = async (id: string, enable: boolean) => {
     if (enable) {
       const im = game.installed_mods.find(m => m.id === id);
@@ -147,9 +152,9 @@ const InstalledTab: FC<{
         showModal(
           <DependentsModal
             dependentNames={dependents.map(m => m.meta?.name ?? m.filename.replace(/\.dll$/, ''))}
-            onDisable={async (close: () => void) => { close(); setBusy(true); for (const dep of dependents) await toggleMod(game.appid, dep.id, false); await toggleMod(game.appid, id, false); await onRefresh(); setBusy(false); }}
-            onIgnore={async (close: () => void) => { close(); setBusy(true); await toggleMod(game.appid, id, false); await onRefresh(); setBusy(false); }}
-            onDelete={async (close: () => void) => { close(); setBusy(true); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await toggleMod(game.appid, id, false); await onRefresh(); setBusy(false); }}
+            onDisable={async (close: () => void) => { close(); setBusy(true); for (const dep of dependents) await toggleMod(game.appid, dep.id, false); await toggleMod(game.appid, id, false); await onRefresh(); setBusy(false); cleanupOrphans([id, ...dependents.map(d => d.id)], 'disable'); }}
+            onIgnore={async (close: () => void) => { close(); setBusy(true); await toggleMod(game.appid, id, false); await onRefresh(); setBusy(false); cleanupOrphans([id], 'disable'); }}
+            onDelete={async (close: () => void) => { close(); setBusy(true); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await toggleMod(game.appid, id, false); await onRefresh(); setBusy(false); cleanupOrphans([id, ...dependents.map(d => d.id)], 'disable'); }}
           />
         );
         return;
@@ -158,6 +163,7 @@ const InstalledTab: FC<{
     setBusy(true);
     await toggleMod(game.appid, id, enable);
     await onRefresh(); setBusy(false);
+    if (!enable) cleanupOrphans([id], 'disable');
   };
 
   const handleDeleteMod = async (mod: ModInfo) => {
@@ -168,8 +174,8 @@ const InstalledTab: FC<{
     const showDeleteModal = () => showModal(
       <DeleteVersionModal
         modName={mod.name} currentVersion={currentVersion} backedUpVersions={backedUp}
-        onDeleteAll={async (c) => { c(); setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
-        onDeleteVersion={async (version, c) => { c(); setBusy(true); if (currentVersion === version) { await uninstallMod(game.appid, mod.id); } else { await deleteModVersion(game.appid, mod.id, version); } await onRefresh(); setBusy(false); }}
+        onDeleteAll={async (c) => { c(); setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); cleanupOrphans([mod.id], 'uninstall'); }}
+        onDeleteVersion={async (version, c) => { c(); setBusy(true); if (currentVersion === version) { await uninstallMod(game.appid, mod.id); } else { await deleteModVersion(game.appid, mod.id, version); } await onRefresh(); setBusy(false); if (currentVersion === version) cleanupOrphans([mod.id], 'uninstall'); }}
       />
     );
 
@@ -179,7 +185,7 @@ const InstalledTab: FC<{
           dependentNames={dependents.map(m => m.meta?.name ?? m.filename.replace(/\.dll$/, ''))}
           onDisable={async (close: () => void) => { close(); setBusy(true); for (const dep of dependents) await toggleMod(game.appid, dep.id, false); await onRefresh(); setBusy(false); showDeleteModal(); }}
           onIgnore={async (close: () => void) => { close(); showDeleteModal(); }}
-          onDelete={async (close: () => void) => { close(); setBusy(true); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
+          onDelete={async (close: () => void) => { close(); setBusy(true); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); cleanupOrphans([mod.id, ...dependents.map(d => d.id)], 'uninstall'); }}
         />
       );
       return;
@@ -350,9 +356,9 @@ const InstalledTab: FC<{
       showModal(
         <DependentsModal
           dependentNames={dependents.map(m => m.meta?.name ?? m.filename.replace(/\.dll$/, ''))}
-          onDisable={async (close) => { close(); setBusy(true); for (const dep of dependents) await toggleMod(game.appid, dep.id, false); await disableTargets(); setSelectionMode(false); await onRefresh(); setBusy(false); }}
-          onIgnore={async (close) => { close(); setBusy(true); await disableTargets(); setSelectionMode(false); await onRefresh(); setBusy(false); }}
-          onDelete={async (close) => { close(); setBusy(true); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await disableTargets(); setSelectionMode(false); await onRefresh(); setBusy(false); }}
+          onDisable={async (close) => { close(); setBusy(true); for (const dep of dependents) await toggleMod(game.appid, dep.id, false); await disableTargets(); setSelectionMode(false); await onRefresh(); setBusy(false); cleanupOrphans([...ids, ...dependents.map(d => d.id)], 'disable'); }}
+          onIgnore={async (close) => { close(); setBusy(true); await disableTargets(); setSelectionMode(false); await onRefresh(); setBusy(false); cleanupOrphans(ids, 'disable'); }}
+          onDelete={async (close) => { close(); setBusy(true); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await disableTargets(); setSelectionMode(false); await onRefresh(); setBusy(false); cleanupOrphans([...ids, ...dependents.map(d => d.id)], 'disable'); }}
         />
       );
     } else {
@@ -360,6 +366,7 @@ const InstalledTab: FC<{
       await disableTargets();
       setSelectionMode(false);
       await onRefresh(); setBusy(false);
+      cleanupOrphans(ids, 'disable');
     }
   };
 
@@ -393,9 +400,9 @@ const InstalledTab: FC<{
       showModal(
         <DependentsModal
           dependentNames={dependents.map(m => m.meta?.name ?? m.filename.replace(/\.dll$/, ''))}
-          onDisable={async (close) => { close(); setBusy(true); for (const dep of dependents) await toggleMod(game.appid, dep.id, false); await uninstallAll(); setSelectionMode(false); await onRefresh(); setBusy(false); }}
-          onIgnore={async (close) => { close(); setBusy(true); await uninstallAll(); setSelectionMode(false); await onRefresh(); setBusy(false); }}
-          onDelete={async (close) => { close(); setBusy(true); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await uninstallAll(); setSelectionMode(false); await onRefresh(); setBusy(false); }}
+          onDisable={async (close) => { close(); setBusy(true); for (const dep of dependents) await toggleMod(game.appid, dep.id, false); await uninstallAll(); setSelectionMode(false); await onRefresh(); setBusy(false); cleanupOrphans(bulkUninstallTargets, 'uninstall'); }}
+          onIgnore={async (close) => { close(); setBusy(true); await uninstallAll(); setSelectionMode(false); await onRefresh(); setBusy(false); cleanupOrphans(bulkUninstallTargets, 'uninstall'); }}
+          onDelete={async (close) => { close(); setBusy(true); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await uninstallAll(); setSelectionMode(false); await onRefresh(); setBusy(false); cleanupOrphans([...bulkUninstallTargets, ...dependents.map(d => d.id)], 'uninstall'); }}
         />
       );
     } else {
@@ -403,6 +410,7 @@ const InstalledTab: FC<{
       await uninstallAll();
       setSelectionMode(false);
       await onRefresh(); setBusy(false);
+      cleanupOrphans(bulkUninstallTargets, 'uninstall');
     }
   };
 

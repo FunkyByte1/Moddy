@@ -15,6 +15,7 @@ import {
   getBrowseDenylist,
 } from '../types';
 import DependentsModal from '../components/modals/DependentsModal';
+import { showOrphanCleanup } from '../orphanCleanup';
 import { BrowseFilter } from '../components/modals/BrowseFilterModal';
 import { centerInView } from '../components/centerInView';
 
@@ -366,6 +367,13 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
       } finally {
         setInstalling(null);
       }
+      const removedIds = depAction === 'delete'
+        ? [pkg.full_name, ...dependents.map(d => d.id)]
+        : [pkg.full_name];
+      showOrphanCleanup({
+        game, denylist: new Set<string>(), removedIds, mode: 'uninstall',
+        onRefresh, setBusy: b => setInstalling(b ? pkg.full_name : null),
+      });
     };
 
     if (dependents.length > 0) {

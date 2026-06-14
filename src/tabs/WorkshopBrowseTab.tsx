@@ -8,6 +8,7 @@ import {
   workshopModId, fileIdForMod,
 } from '../types';
 import DependentsModal from '../components/modals/DependentsModal';
+import { showOrphanCleanup } from '../orphanCleanup';
 import { centerInView } from '../components/centerInView';
 
 // Steam's gamepad-scrollable container (scrolls with the right stick). Falls back to a
@@ -163,6 +164,13 @@ const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }
         toaster.toast({ title: 'Moddy', body: ok ? `Removed ${it.name}` : `Failed to remove ${it.name}` });
         await onRefresh();
       } finally { setInstalling(null); }
+      const removedIds = action === 'delete'
+        ? [modId, ...dependents.map(d => d.id)]
+        : [modId];
+      showOrphanCleanup({
+        game, denylist: new Set<string>(), removedIds, mode: 'uninstall',
+        onRefresh, setBusy: b => setInstalling(b ? it.id : null),
+      });
     };
     if (dependents.length > 0) {
       showModal(
