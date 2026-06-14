@@ -67,3 +67,15 @@ Directory.Build.props
 *.deckhand_bak
 deploy.sh
 releases/
+
+# Sandbox/tooling artifacts (home dotfiles masked into the workspace, agent state)
+.bash_profile
+.bashrc
+.gitconfig
+.gitmodules
+.mcp.json
+.profile
+.ripgreprc
+.zprofile
+.zshrc
+.claude/
