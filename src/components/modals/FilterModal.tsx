@@ -26,9 +26,9 @@ export function modMatchesFilter(entry: ModEntry, filter: ModFilter): boolean {
   return entry.enabled ? filter.enabled : filter.disabled;
 }
 
-// "Select All" governs only the install/enable status boxes, not the library toggle.
+// "Select All" / "Deselect All" governs every checkbox, including the library toggle.
 const allSelected = (f: ModFilter): boolean =>
-  f.installed && f.notInstalled && f.enabled && f.disabled;
+  f.installed && f.notInstalled && f.enabled && f.disabled && f.hideLibraries;
 
 const setAllFilters = (value: boolean, f: ModFilter): ModFilter => ({
   ...f,
@@ -36,6 +36,7 @@ const setAllFilters = (value: boolean, f: ModFilter): ModFilter => ({
   notInstalled: value,
   enabled: value,
   disabled: value,
+  hideLibraries: value,
 });
 
 const Section: FC<{ title: string; children: ReactNode }> = ({ title, children }) => (
@@ -93,9 +94,9 @@ const FilterModal: FC<{
         </Section>
         <Section title="Libraries">
           <DialogCheckbox
-            label="Show Libraries"
-            checked={!local.hideLibraries}
-            onChange={(v) => update({ ...local, hideLibraries: !v })}
+            label="Hide Libraries"
+            checked={local.hideLibraries}
+            onChange={(v) => update({ ...local, hideLibraries: v })}
           />
         </Section>
       </div>

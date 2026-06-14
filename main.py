@@ -353,12 +353,13 @@ class Plugin:
         return steamworkshop_browse.get_workshop_catalog(appid, search, sort, page)
 
     async def get_workshop_required_items(self, appid: int, fileid: str) -> list:
-        """The dependency (required-item) file ids declared by a Workshop item, so the
-        frontend can subscribe them too — SteamClient.SubscribeWorkshopItem doesn't."""
+        """The dependency (required items) declared by a Workshop item, with metadata, so
+        the frontend can subscribe them (SteamClient.SubscribeWorkshopItem doesn't cascade)
+        and stamp their real names immediately."""
         game = registry.get_game_by_appid(appid)
         if not game or not game.uses_steam_workshop():
             return []
-        return steamworkshop_browse.get_required_items(str(fileid))
+        return steamworkshop_browse.get_required_items_detailed(str(fileid))
 
     async def set_workshop_meta(self, appid: int, fileid: str, name: str, thumbnail: str, description: str) -> bool:
         """Stamp real metadata onto a just-installed non-curated Workshop record so it

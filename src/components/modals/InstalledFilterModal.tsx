@@ -40,7 +40,7 @@ const InstalledFilterModal: FC<{
   const [local, setLocal] = useState<InstalledFilter>(filter);
   const update = (next: InstalledFilter) => { setLocal(next); onChange(next); };
 
-  const bothStatuses = local.enabled && local.disabled;
+  const allOn = local.enabled && local.disabled && local.hideLibraries;
 
   return (
     <ModalRoot closeModal={closeModal}>
@@ -49,9 +49,9 @@ const InstalledFilterModal: FC<{
         <div style={{ marginBottom: '12px' }}>
           <ButtonItem
             layout="below"
-            onClick={() => update({ ...local, enabled: !bothStatuses, disabled: !bothStatuses })}
+            onClick={() => update({ ...local, enabled: !allOn, disabled: !allOn, hideLibraries: !allOn })}
           >
-            {bothStatuses ? 'Deselect All' : 'Select All'}
+            {allOn ? 'Deselect All' : 'Select All'}
           </ButtonItem>
         </div>
         <Section title="Enabled Status">
@@ -75,9 +75,9 @@ const InstalledFilterModal: FC<{
         </Section>
         <Section title="Libraries">
           <DialogCheckbox
-            label="Show Libraries"
-            checked={!local.hideLibraries}
-            onChange={(v) => update({ ...local, hideLibraries: !v })}
+            label="Hide Libraries"
+            checked={local.hideLibraries}
+            onChange={(v) => update({ ...local, hideLibraries: v })}
           />
         </Section>
       </div>

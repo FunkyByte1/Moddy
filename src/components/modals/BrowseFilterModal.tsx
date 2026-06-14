@@ -94,9 +94,9 @@ const BrowseFilterModal: FC<{
             onChange={(v) => update({ ...local, showNsfw: v })}
           />
           <DialogCheckbox
-            label="Show Libraries"
-            checked={!local.hideLibraries}
-            onChange={(v) => update({ ...local, hideLibraries: !v })}
+            label="Hide Libraries"
+            checked={local.hideLibraries}
+            onChange={(v) => update({ ...local, hideLibraries: v })}
           />
         </Section>
         {categories.length > 0 && (

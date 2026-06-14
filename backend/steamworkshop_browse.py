@@ -133,6 +133,17 @@ def get_required_items(fileid: str) -> list[str]:
         return []
 
 
+def get_required_items_detailed(fileid: str) -> list[dict]:
+    """Required items (dependencies) WITH metadata resolved, so the frontend can stamp
+    real names on freshly-subscribed deps right away instead of leaving 'Workshop item
+    <id>' placeholders until the next reconcile."""
+    ids = get_required_items(fileid)
+    if not ids:
+        return []
+    meta = _details(ids)
+    return [_to_item(meta[i]) for i in ids if i in meta]
+
+
 def get_workshop_catalog(appid: int, search: str = "", sort: str = "trend", page: int = 1) -> list[dict]:
     """A page (~30 items) of the Workshop catalog for `appid`, in browse order.
     Returns [] on any fetch/parse error. Cached per query for a short TTL."""

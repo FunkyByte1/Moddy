@@ -368,25 +368,29 @@ export interface WorkshopCatalogItem {
 export const getWorkshopCatalog =
   callable<[appid: number, search: string, sort: string, page: number], WorkshopCatalogItem[]>('get_workshop_catalog');
 
-// An item's declared required items (dependency file ids). SteamClient.SubscribeWorkshopItem
-// does NOT cascade these, so Moddy resolves and subscribes them itself.
+// An item's declared required items (dependencies), with metadata. SteamClient.Subscribe-
+// WorkshopItem doesn't cascade these, so Moddy resolves and subscribes them itself.
 export const getWorkshopRequiredItems =
-  callable<[appid: number, fileid: string], string[]>('get_workshop_required_items');
+  callable<[appid: number, fileid: string], WorkshopCatalogItem[]>('get_workshop_required_items');
 
 // Stamp real metadata onto a just-installed non-curated record so it shows its name
 // immediately instead of the "Workshop item <id>" placeholder until the next reconcile.
 export const setWorkshopMeta =
   callable<[appid: number, fileid: string, name: string, thumbnail: string, description: string], boolean>('set_workshop_meta');
 
-// Install a Workshop item and its declared required items (deps), recursively.
+// Install a Workshop item and its declared required items (deps), recursively, stamping
+// each one's real name immediately so deps never show the "Workshop item <id>" placeholder.
 export const installWorkshopTree = async (
-  appid: number, fileId: string, seen: Set<string> = new Set(),
+  appid: number, fileId: string,
+  meta?: { name?: string; thumbnail?: string; description?: string },
+  seen: Set<string> = new Set(),
 ): Promise<void> => {
   if (seen.has(fileId)) return;
   seen.add(fileId);
   await installMod(appid, workshopModId(appid, fileId), null);
+  if (meta?.name) await setWorkshopMeta(appid, fileId, meta.name, meta.thumbnail ?? '', meta.description ?? '');
   for (const req of await getWorkshopRequiredItems(appid, fileId)) {
-    await installWorkshopTree(appid, req, seen);
+    await installWorkshopTree(appid, req.id, { name: req.name, thumbnail: req.preview_url, description: req.description }, seen);
   }
 };
 

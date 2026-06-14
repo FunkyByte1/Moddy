@@ -1,13 +1,17 @@
-import { ButtonItem, DialogButton, Focusable, PanelSection, PanelSectionRow, TextField, showModal } from '@decky/ui';
+import { ButtonItem, DialogButton, Focusable, PanelSection, PanelSectionRow, ScrollPanelGroup, Spinner, TextField, showModal } from '@decky/ui';
 import { toaster } from '@decky/api';
-import { FC, useState, useEffect, useMemo, CSSProperties } from 'react';
+import { FC, useState, useEffect, useMemo, useRef, CSSProperties } from 'react';
 
 import {
   GameStatus, WorkshopCatalogItem,
-  getWorkshopCatalog, installWorkshopTree, setWorkshopMeta, uninstallMod, toggleMod,
+  getWorkshopCatalog, installWorkshopTree, uninstallMod, toggleMod,
   workshopModId, fileIdForMod,
 } from '../types';
 import DependentsModal from '../components/modals/DependentsModal';
+
+// Steam's gamepad-scrollable container (scrolls with the right stick). Falls back to a
+// plain Focusable if the internal lookup ever fails, so it never crashes.
+const ScrollArea = (ScrollPanelGroup ?? Focusable) as FC<any>;
 
 // A full browse page is ~30 items; fewer means we've reached the end.
 const PAGE_FULL = 25;
@@ -19,11 +23,11 @@ const stripBBCode = (s: string) => s.replace(/\[\/?[^\]]+\]/g, '').trim();
 
 const Row: FC<{
   item: WorkshopCatalogItem; selected: boolean; installed: boolean;
-  onSelect: () => void;
-}> = ({ item, selected, installed, onSelect }) => (
-  <div style={{ padding: '2px 0' } as CSSProperties} onFocusCapture={onSelect}>
+  onSelect: () => void; onActivate: () => void; innerRef?: (el: HTMLDivElement | null) => void;
+}> = ({ item, selected, installed, onSelect, onActivate, innerRef }) => (
+  <div ref={innerRef} style={{ padding: '2px 0' } as CSSProperties} onFocusCapture={onSelect}>
     <DialogButton
-      onClick={onSelect}
+      onClick={onActivate}
       style={{
         width: '100%', minHeight: 0, padding: '6px 8px',
         background: selected ? 'var(--gpColorHighlight1)' : 'rgba(255,255,255,0.04)',
@@ -97,6 +101,37 @@ const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }
     }
   };
 
+  // Load more via a button, but move focus back into the list (to the last mod) once
+  // it's pressed — otherwise focus stays on the button and "up" jumps to the bottom.
+  const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [pendingFocus, setPendingFocus] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (pendingFocus == null) return;
+    const el = rowRefs.current.get(pendingFocus);
+    const focusable = (el?.querySelector('button, [tabindex]') as HTMLElement | null) ?? el;
+    focusable?.focus();
+    setSelectedIndex(pendingFocus);
+    setPendingFocus(null);
+  }, [items, pendingFocus]);
+
+  const handleLoadMore = async () => {
+    const lastMod = Math.max(0, items.length - 1);
+    await loadMore();
+    setPendingFocus(lastMod);
+  };
+
+  // Pressing A on a mod (or navigating right) jumps focus to the detail panel's action
+  // button; pressing B in the detail returns to the selected mod in the list.
+  const detailRef = useRef<HTMLDivElement>(null);
+  const focusDetail = () => {
+    (detailRef.current?.querySelector('button, [tabindex]') as HTMLElement | null)?.focus();
+  };
+  const focusSelectedRow = () => {
+    const el = rowRefs.current.get(selectedIndex);
+    ((el?.querySelector('button, [tabindex]') as HTMLElement | null) ?? el)?.focus();
+  };
+
   const installedFileIds = useMemo(
     () => new Set(game.installed_mods.map(m => fileIdForMod(game.appid, m.id)).filter(Boolean) as string[]),
     [game.installed_mods, game.appid],
@@ -107,10 +142,8 @@ const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }
   const handleInstall = async (it: WorkshopCatalogItem) => {
     setInstalling(it.id);
     try {
-      // Installs the item plus its declared required items (deps).
-      await installWorkshopTree(game.appid, it.id);
-      // Show the real name right away instead of the brief placeholder.
-      await setWorkshopMeta(game.appid, it.id, it.name, it.preview_url, it.description);
+      // Installs the item plus its declared required items (deps), each with its real name.
+      await installWorkshopTree(game.appid, it.id, { name: it.name, thumbnail: it.preview_url, description: it.description });
       toaster.toast({ title: 'Moddy', body: `Installing ${it.name}…` });
       await onRefresh();
     } finally { setInstalling(null); }
@@ -148,10 +181,16 @@ const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }
       <Focusable style={{ width: LEFT_PANEL_WIDTH, borderRight: '1px solid var(--gpColorSeparator)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: 8 }}>
           <TextField label="Search Workshop" value={search} onChange={e => setSearch(e.target.value)} />
+          <div style={{ marginTop: 6, minHeight: 16, fontSize: 11, color: 'var(--gpColorTextSecondary)' }}>
+            {loading ? 'Loading…' : items.length > 0 ? `${items.length} mod${items.length === 1 ? '' : 's'}` : ''}
+          </div>
         </div>
         <Focusable style={{ flex: 1, overflowY: 'auto', padding: '0 8px 60px' }}>
           {loading ? (
-            <div style={{ padding: 16, color: 'var(--gpColorTextSecondary)' }}>Loading catalog…</div>
+            <div style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: 'var(--gpColorTextSecondary)' }}>
+              <Spinner style={{ width: 28, height: 28 }} />
+              <div style={{ fontSize: 12 }}>Loading catalog…</div>
+            </div>
           ) : items.length === 0 ? (
             <div style={{ padding: 16, color: 'var(--gpColorTextSecondary)' }}>
               {debounced ? 'No matches.' : 'Catalog unavailable — check network.'}
@@ -159,11 +198,13 @@ const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }
           ) : (
             <>
               {items.map((it, i) => (
-                <Row key={it.id} item={it} selected={i === selectedIndex} installed={isInstalled(it)} onSelect={() => setSelectedIndex(i)} />
+                <Row key={it.id} item={it} selected={i === selectedIndex} installed={isInstalled(it)}
+                  onSelect={() => setSelectedIndex(i)} onActivate={focusDetail}
+                  innerRef={el => { if (el) rowRefs.current.set(i, el); else rowRefs.current.delete(i); }} />
               ))}
               {hasMore && (
                 <div style={{ padding: '8px 0' }}>
-                  <ButtonItem layout="below" disabled={loadingMore} onClick={loadMore}>
+                  <ButtonItem layout="below" disabled={loadingMore} onClick={handleLoadMore}>
                     {loadingMore ? 'Loading…' : 'Load more'}
                   </ButtonItem>
                 </div>
@@ -173,11 +214,17 @@ const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }
         </Focusable>
       </Focusable>
 
-      <Focusable style={{ flex: 1, overflowY: 'auto', paddingBottom: 60 }}>
+      <ScrollArea focusable={false} style={{ flex: 1, minHeight: 0, height: '100%' }}>
         {!selected ? (
           <div style={{ color: 'var(--gpColorTextSecondary)', padding: 16 }}>Focus an item on the left to see details.</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 16px' }}>
+          <Focusable
+            ref={detailRef}
+            noFocusRing
+            onGamepadFocus={focusDetail}
+            onCancelButton={focusSelectedRow}
+            style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 16px 60px' }}
+          >
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
               <div style={{ width: 80, height: 80, flexShrink: 0, borderRadius: 4, overflow: 'hidden', background: 'rgba(255,255,255,0.08)' }}>
                 {selected.preview_url && <img src={selected.preview_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
@@ -206,12 +253,12 @@ const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }
             </PanelSection>
             {selected.description && (
               <div style={{ fontSize: 13, lineHeight: '18px', color: 'var(--gpColorTextSecondary)', whiteSpace: 'pre-wrap' }}>
-                {stripBBCode(selected.description).slice(0, 600)}
+                {stripBBCode(selected.description)}
               </div>
             )}
-          </div>
+          </Focusable>
         )}
-      </Focusable>
+      </ScrollArea>
     </Focusable>
   );
 };

@@ -104,11 +104,13 @@ const ModDetailPanel: FC<{
                 </ButtonItem>
               </PanelSectionRow>
             )}
-            <PanelSectionRow>
-              <ButtonItem layout="below" onClick={() => onChangeVersion(entry.info)} disabled={busy}>
-                Change Version
-              </ButtonItem>
-            </PanelSectionRow>
+            {game.modloader !== 'steamworkshop' && (
+              <PanelSectionRow>
+                <ButtonItem layout="below" onClick={() => onChangeVersion(entry.info)} disabled={busy}>
+                  Change Version
+                </ButtonItem>
+              </PanelSectionRow>
+            )}
             <PanelSectionRow>
               <ButtonItem layout="below" onClick={() => onDelete(entry.info)} disabled={busy}>
                 Delete
@@ -122,11 +124,13 @@ const ModDetailPanel: FC<{
                 Install Latest
               </ButtonItem>
             </PanelSectionRow>
-            <PanelSectionRow>
-              <ButtonItem layout="below" onClick={() => onChangeVersion(entry.info)} disabled={busy}>
-                Choose Version
-              </ButtonItem>
-            </PanelSectionRow>
+            {game.modloader !== 'steamworkshop' && (
+              <PanelSectionRow>
+                <ButtonItem layout="below" onClick={() => onChangeVersion(entry.info)} disabled={busy}>
+                  Choose Version
+                </ButtonItem>
+              </PanelSectionRow>
+            )}
           </>
         )}
       </PanelSection>
