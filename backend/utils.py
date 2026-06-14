@@ -1,13 +1,11 @@
 import os
-import ssl
 import asyncio
 import threading
 import urllib.request
 import urllib.error
 import decky
 
-_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
-_USER_AGENT = "Moddy/0.1.0 (+https://github.com/FunkyByte1/Moddy)"
+import fetch
 
 # How long a single read may go without receiving any data before we treat the
 # transfer as stalled and reconnect (an inactivity timeout, not a total-time cap —
@@ -25,13 +23,6 @@ _cancel_event = threading.Event()
 def cancel_install() -> None:
     """Signal any in-progress install to cancel."""
     _cancel_event.set()
-
-
-def _make_ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    if os.path.isfile(_CA_BUNDLE):
-        ctx = ssl.create_default_context(cafile=_CA_BUNDLE)
-    return ctx
 
 
 class InstallCancelledError(Exception):
@@ -53,7 +44,7 @@ async def download(url: str, dest: str, appid: int) -> None:
     Raises InstallCancelledError if cancelled, or Exception if the download truly stalls.
     """
     _cancel_event.clear()
-    ctx = _make_ssl_context()
+    ctx = fetch.ssl_context()
     chunk_size = 65536  # 64KB chunks
     loop = asyncio.get_event_loop()
 
@@ -71,7 +62,7 @@ async def download(url: str, dest: str, appid: int) -> None:
             raise InstallCancelledError("Installation cancelled by user")
 
         progress_before = downloaded
-        headers = {"User-Agent": _USER_AGENT}
+        headers = {"User-Agent": fetch.USER_AGENT}
         if downloaded > 0:
             headers["Range"] = f"bytes={downloaded}-"
         req = urllib.request.Request(url, headers=headers)

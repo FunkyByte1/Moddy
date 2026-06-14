@@ -10,6 +10,7 @@ import modloaders
 import mods
 import profiles
 import github
+import thunderstore
 import bmi
 import utils
 import steamworkshop_browse
@@ -22,7 +23,7 @@ def _catalog_for_game(game: "registry.GameProfile") -> list[dict]:
         if game.catalog.get("type") == "bmi" and game.catalog.get("repo"):
             return bmi.get_bmi_catalog(game.catalog["repo"], game.catalog.get("branch", "main"))
         if game.thunderstore_community:
-            return github.get_thunderstore_community_catalog(game.thunderstore_community)
+            return thunderstore.get_community_catalog(game.thunderstore_community)
     except Exception as e:
         decky.logger.warning(f"Could not load catalog for {game.id}: {e}")
     return []
@@ -256,10 +257,10 @@ class Plugin:
                     return False
         elif mod.source.type == "thunderstore":
             if version:
-                url = github.get_thunderstore_download_url(mod.source.owner, mod.source.repo, version)
+                url = thunderstore.get_download_url(mod.source.owner, mod.source.repo, version)
                 resolved_version = version
             else:
-                latest = github.get_thunderstore_latest(mod.source.owner, mod.source.repo)
+                latest = thunderstore.get_latest(mod.source.owner, mod.source.repo)
                 if not latest:
                     decky.logger.error(f"Could not resolve latest Thunderstore release for {mod_id}")
                     return False
@@ -287,13 +288,13 @@ class Plugin:
                 releases = github.get_all_releases(mod.source.owner, mod.source.repo)
                 return [r for r in releases if mod.source.asset in r.get("download_urls", {})]
             if mod.source.type == "thunderstore":
-                return github.get_thunderstore_all_versions(mod.source.owner, mod.source.repo)
+                return thunderstore.get_all_versions(mod.source.owner, mod.source.repo)
             return []  # github_source and others don't have versioned releases
         # Browsed mod — look up by full_name in the community catalog
         if game.thunderstore_community:
-            pkg = github.find_thunderstore_package(game.thunderstore_community, mod_id)
+            pkg = thunderstore.find_package(game.thunderstore_community, mod_id)
             if pkg:
-                return github.get_thunderstore_all_versions(pkg["owner"], pkg["name"])
+                return thunderstore.get_all_versions(pkg["owner"], pkg["name"])
         return []
 
     async def check_mod_updates(self, appid: int) -> list:
@@ -314,16 +315,16 @@ class Plugin:
                 continue
             mod = game.get_mod(mod_id)
             if mod:
-                source_type, owner, repo, asset = mod.source.type, mod.source.owner, mod.source.repo, mod.source.asset
+                source_type, owner, repo = mod.source.type, mod.source.owner, mod.source.repo
             else:
                 source = (mods.get_installed_record(mod_id) or {}).get("source") or {}
-                source_type, owner, repo, asset = source.get("type", ""), source.get("owner", ""), source.get("repo", ""), source.get("asset", "")
+                source_type, owner, repo = source.get("type", ""), source.get("owner", ""), source.get("repo", "")
             if not owner or not repo:
                 continue
             if source_type == "github":
                 latest = github.get_latest_release(owner, repo)
             elif source_type == "thunderstore":
-                latest = github.get_thunderstore_latest(owner, repo)
+                latest = thunderstore.get_latest(owner, repo)
             else:
                 continue
             if latest and latest["version"] != installed_version:
@@ -413,7 +414,7 @@ class Plugin:
         game = registry.get_game_by_appid(appid)
         if not game or not game.thunderstore_community:
             return []
-        return github.get_thunderstore_community_catalog(game.thunderstore_community)
+        return thunderstore.get_community_catalog(game.thunderstore_community)
 
     async def refresh_thunderstore_catalog(self, appid: int) -> bool:
         """Force a fresh catalog pull from Thunderstore, keeping the existing cache
@@ -421,7 +422,7 @@ class Plugin:
         game = registry.get_game_by_appid(appid)
         if not game or not game.thunderstore_community:
             return False
-        return github.refresh_thunderstore_community_catalog(game.thunderstore_community)
+        return thunderstore.refresh_community_catalog(game.thunderstore_community)
 
     # ── Balatro Mod Index (BMI) catalog ───────────────────────────────────────
     async def get_bmi_catalog(self, appid: int) -> list:
@@ -498,7 +499,7 @@ class Plugin:
         if not owner or not repo:
             decky.logger.warning(f"Framework '{key}' for {game.id} has no GitHub source")
             return False
-        url = github.get_github_source_url(owner, repo, src.get("branch", "main"))
+        url = github.get_source_url(owner, repo, src.get("branch", "main"))
         mod = registry.ModInfo(
             id=fw_id,
             name=fw.get("name", key),
@@ -573,7 +574,7 @@ class Plugin:
         if existing and version is None:
             decky.logger.info(f"{full_name} already installed; skipping")
             return True
-        pkg = github.find_thunderstore_package(game.thunderstore_community, full_name)
+        pkg = thunderstore.find_package(game.thunderstore_community, full_name)
         if not pkg:
             decky.logger.error(f"Thunderstore package not found in catalog: {full_name}")
             return False
@@ -585,7 +586,7 @@ class Plugin:
         # RoR2BepInExPack but never list it as a manifest dep.
         explicit_deps: list[str] = []
         for dep_str in latest.get("dependencies", []):
-            parsed = github.parse_thunderstore_dep(dep_str)
+            parsed = thunderstore.parse_dep(dep_str)
             if not parsed:
                 decky.logger.warning(f"Could not parse dep string '{dep_str}' for {full_name}")
                 continue
@@ -603,7 +604,7 @@ class Plugin:
                 )
         target_version = version or latest.get("version_number")
         if version:
-            url = github.get_thunderstore_download_url(pkg["owner"], pkg["name"], version)
+            url = thunderstore.get_download_url(pkg["owner"], pkg["name"], version)
         else:
             url = latest.get("download_url")
         if not url or not target_version:

@@ -8,7 +8,7 @@ never depends on anyone's private API server. Each meta.json carries a direct
 downloads that flow through mods._install_mod_zip_dir.
 
 Catalog items are emitted in the same shape as the trimmed Thunderstore catalog
-(see github._trim_thunderstore_package) so the Browse UI can render them without
+(see thunderstore._trim_package) so the Browse UI can render them without
 new types, plus a few BMI-only extras (requires_steamodded/talisman, folder_name)
 used at install time.
 """
@@ -16,7 +16,6 @@ used at install time.
 import io
 import json
 import os
-import ssl
 import time
 import urllib.parse
 import urllib.request
@@ -24,15 +23,9 @@ import zipfile
 
 import decky
 
-_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
-_USER_AGENT = "Moddy/0.1.0 (+https://github.com/FunkyByte1/Moddy)"
+import fetch
+
 _CATALOG_CACHE_TTL_SECONDS = 86400  # 1 day, mirroring the Thunderstore catalog
-
-
-def _ssl_ctx() -> ssl.SSLContext:
-    if os.path.isfile(_CA_BUNDLE):
-        return ssl.create_default_context(cafile=_CA_BUNDLE)
-    return ssl.create_default_context()
 
 
 def _catalog_cache_path(repo: str) -> str:
@@ -140,8 +133,8 @@ def get_bmi_catalog(repo: str, branch: str = "main", force: bool = False) -> lis
             decky.logger.warning(f"BMI catalog cache read failed for {repo}: {e}")
 
     try:
-        req = urllib.request.Request(_archive_url(repo, branch), headers={"User-Agent": _USER_AGENT})
-        with urllib.request.urlopen(req, context=_ssl_ctx(), timeout=60) as resp:
+        req = fetch.request(_archive_url(repo, branch))
+        with urllib.request.urlopen(req, context=fetch.ssl_context(), timeout=60) as resp:
             zip_bytes = resp.read()
         items = _build_catalog_from_zip(repo, zip_bytes, branch)
     except Exception as e:

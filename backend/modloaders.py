@@ -4,6 +4,7 @@ import shutil
 import zipfile
 import decky
 import github
+import thunderstore
 import utils
 from registry import GameProfile, ModloaderInfo
 
@@ -217,10 +218,10 @@ async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, m
     tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_extract")
     try:
         if version:
-            url = github.get_thunderstore_download_url(ml.source.owner, ml.source.repo, version)
+            url = thunderstore.get_download_url(ml.source.owner, ml.source.repo, version)
             resolved_version = version
         else:
-            latest = github.get_thunderstore_latest(ml.source.owner, ml.source.repo)
+            latest = thunderstore.get_latest(ml.source.owner, ml.source.repo)
             if not latest:
                 decky.logger.error(f"Could not resolve latest {ml.id} release from Thunderstore")
                 return False

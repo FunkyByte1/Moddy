@@ -15,29 +15,22 @@ Search, sort, and pagination are driven by the browse page's query params. Resul
 are cached in-memory per (appid, search, sort, page) for a short TTL.
 """
 import json
-import os
 import re
-import ssl
 import time
 import urllib.parse
 import urllib.request
 
 import decky
 
+import fetch
+
 _BROWSE_URL = "https://steamcommunity.com/workshop/browse/"
 _DETAILS_URL = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
+# A deliberately browser-like UA — the Workshop browse page serves different markup
+# to non-browser agents, so this one stays distinct from fetch.USER_AGENT.
 _UA = "Mozilla/5.0 (X11; Linux x86_64) Moddy"
-# SteamOS' default SSL context can't always find the cert store; point at the system
-# CA bundle explicitly, matching the other backend fetchers (github.py / bmi.py).
-_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
 _CACHE_TTL = 600  # 10 minutes
 _cache: dict[tuple, tuple[float, list]] = {}
-
-
-def _ssl_ctx() -> ssl.SSLContext:
-    if os.path.isfile(_CA_BUNDLE):
-        return ssl.create_default_context(cafile=_CA_BUNDLE)
-    return ssl.create_default_context()
 
 # Map our sort keys to the browse page's params.
 _SORTS = {
@@ -50,7 +43,7 @@ _SORTS = {
 
 def _fetch(url: str, data: bytes | None = None) -> str:
     req = urllib.request.Request(url, data=data, headers={"User-Agent": _UA})
-    with urllib.request.urlopen(req, context=_ssl_ctx(), timeout=20) as r:
+    with urllib.request.urlopen(req, context=fetch.ssl_context(), timeout=20) as r:
         return r.read().decode("utf-8", "replace")
 
 
