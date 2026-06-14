@@ -8,6 +8,7 @@ import { FC } from 'react';
 
 import { GameStatus, ModInfo, ModUpdate } from '../types';
 import { ModEntry } from './ModEntry';
+import { SHOW_VERSION_OPTIONS } from '../featureFlags';
 
 const ModDetailPanel: FC<{
   entry: ModEntry;
@@ -104,7 +105,7 @@ const ModDetailPanel: FC<{
                 </ButtonItem>
               </PanelSectionRow>
             )}
-            {game.modloader !== 'steamworkshop' && (
+            {SHOW_VERSION_OPTIONS && game.modloader !== 'steamworkshop' && (
               <PanelSectionRow>
                 <ButtonItem layout="below" onClick={() => onChangeVersion(entry.info)} disabled={busy}>
                   Change Version
@@ -124,7 +125,7 @@ const ModDetailPanel: FC<{
                 Install Latest
               </ButtonItem>
             </PanelSectionRow>
-            {game.modloader !== 'steamworkshop' && (
+            {SHOW_VERSION_OPTIONS && game.modloader !== 'steamworkshop' && (
               <PanelSectionRow>
                 <ButtonItem layout="below" onClick={() => onChangeVersion(entry.info)} disabled={busy}>
                   Choose Version

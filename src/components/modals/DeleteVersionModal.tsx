@@ -1,5 +1,6 @@
 import { ButtonItem, ConfirmModal, ModalRoot, showModal } from '@decky/ui';
 import { FC } from 'react';
+import { SHOW_VERSION_OPTIONS } from '../../featureFlags';
 
 const DeleteVersionModal: FC<{
   modName: string;
@@ -15,28 +16,30 @@ const DeleteVersionModal: FC<{
         Delete — {modName}
       </div>
       <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', marginBottom: '16px' }}>
-        Choose which versions to remove from disk.
+        {SHOW_VERSION_OPTIONS ? 'Choose which versions to remove from disk.' : 'Remove this mod from disk.'}
       </div>
 
-      {/* Delete all */}
+      {/* Delete all (or, with versioning hidden, a plain delete) */}
       <div style={{ marginBottom: '12px' }}>
         <ButtonItem layout="below" onClick={() =>
           showModal(
             <ConfirmModal
-              strTitle={`Delete all versions of ${modName}?`}
-              strDescription="This will remove the mod and all cached versions from disk."
+              strTitle={SHOW_VERSION_OPTIONS ? `Delete all versions of ${modName}?` : `Delete ${modName}?`}
+              strDescription={SHOW_VERSION_OPTIONS
+                ? 'This will remove the mod and all cached versions from disk.'
+                : 'This will remove the mod from disk.'}
               strOKButtonText="Cancel"
-              strCancelButtonText="Delete all"
+              strCancelButtonText={SHOW_VERSION_OPTIONS ? 'Delete all' : 'Delete'}
               onCancel={() => onDeleteAll(closeModal ?? (() => {}))}
             />
           )
         }>
-          Delete all versions
+          {SHOW_VERSION_OPTIONS ? 'Delete all versions' : 'Delete'}
         </ButtonItem>
       </div>
 
       {/* Current version */}
-      {currentVersion && currentVersion !== 'latest' && (
+      {SHOW_VERSION_OPTIONS && currentVersion && currentVersion !== 'latest' && (
         <div style={{ marginBottom: '8px' }}>
           <ButtonItem layout="below" onClick={() =>
             showModal(
@@ -58,7 +61,7 @@ const DeleteVersionModal: FC<{
       )}
 
       {/* Backed up versions */}
-      {backedUpVersions.map(version => (
+      {SHOW_VERSION_OPTIONS && backedUpVersions.map(version => (
         <div key={version} style={{ marginBottom: '8px' }}>
           <ButtonItem layout="below" onClick={() =>
             showModal(
@@ -79,7 +82,7 @@ const DeleteVersionModal: FC<{
         </div>
       ))}
 
-      {!currentVersion && backedUpVersions.length === 0 && (
+      {SHOW_VERSION_OPTIONS && !currentVersion && backedUpVersions.length === 0 && (
         <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em' }}>
           No versions found on disk.
         </div>

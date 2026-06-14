@@ -18,6 +18,7 @@ import {
   addModloaderLaunchOptions, removeModloaderLaunchOptions,
 } from '../types';
 import FirstLaunchModal from '../components/modals/FirstLaunchModal';
+import { SHOW_VERSION_OPTIONS } from '../featureFlags';
 
 // Version picker for modloader
 const ModloaderVersionPickerModal: FC<{
@@ -213,11 +214,13 @@ const ModLoaderTab: FC<{
               Install Latest
             </ButtonItem>
           </PanelSectionRow>
-          <PanelSectionRow>
-            <ButtonItem layout="below" onClick={handleChangeVersion} disabled={busy}>
-              Choose Version
-            </ButtonItem>
-          </PanelSectionRow>
+          {SHOW_VERSION_OPTIONS && (
+            <PanelSectionRow>
+              <ButtonItem layout="below" onClick={handleChangeVersion} disabled={busy}>
+                Choose Version
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
         </PanelSection>
       ) : (
         // ── Installed (ready or not) ───────────────────────────────────────────
@@ -284,11 +287,13 @@ const ModLoaderTab: FC<{
                 </ButtonItem>
               </PanelSectionRow>
             )}
-            <PanelSectionRow>
-              <ButtonItem layout="below" onClick={handleChangeVersion} disabled={busy}>
-                Change Version
-              </ButtonItem>
-            </PanelSectionRow>
+            {SHOW_VERSION_OPTIONS && (
+              <PanelSectionRow>
+                <ButtonItem layout="below" onClick={handleChangeVersion} disabled={busy}>
+                  Change Version
+                </ButtonItem>
+              </PanelSectionRow>
+            )}
             <PanelSectionRow>
               <ButtonItem layout="below" onClick={handleCheckUpdate} disabled={busy || checkingUpdate}>
                 {checkingUpdate ? 'Checking...' : 'Check for Updates'}
