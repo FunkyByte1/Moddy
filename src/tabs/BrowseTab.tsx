@@ -16,6 +16,7 @@ import {
 } from '../types';
 import DependentsModal from '../components/modals/DependentsModal';
 import { showOrphanCleanup } from '../orphanCleanup';
+import { CatalogSourceLabel } from '../components/CatalogSource';
 import { BrowseFilter } from '../components/modals/BrowseFilterModal';
 import { centerInView } from '../components/centerInView';
 
@@ -458,6 +459,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
             value={query}
             onChange={e => setQuery(e.target.value)}
           />
+          <CatalogSourceLabel source={isBmi ? 'bmi' : 'thunderstore'} />
           <div style={{ marginTop: 4, fontSize: 11, color: 'var(--gpColorTextSecondary)' }}>
             {loading
               ? 'Loading…'
@@ -467,11 +469,6 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
           </div>
         </div>
         {listSlot}
-        {isBmi && (
-          <div style={{ padding: '6px 8px', fontSize: 10, color: 'var(--gpColorTextSecondary)' }}>
-            Catalog from the community Balatro Mod Index (MIT).
-          </div>
-        )}
       </Focusable>
       <Focusable style={{ flex: 1, overflowY: 'auto', paddingBottom: 60 }}>
         <DetailPanel

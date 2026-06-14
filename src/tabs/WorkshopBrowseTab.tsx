@@ -9,6 +9,7 @@ import {
 } from '../types';
 import DependentsModal from '../components/modals/DependentsModal';
 import { showOrphanCleanup } from '../orphanCleanup';
+import { CatalogSourceLabel } from '../components/CatalogSource';
 import { centerInView } from '../components/centerInView';
 
 // Steam's gamepad-scrollable container (scrolls with the right stick). Falls back to a
@@ -191,6 +192,7 @@ const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }
       <Focusable style={{ width: LEFT_PANEL_WIDTH, borderRight: '1px solid var(--gpColorSeparator)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: 8 }}>
           <TextField label="Search Workshop" value={search} onChange={e => setSearch(e.target.value)} />
+          <CatalogSourceLabel source="workshop" />
           <div style={{ marginTop: 6, minHeight: 16, fontSize: 11, color: 'var(--gpColorTextSecondary)' }}>
             {loading ? 'Loading…' : items.length > 0 ? `${items.length} mod${items.length === 1 ? '' : 's'}` : ''}
           </div>
