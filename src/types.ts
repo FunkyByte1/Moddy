@@ -173,8 +173,9 @@ export const removeModloaderLaunchOptions = (appid: number, modloaderOptions: st
 // WorkshopItem is the same internal IPC the in-client Workshop button uses, so it
 // has no such side effect. The backend still keeps the install record so Moddy can
 // list/manage the mod; the actual subscribe/unsubscribe is done from here.
-const _workshopIds = new Map<string, string>();    // `${appid}:${mod_id}` -> publishedfileid
-const _workshopDeps = new Map<string, string[]>(); // `${appid}:${mod_id}` -> dependency mod ids
+const _workshopIds = new Map<string, string>();     // `${appid}:${mod_id}` -> publishedfileid
+const _workshopDeps = new Map<string, string[]>();  // `${appid}:${mod_id}` -> dependency mod ids
+const _workshopIdToMod = new Map<string, string>(); // `${appid}:${fileid}` -> curated mod id
 
 const workshopIdFor = (appid: number, modId: string): string | undefined => {
   const direct = _workshopIds.get(`${appid}:${modId}`);
@@ -183,6 +184,15 @@ const workshopIdFor = (appid: number, modId: string): string | undefined => {
   const m = modId.match(/^workshop\.\d+\.(\d+)$/);
   return m ? m[1] : undefined;
 };
+
+// The Moddy mod id used to install/track a Workshop file id: the curated id when one
+// matches (so browse installs dedupe against curated mods), else the synthetic id.
+export const workshopModId = (appid: number, fileId: string): string =>
+  _workshopIdToMod.get(`${appid}:${fileId}`) ?? `workshop.${appid}.${fileId}`;
+
+// The Workshop file id behind a Moddy mod id (curated or synthetic), if any.
+export const fileIdForMod = (appid: number, modId: string): string | undefined =>
+  workshopIdFor(appid, modId);
 
 const subscribeWorkshopItem = (appid: number, workshopId: string, subscribed: boolean): void => {
   const apps = (window as any).SteamClient?.Apps;
@@ -259,6 +269,7 @@ const indexWorkshopMods = (games: GameStatus[]): void => {
       if (m.source?.type === 'steamworkshop' && m.source.workshop_id) {
         _workshopIds.set(`${g.appid}:${m.id}`, m.source.workshop_id);
         _workshopDeps.set(`${g.appid}:${m.id}`, m.dependencies || []);
+        _workshopIdToMod.set(`${g.appid}:${m.source.workshop_id}`, m.id);
       }
     }
   }
@@ -341,6 +352,43 @@ export const getBmiCatalog = callable<[appid: number], ThunderstorePackage[]>('g
 export const refreshBmiCatalog = callable<[appid: number], boolean>('refresh_bmi_catalog');
 export const installBmiMod = callable<[appid: number, mod_id: string, version: string | null], boolean | null>('install_bmi_mod');
 export const getBrowseDenylist = callable<[], string[]>('get_browse_denylist');
+
+export interface WorkshopCatalogItem {
+  id: string;
+  name: string;
+  description: string;
+  preview_url: string;
+  subscriptions: number;
+  file_size: number;
+  time_updated: number;
+  tags: string[];
+  url: string;
+}
+// Steam Workshop browse — server-paginated/searched (~30 items per page).
+export const getWorkshopCatalog =
+  callable<[appid: number, search: string, sort: string, page: number], WorkshopCatalogItem[]>('get_workshop_catalog');
+
+// An item's declared required items (dependency file ids). SteamClient.SubscribeWorkshopItem
+// does NOT cascade these, so Moddy resolves and subscribes them itself.
+export const getWorkshopRequiredItems =
+  callable<[appid: number, fileid: string], string[]>('get_workshop_required_items');
+
+// Stamp real metadata onto a just-installed non-curated record so it shows its name
+// immediately instead of the "Workshop item <id>" placeholder until the next reconcile.
+export const setWorkshopMeta =
+  callable<[appid: number, fileid: string, name: string, thumbnail: string, description: string], boolean>('set_workshop_meta');
+
+// Install a Workshop item and its declared required items (deps), recursively.
+export const installWorkshopTree = async (
+  appid: number, fileId: string, seen: Set<string> = new Set(),
+): Promise<void> => {
+  if (seen.has(fileId)) return;
+  seen.add(fileId);
+  await installMod(appid, workshopModId(appid, fileId), null);
+  for (const req of await getWorkshopRequiredItems(appid, fileId)) {
+    await installWorkshopTree(appid, req, seen);
+  }
+};
 
 export interface ProfileMod {
   id: string;

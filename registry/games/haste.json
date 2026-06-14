@@ -5,55 +5,6 @@
   "mods_dir": "SteamWorkshopManaged",
   "mods_dir_type": "game",
   "modloader_ids": ["steamworkshop"],
-  "mods": [
-    {
-      "id": "haste.settingslib",
-      "name": "SettingsLib",
-      "description": "Shared settings/config library used by many Haste mods.",
-      "author": "Workshop",
-      "homepage": "https://steamcommunity.com/sharedfiles/filedetails/?id=3462196533",
-      "thumbnail": "",
-      "modloader": "steamworkshop",
-      "is_library": true,
-      "source": {
-        "type": "steamworkshop",
-        "workshop_id": "3462196533",
-        "install_type": "steamworkshop"
-      },
-      "filename": "SettingsLib",
-      "dependencies": []
-    },
-    {
-      "id": "haste.endless-tweaker",
-      "name": "Endless Tweaker",
-      "description": "Adds extensive run/endless-mode tweaks. Requires SettingsLib.",
-      "author": "Workshop",
-      "homepage": "https://steamcommunity.com/sharedfiles/filedetails/?id=3460131825",
-      "thumbnail": "",
-      "modloader": "steamworkshop",
-      "source": {
-        "type": "steamworkshop",
-        "workshop_id": "3460131825",
-        "install_type": "steamworkshop"
-      },
-      "filename": "EndlessTweaker",
-      "dependencies": ["haste.settingslib"]
-    },
-    {
-      "id": "haste.hasty-controls",
-      "name": "Hasty Controls",
-      "description": "Customizable control / input tweaks for Haste.",
-      "author": "Workshop",
-      "homepage": "https://steamcommunity.com/sharedfiles/filedetails/?id=3456414574",
-      "thumbnail": "",
-      "modloader": "steamworkshop",
-      "source": {
-        "type": "steamworkshop",
-        "workshop_id": "3456414574",
-        "install_type": "steamworkshop"
-      },
-      "filename": "HastyControls",
-      "dependencies": []
-    }
-  ]
+  "library_workshop_ids": ["3408901301", "3462196533", "3508742571", "3464667710", "3460101948"],
+  "mods": []
 }

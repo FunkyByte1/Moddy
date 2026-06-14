@@ -12,6 +12,7 @@ import profiles
 import github
 import bmi
 import utils
+import steamworkshop_browse
 
 
 def _catalog_for_game(game: "registry.GameProfile") -> list[dict]:
@@ -82,7 +83,12 @@ class Plugin:
                 _library_full_names(game, lib_cats)
                 if (installed_mods_list and lib_cats) else set()
             )
+            workshop = game.uses_steam_workshop()
             for im in installed_mods_list:
+                # Workshop mods carry is_library on their record (curated flag or the
+                # game's library_workshop_ids); don't clobber it with catalog logic.
+                if workshop:
+                    continue
                 idl = im["id"].lower()
                 im["is_library"] = idl in lib_names or idl in framework_ids
 
@@ -336,6 +342,32 @@ class Plugin:
         if not install_dir:
             return False
         return await mods.uninstall_mod(game, install_dir, mod_id)
+
+    async def get_workshop_catalog(self, appid: int, search: str = "", sort: str = "trend", page: int = 1) -> list:
+        """A page (~30 items) of the Steam Workshop catalog for a workshop game,
+        in browse order. Keyless (scrapes ids + resolves via GetPublishedFileDetails).
+        Returns [] for non-workshop games or on error."""
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.uses_steam_workshop():
+            return []
+        return steamworkshop_browse.get_workshop_catalog(appid, search, sort, page)
+
+    async def get_workshop_required_items(self, appid: int, fileid: str) -> list:
+        """The dependency (required-item) file ids declared by a Workshop item, so the
+        frontend can subscribe them too — SteamClient.SubscribeWorkshopItem doesn't."""
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.uses_steam_workshop():
+            return []
+        return steamworkshop_browse.get_required_items(str(fileid))
+
+    async def set_workshop_meta(self, appid: int, fileid: str, name: str, thumbnail: str, description: str) -> bool:
+        """Stamp real metadata onto a just-installed non-curated Workshop record so it
+        shows its name immediately, rather than the 'Workshop item <id>' placeholder
+        until the next reconcile. No-op for curated mods (they already have a name)."""
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.uses_steam_workshop():
+            return False
+        return mods.set_workshop_meta(game, str(fileid), name, thumbnail, description)
 
     async def reconcile_workshop_subscriptions(self, appid: int, items: list) -> bool:
         """Sync installed.json with the game's actual Steam Workshop subscriptions

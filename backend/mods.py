@@ -1,9 +1,14 @@
 import os
 import json
+import time
 import decky
 from registry import GameProfile, ModInfo
 import steam
 import utils
+
+# A freshly-recorded Workshop install isn't in GetSubscribedWorkshopItems yet
+# (SteamClient subscribe is async), so reconcile must not drop records this young.
+_RECONCILE_GRACE_SECONDS = 180
 
 
 def resolve_mods_path(game: GameProfile, install_dir: str) -> str:
@@ -119,9 +124,59 @@ def set_mod_enabled(mod_id: str, enabled: bool) -> None:
         _save_store(store)
 
 
+# Workshop unsubscribe is async (SteamClient), so just-deleted items still appear in
+# GetSubscribedWorkshopItems for a moment. We tombstone them so reconcile doesn't re-add
+# the record the user just removed (the mirror of the install grace period).
+def _load_pending_unsub() -> dict:
+    path = _get_store_path()
+    if os.path.isfile(path):
+        try:
+            with open(path, "r") as f:
+                return json.load(f).get("workshop_unsub", {})
+        except Exception as e:
+            decky.logger.error(f"Failed to load pending unsubscribes: {e}")
+    return {}
+
+
+def _save_pending_unsub(pending: dict) -> None:
+    path = _get_store_path()
+    tmp = path + ".tmp"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        full = {}
+        if os.path.isfile(path):
+            with open(path, "r") as f:
+                full = json.load(f)
+        full["workshop_unsub"] = pending
+        with open(tmp, "w") as f:
+            json.dump(full, f, indent=2)
+        os.replace(tmp, path)
+    except Exception as e:
+        decky.logger.error(f"Failed to save pending unsubscribes: {e}")
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def _mark_unsub_pending(fileid: str) -> None:
+    if not fileid:
+        return
+    pending = _load_pending_unsub()
+    pending[str(fileid)] = time.time()
+    _save_pending_unsub(pending)
+
+
+def _clear_unsub_pending(fileid: str) -> None:
+    if not fileid:
+        return
+    pending = _load_pending_unsub()
+    if str(fileid) in pending:
+        del pending[str(fileid)]
+        _save_pending_unsub(pending)
+
+
 def _workshop_record(
     fileid: str, appid: int, name: str, thumbnail: str, description: str,
-    filename: str, mod: "ModInfo | None" = None,
+    filename: str, mod: "ModInfo | None" = None, is_library: bool = False,
 ) -> dict:
     """Build an installed.json record for a subscribed Workshop mod. `appid` scopes
     the (globally-keyed) store to a game; metadata comes from the curated ModInfo
@@ -131,6 +186,8 @@ def _workshop_record(
         "filename": filename,
         "appid": appid,
         "install_type": "steamworkshop",
+        "is_library": bool(mod.is_library if mod else is_library),
+        "added_at": time.time(),
         "source": {
             "type": "steamworkshop", "owner": "", "repo": "", "asset": "",
             "install_type": "steamworkshop", "workshop_id": fileid,
@@ -165,34 +222,77 @@ def reconcile_workshop(game: GameProfile, items: list[dict]) -> bool:
         if m.source.type == "steamworkshop" and m.source.workshop_id
     }
     curated_ids = {m.id for m in game.mods}
+    lib_ids = set(game.library_workshop_ids)
+    now = time.time()
     changed = False
 
-    # 1) ensure a record exists for each subscribed item
+    # A pending unsubscribe clears once Steam drops it from the subscribed set (or after
+    # the grace window as a safety) — until then we ignore that item so reconcile doesn't
+    # re-add a record the user just deleted.
+    pending = _load_pending_unsub()
+    pending_changed = False
+    for fid in list(pending.keys()):
+        if fid not in subscribed or (now - pending[fid]) >= _RECONCILE_GRACE_SECONDS:
+            del pending[fid]
+            pending_changed = True
+    if pending_changed:
+        _save_pending_unsub(pending)
+
+    # 1) ensure a record exists for each subscribed item, and keep is_library current
+    #    on existing records too (so library-list edits take effect without reinstalling)
     for fid, it in subscribed.items():
+        if fid in pending:
+            continue  # just unsubscribed; Steam hasn't dropped it yet
         m = curated_by_wid.get(fid)
         if m:
-            if m.id not in store:
-                store[m.id] = _workshop_record(fid, game.appid, m.name, m.thumbnail, m.description, m.filename, mod=m)
+            mod_id = m.id
+            want_lib = bool(m.is_library)
+            if mod_id not in store:
+                store[mod_id] = _workshop_record(fid, game.appid, m.name, m.thumbnail, m.description, m.filename, mod=m)
                 changed = True
         else:
-            sid = f"workshop.{game.appid}.{fid}"
-            if sid not in store:
+            mod_id = f"workshop.{game.appid}.{fid}"
+            want_lib = fid in lib_ids
+            name = it.get("name") or ""
+            thumb = it.get("thumbnail") or ""
+            desc = it.get("description") or ""
+            # Map the item's required-item file ids to Moddy mod ids so the UI's dependents
+            # logic works (curated dep -> curated id, otherwise the synthetic id).
+            deps = [
+                curated_by_wid[c].id if c in curated_by_wid else f"workshop.{game.appid}.{c}"
+                for c in (it.get("dependencies") or [])
+            ]
+            if mod_id not in store:
                 rec = _workshop_record(
-                    fid, game.appid,
-                    (it.get("name") or f"Workshop item {fid}"),
-                    it.get("thumbnail") or "",
-                    it.get("description") or "",
-                    it.get("name") or fid,
+                    fid, game.appid, name or f"Workshop item {fid}", thumb, desc,
+                    name or fid, is_library=want_lib,
                 )
-                # Map the item's required-item file ids to Moddy mod ids so the UI's
-                # dependents logic works for non-curated subs (curated dep -> curated id,
-                # otherwise the synthetic id for that file).
-                rec["meta"]["dependencies"] = [
-                    curated_by_wid[c].id if c in curated_by_wid else f"workshop.{game.appid}.{c}"
-                    for c in (it.get("dependencies") or [])
-                ]
-                store[sid] = rec
+                rec["meta"]["dependencies"] = deps
+                store[mod_id] = rec
                 changed = True
+            else:
+                # Refresh metadata on an existing synthetic record. A Browse install starts
+                # as a placeholder ("Workshop item <id>", no deps) until the Steam details
+                # arrive on a later reconcile — this is what fixes those names/deps.
+                rec = store[mod_id]
+                meta = rec.setdefault("meta", {})
+                if name and meta.get("name") != name:
+                    meta["name"] = name
+                    if rec.get("filename") in (None, "", fid):
+                        rec["filename"] = name
+                    changed = True
+                if thumb and meta.get("thumbnail") != thumb:
+                    meta["thumbnail"] = thumb
+                    changed = True
+                if desc and meta.get("description") != desc:
+                    meta["description"] = desc
+                    changed = True
+                if deps and meta.get("dependencies") != deps:
+                    meta["dependencies"] = deps
+                    changed = True
+        if store[mod_id].get("is_library") != want_lib:
+            store[mod_id]["is_library"] = want_lib
+            changed = True
 
     # 2) drop this game's Workshop records that are no longer subscribed
     for mod_id in list(store.keys()):
@@ -203,6 +303,30 @@ def reconcile_workshop(game: GameProfile, items: list[dict]) -> bool:
         if not (mod_id in curated_ids or rec.get("appid") == game.appid):
             continue  # belongs to a different game
         if src.get("workshop_id", "") not in subscribed:
+            # Don't drop a just-installed record whose subscription hasn't shown up in
+            # GetSubscribedWorkshopItems yet (SteamClient subscribe is async).
+            if (now - rec.get("added_at", 0)) < _RECONCILE_GRACE_SECONDS:
+                continue
+            del store[mod_id]
+            changed = True
+
+    # 3) collapse duplicates: one record per subscribed item. A removed curated mod's old
+    #    record is superseded by the synthetic one created above — drop the orphan, carrying
+    #    over a disabled flag so a deliberately-disabled mod stays disabled.
+    for mod_id in list(store.keys()):
+        rec = store[mod_id]
+        src = rec.get("source") or {}
+        if src.get("type") != "steamworkshop":
+            continue
+        if not (mod_id in curated_ids or rec.get("appid") == game.appid):
+            continue
+        wid = src.get("workshop_id", "")
+        if not wid:
+            continue
+        canonical = curated_by_wid[wid].id if wid in curated_by_wid else f"workshop.{game.appid}.{wid}"
+        if mod_id != canonical and canonical in store:
+            if not rec.get("enabled", True):
+                store[canonical]["enabled"] = False
             del store[mod_id]
             changed = True
 
@@ -294,6 +418,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             "enabled": enabled,
             "version": record.get("version"),
             "meta": record.get("meta"),
+            "is_library": record.get("is_library", False),
         })
 
     # Workshop games have no on-disk mods folder Moddy manages — their state is the
@@ -314,6 +439,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                 "enabled": record.get("enabled", True),
                 "version": record.get("version"),
                 "meta": record.get("meta"),
+                "is_library": record.get("is_library", False),
             })
         return installed
 
@@ -411,6 +537,7 @@ async def install_workshop_mod(game: GameProfile, mod: ModInfo) -> bool | None:
     if not mod.source.workshop_id:
         decky.logger.error(f"Workshop mod {mod.id} has no workshop_id")
         return False
+    _clear_unsub_pending(mod.source.workshop_id)
     store = _load_store()
     store[mod.id] = _workshop_record(
         mod.source.workshop_id, game.appid, mod.name, mod.thumbnail, mod.description, mod.filename, mod=mod,
@@ -419,12 +546,38 @@ async def install_workshop_mod(game: GameProfile, mod: ModInfo) -> bool | None:
     return True
 
 
+def set_workshop_meta(game: GameProfile, fileid: str, name: str, thumbnail: str, description: str) -> bool:
+    """Update a non-curated Workshop record's display metadata in place (used right after
+    a Browse install so the real name shows immediately). Only touches the synthetic
+    record for this file; curated mods keep their registry metadata."""
+    mod_id = f"workshop.{game.appid}.{fileid}"
+    store = _load_store()
+    rec = store.get(mod_id)
+    if not rec:
+        return False
+    meta = rec.setdefault("meta", {})
+    if name:
+        meta["name"] = name
+        if rec.get("filename") in (None, "", fileid):
+            rec["filename"] = name
+    if thumbnail:
+        meta["thumbnail"] = thumbnail
+    if description:
+        meta["description"] = description
+    _save_store(store)
+    return True
+
+
 async def install_synthetic_workshop(game: GameProfile, mod_id: str, fileid: str) -> bool:
     """Record a non-curated Workshop subscription by its synthetic id. The frontend has
     already subscribed via SteamClient; reconcile enriches title/deps on the next refresh."""
+    _clear_unsub_pending(fileid)
     store = _load_store()
     if mod_id not in store:
-        store[mod_id] = _workshop_record(fileid, game.appid, f"Workshop item {fileid}", "", "", fileid)
+        store[mod_id] = _workshop_record(
+            fileid, game.appid, f"Workshop item {fileid}", "", "", fileid,
+            is_library=fileid in game.library_workshop_ids,
+        )
         _save_store(store)
     return True
 
@@ -747,6 +900,9 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
     rec_source = record.get("source") or {}
     source_type = mod.source.type if mod else rec_source.get("type")
     if source_type == "steamworkshop":
+        fileid = (mod.source.workshop_id if mod else rec_source.get("workshop_id")) or ""
+        if fileid:
+            _mark_unsub_pending(fileid)  # don't let reconcile re-add it mid-unsubscribe
         clear_installed_record(mod_id)
         return True
 

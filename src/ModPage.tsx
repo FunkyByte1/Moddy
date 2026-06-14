@@ -8,6 +8,7 @@ import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
 import ProfilesTab from './tabs/ProfilesTab';
 import BrowseTab from './tabs/BrowseTab';
+import WorkshopBrowseTab from './tabs/WorkshopBrowseTab';
 import OptionsModal from './components/modals/OptionsModal';
 import ResetGameModal from './components/modals/ResetGameModal';
 import SaveProfileModal from './components/modals/SaveProfileModal';
@@ -231,7 +232,9 @@ const ModPage: FC = () => {
 
   // Build tab list — Mod Loader always first, Mods + Profiles only when ready
   const tabs = [
-    {
+    // Steam Workshop is the platform's own loader — there's nothing to install, so
+    // these games skip the Mod Loader tab entirely.
+    ...(game.modloader === 'steamworkshop' ? [] : [{
       id: 'modloader',
       title: 'Mod Loader',
       content: (
@@ -246,7 +249,7 @@ const ModPage: FC = () => {
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
       },
-    },
+    }]),
     ...(modloaderReady ? [
     // Catalog-backed games (Thunderstore or BMI) manage installed mods here and
     // discover new ones in Browse; curated-only games keep the Mods tab as their
@@ -280,7 +283,7 @@ const ModPage: FC = () => {
       },
     } : {
       id: 'mods',
-      title: 'Mods',
+      title: game.modloader === 'steamworkshop' ? 'Installed' : 'Mods',
       content: (
         <ModsTab
           game={game}
@@ -324,6 +327,18 @@ const ModPage: FC = () => {
         onMenuActionDescription: 'Options',
         onSecondaryButton: handleBrowseFilterMenu,
         onSecondaryActionDescription: 'Filter',
+      },
+    }] : []),
+    // Steam Workshop games browse a server-paginated catalog in their own tab.
+    ...(game.modloader === 'steamworkshop' ? [{
+      id: 'browse',
+      title: 'Browse',
+      content: (
+        <WorkshopBrowseTab game={game} onRefresh={refresh} />
+      ),
+      footer: {
+        onMenuButton: handleOptionsMenu,
+        onMenuActionDescription: 'Options',
       },
     }] : []),
     {

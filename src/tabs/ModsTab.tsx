@@ -42,6 +42,9 @@ const ModsTab: FC<{
   }, [selectionMode]);
 
   const installedIds = new Set(game.installed_mods.map(m => m.id));
+  // Workshop games discover mods in the Browse tab, so this tab is an "Installed" list —
+  // only show actually-installed mods, not curated offerings.
+  const isWorkshop = game.modloader === 'steamworkshop';
 
   // Installed mods that depend on `id` — combines curated game.mods dependencies with
   // installed mods' own meta.dependencies (Workshop subs carry their required items
@@ -77,7 +80,7 @@ const ModsTab: FC<{
     return im?.meta?.name || im?.filename.replace('.dll', '') || id;
   };
 
-  const allEntries: ModEntry[] = game.mods.map(mod => {
+  const allEntries: ModEntry[] = isWorkshop ? [] : game.mods.map(mod => {
     const installed = game.installed_mods.find(m => m.id === mod.id);
     const dependenciesMet = !installed || !installed.enabled ||
       (mod.dependencies ?? []).every(depId =>
@@ -88,7 +91,9 @@ const ModsTab: FC<{
       installed: !!installed, enabled: installed?.enabled ?? false,
       version: installed?.version ?? null,
       hasUpdate: !!updates.find(u => u.id === mod.id),
-      dependenciesMet, isLibrary: !!mod.is_library, info: mod,
+      dependenciesMet, isLibrary: !!mod.is_library,
+      // Prefer the reconciled preview (Workshop mods have no registry thumbnail).
+      info: { ...mod, thumbnail: installed?.meta?.thumbnail || mod.thumbnail },
     };
   });
 
@@ -431,11 +436,14 @@ const ModsTab: FC<{
       >
         {modEntries.length === 0 ? (
           <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', padding: '8px' }}>
-            {allEntries.length === 0 ? 'No mods available' : 'No mods match the current filter'}
+            {allEntries.length === 0
+              ? (isWorkshop ? 'No mods installed — find some in the Browse tab.' : 'No mods available')
+              : 'No mods match the current filter'}
           </div>
         ) : modEntries.map((entry, i) => (
           <ModListItem key={entry.id} entry={entry} selected={i === selectedIndex}
             selectionMode={selectionMode} isChecked={selectedIds.has(entry.id)}
+            showThumbnail={isWorkshop}
             onToggle={handleToggleMod} onSelectToggle={toggleSelected}
             onFocus={() => setSelectedIndex(i)} />
         ))}
