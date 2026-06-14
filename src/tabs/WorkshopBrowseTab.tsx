@@ -1,6 +1,6 @@
-import { ButtonItem, DialogButton, Focusable, PanelSection, PanelSectionRow, ScrollPanelGroup, Spinner, TextField, showModal } from '@decky/ui';
+import { ButtonItem, Focusable, PanelSection, PanelSectionRow, ScrollPanelGroup, Spinner, TextField, showModal } from '@decky/ui';
 import { toaster } from '@decky/api';
-import { FC, useState, useEffect, useMemo, useRef, CSSProperties } from 'react';
+import { FC, useState, useEffect, useMemo, useRef } from 'react';
 
 import {
   GameStatus, WorkshopCatalogItem,
@@ -26,30 +26,30 @@ const Row: FC<{
   item: WorkshopCatalogItem; selected: boolean; installed: boolean;
   onSelect: () => void; onActivate: () => void; innerRef?: (el: HTMLDivElement | null) => void;
 }> = ({ item, selected, installed, onSelect, onActivate, innerRef }) => (
-  <div ref={innerRef} style={{ padding: '2px 0' } as CSSProperties}
-    onFocusCapture={(e) => { onSelect(); centerInView(e.currentTarget); }}>
-    <DialogButton
-      onClick={onActivate}
-      style={{
-        width: '100%', minHeight: 0, padding: '6px 8px',
-        background: selected ? 'var(--gpColorHighlight1)' : 'rgba(255,255,255,0.04)',
-        border: 'none', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 8,
-        textAlign: 'left', color: 'inherit', fontWeight: 'normal',
-      }}
-    >
-      <div style={{ width: 32, height: 32, flexShrink: 0, borderRadius: 3, overflow: 'hidden', background: 'rgba(255,255,255,0.08)' }}>
-        {item.preview_url && <img src={item.preview_url} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+  // A plain Focusable (like the Installed/Profiles rows) so it gets Steam's focus-ring
+  // border — DialogButton doesn't show it. onActivate handles the A press.
+  <Focusable
+    ref={innerRef}
+    onFocus={(e) => { onSelect(); centerInView(e.currentTarget); }}
+    onActivate={onActivate}
+    style={{
+      display: 'flex', alignItems: 'center', gap: 8, padding: '8px',
+      borderRadius: 4, marginBottom: 2, cursor: 'pointer', outline: 'none',
+      background: selected ? 'var(--gpColorHighlight1)' : 'transparent',
+    }}
+  >
+    <div style={{ width: 32, height: 32, flexShrink: 0, borderRadius: 3, overflow: 'hidden', background: 'rgba(255,255,255,0.08)' }}>
+      {item.preview_url && <img src={item.preview_url} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+    </div>
+    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ fontWeight: 600, fontSize: 13, lineHeight: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {item.name}
       </div>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ fontWeight: 600, fontSize: 13, lineHeight: '16px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {item.name}
-        </div>
-        <div style={{ fontSize: 10, lineHeight: '13px', color: 'var(--gpColorTextSecondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {fmtSubs(item.subscriptions)} subscribers{installed && ' · installed'}
-        </div>
+      <div style={{ fontSize: 10, lineHeight: '13px', color: 'var(--gpColorTextSecondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {fmtSubs(item.subscriptions)} subscribers{installed && ' · installed'}
       </div>
-    </DialogButton>
-  </div>
+    </div>
+  </Focusable>
 );
 
 const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }> = ({ game, onRefresh }) => {
