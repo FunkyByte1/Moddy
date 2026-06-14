@@ -8,6 +8,7 @@ import {
   workshopModId, fileIdForMod,
 } from '../types';
 import DependentsModal from '../components/modals/DependentsModal';
+import { centerInView } from '../components/centerInView';
 
 // Steam's gamepad-scrollable container (scrolls with the right stick). Falls back to a
 // plain Focusable if the internal lookup ever fails, so it never crashes.
@@ -25,7 +26,8 @@ const Row: FC<{
   item: WorkshopCatalogItem; selected: boolean; installed: boolean;
   onSelect: () => void; onActivate: () => void; innerRef?: (el: HTMLDivElement | null) => void;
 }> = ({ item, selected, installed, onSelect, onActivate, innerRef }) => (
-  <div ref={innerRef} style={{ padding: '2px 0' } as CSSProperties} onFocusCapture={onSelect}>
+  <div ref={innerRef} style={{ padding: '2px 0' } as CSSProperties}
+    onFocusCapture={(e) => { onSelect(); centerInView(e.currentTarget); }}>
     <DialogButton
       onClick={onActivate}
       style={{

@@ -2,6 +2,7 @@ import { ToggleField, Focusable } from '@decky/ui';
 import { FC } from 'react';
 
 import { ModEntry } from './ModEntry';
+import { centerInView } from './centerInView';
 
 const ModListItem: FC<{
   entry: ModEntry;
@@ -14,7 +15,7 @@ const ModListItem: FC<{
   onFocus: () => void;
 }> = ({ entry, selected, selectionMode, isChecked, showThumbnail, onToggle, onSelectToggle, onFocus }) => (
   <Focusable
-    onFocus={onFocus}
+    onFocus={(e) => { onFocus(); centerInView(e.currentTarget); }}
     onActivate={() => {
       if (selectionMode) {
         onSelectToggle?.(entry.id);

@@ -16,6 +16,7 @@ import {
 } from '../types';
 import DependentsModal from '../components/modals/DependentsModal';
 import { BrowseFilter } from '../components/modals/BrowseFilterModal';
+import { centerInView } from '../components/centerInView';
 
 interface Props {
   game: GameStatus;
@@ -55,7 +56,7 @@ const Row: FC<{ index: number; style: CSSProperties; data: RowData }> = ({ index
   return (
     <div
       style={{ ...style, padding: '2px 0', boxSizing: 'border-box' }}
-      onFocusCapture={() => data.onSelect(index)}
+      onFocusCapture={(e) => { data.onSelect(index); centerInView(e.currentTarget); }}
     >
       <DialogButton
         onClick={() => data.onSelect(index)}
