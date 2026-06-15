@@ -6,6 +6,6 @@
   "publish": {
     "tags": ["mods", "modding", "root"],
     "description": "One-click mod installation and management for supported games on Steam Deck.",
-    "image": ""
+    "image": "assets/moddy-logo-tile.png"
   }
 }

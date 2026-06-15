@@ -1,7 +1,6 @@
 import { ButtonItem, PanelSection, PanelSectionRow, TextField, staticClasses } from '@decky/ui';
 import { definePlugin, routerHook, toaster } from '@decky/api';
 import { useState, useEffect, useRef } from 'react';
-import { FaPuzzlePiece } from 'react-icons/fa';
 
 import contextMenuPatch, { LibraryContextMenu } from './contextMenuPatch';
 import ModPage from './ModPage';
@@ -9,6 +8,24 @@ import {
   GameStatus, getSupportedAppids, getSupportedGames,
   getSetting, setSetting, NEXUS_API_KEY, exportLogs,
 } from './types';
+
+// The Moddy mark, inlined as a component so it works as the Decky panel icon without a
+// separate asset/loader. Uses currentColor so it inherits Decky's icon tint. Geometry
+// mirrors assets/moddy-logo.svg.
+function ModdyIcon() {
+  return (
+    <svg viewBox="0 0 512 512" width="1em" height="1em" fill="none" stroke="currentColor" style={{ display: 'block' }}>
+      <g strokeWidth={60} strokeLinecap="butt">
+        <path d="M 110 426 L 110 140 L 183 206" strokeLinejoin="miter" strokeMiterlimit={12} />
+        <path d="M 402 426 L 402 140 L 329 206" strokeLinejoin="miter" strokeMiterlimit={12} />
+        <path d="M 161 186 L 256 272 L 351 186" strokeLinejoin="bevel" />
+        <line x1={80} y1={416} x2={432} y2={416} strokeWidth={20} />
+        <line x1={175} y1={370} x2={215} y2={370} strokeWidth={12} strokeLinecap="round" />
+        <circle cx={317} cy={370} r={18} fill="currentColor" stroke="none" />
+      </g>
+    </svg>
+  );
+}
 
 // Account-global settings live here on the landing view, since they aren't tied to one
 // game. Currently just the Nexus Mods personal API key (used by the Nexus Browse tab).
@@ -144,7 +161,7 @@ export default definePlugin(() => {
     name: 'Moddy',
     titleView: <div className={staticClasses.Title}>Moddy</div>,
     content: <Content />,
-    icon: <FaPuzzlePiece />,
+    icon: <ModdyIcon />,
     onDismount() {
       routerHook.removeRoute('/moddy/:appid');
       menuPatch?.unpatch();
