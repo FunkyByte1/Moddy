@@ -205,11 +205,56 @@ async def install_modloader(game: GameProfile, install_dir: str, modloader_id: s
     if ml.native:
         return True  # platform-provided (e.g. Steam Workshop) — nothing to install
     if ml.source.type == "github":
-        return await _install_github_modloader(game, install_dir, ml, version)
-    if ml.source.type == "thunderstore":
-        return await _install_thunderstore_modloader(game, install_dir, ml, version)
-    decky.logger.error(f"Unsupported modloader source type: {ml.source.type}")
-    return False
+        ok = await _install_github_modloader(game, install_dir, ml, version)
+    elif ml.source.type == "thunderstore":
+        ok = await _install_thunderstore_modloader(game, install_dir, ml, version)
+    else:
+        decky.logger.error(f"Unsupported modloader source type: {ml.source.type}")
+        return False
+    if ok and ml.config_files:
+        _apply_config_files(install_dir, ml)
+    return ok
+
+
+def _apply_config_files(install_dir: str, ml: ModloaderInfo) -> None:
+    """Write a modloader's post-install config files (e.g. REFramework's
+    reframework/config.txt with `LooseFileLoader_Enabled true`, which is what makes
+    RE4 read loose `natives/` mods). Each entry maps a game-dir-relative path to
+    `Key Value` lines. Existing keys are overridden and any unrelated lines preserved,
+    so a user's other REFramework settings aren't clobbered on reinstall/update."""
+    for rel_path, content in ml.config_files.items():
+        try:
+            dst = os.path.join(install_dir, rel_path)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            # Desired key → full line (key is the first whitespace-delimited token).
+            desired: dict[str, str] = {}
+            order: list[str] = []
+            for line in content.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                key = line.split(None, 1)[0]
+                desired[key] = line
+                order.append(key)
+            out_lines: list[str] = []
+            seen: set[str] = set()
+            if os.path.isfile(dst):
+                with open(dst, "r") as f:
+                    for line in f.read().splitlines():
+                        key = line.strip().split(None, 1)[0] if line.strip() else ""
+                        if key and key in desired:
+                            out_lines.append(desired[key])  # override existing
+                            seen.add(key)
+                        else:
+                            out_lines.append(line)  # preserve unrelated settings
+            for key in order:
+                if key not in seen:
+                    out_lines.append(desired[key])
+            with open(dst, "w") as f:
+                f.write("\n".join(out_lines) + "\n")
+            decky.logger.info(f"Applied config file {rel_path} for {ml.id}")
+        except Exception as e:
+            decky.logger.error(f"Failed to write config file {rel_path} for {ml.id}: {e}")
 
 
 async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> bool:

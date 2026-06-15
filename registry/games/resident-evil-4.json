@@ -1,0 +1,10 @@
+{
+  "id": "resident-evil-4",
+  "name": "Resident Evil 4",
+  "appid": 2050650,
+  "mods_dir": "",
+  "mods_dir_type": "game",
+  "modloader_ids": ["reframework"],
+  "catalog": { "type": "nexus", "nexus_domain": "residentevil42023", "install_type": "zip_natives" },
+  "mods": []
+}

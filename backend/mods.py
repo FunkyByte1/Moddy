@@ -476,6 +476,13 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             if not _flat_mod_present(target_paths):
                 continue  # installed for a different game
             enabled = _flat_mod_enabled(target_paths)
+        elif install_type == "zip_natives":
+            # RE4 loose mod: per-file paths under natives/. Present iff any tracked file
+            # exists (active or *.disabled); enabled iff the active form is on disk.
+            target_paths = _flat_target_paths(install_dir, paths)
+            if not _flat_mod_present(target_paths):
+                continue  # installed for a different game
+            enabled = _natives_mod_enabled(target_paths)
         elif install_type == "zip_dir" or paths:
             target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
             if not any(os.path.exists(d) for d in target_dirs):
@@ -553,6 +560,16 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
         return await _install_mod_zip_flat(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_into_game":
         return await _install_mod_zip_into_game(game, install_dir, mod, version, url)
+    if mod.source.install_type == "zip_natives":
+        return await _install_mod_zip_natives(game, install_dir, mod, version, url)
+    # Guard: only the single-file installer is a safe default. An unrecognized install_type
+    # must NOT silently fall through to it — that once dumped a raw mod archive into RE4's
+    # game dir (the `nexus-<id>` file). Fail loudly instead.
+    if mod.source.install_type not in ("", "file"):
+        decky.logger.error(
+            f"Unknown install_type '{mod.source.install_type}' for {mod.name}; refusing to install"
+        )
+        return False
     return await _install_mod_file(game, mods_path, mod, version, url)
 
 
@@ -828,6 +845,13 @@ def _flat_mod_enabled(target_paths: list[str]) -> bool:
     return any(os.path.exists(p) for p in target_paths)
 
 
+def _natives_mod_enabled(target_paths: list[str]) -> bool:
+    """Whether an RE4 loose (zip_natives) mod is enabled. REFramework's loose loader reads
+    files under natives/ by exact path, so a disabled mod has each tracked file renamed to
+    `*.disabled`. Enabled iff any tracked file is present in its active (non-disabled) form."""
+    return any(os.path.isfile(p) for p in target_paths)
+
+
 async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
     """Install a flat-loader mod (e.g. MelonLoader): extract the archive's contents directly
     into the mods dir so DLLs sit at the top level where the loader scans, stripping a single
@@ -890,6 +914,106 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
     finally:
         if os.path.exists(tmp_zip):
             os.remove(tmp_zip)
+
+
+def _extract_archive(archive_path: str, dest_dir: str) -> None:
+    """Extract a mod archive into dest_dir. RE4/Nexus mods ship as .zip, .7z, or .rar;
+    Python's zipfile only handles zip, so 7z/rar are handed to the system `7z` (ships on
+    SteamOS). Routes by magic bytes since the downloaded file may carry no extension."""
+    import zipfile, subprocess
+    import shutil as _sh
+    os.makedirs(dest_dir, exist_ok=True)
+    with open(archive_path, "rb") as f:
+        magic = f.read(8)
+    if magic[:2] == b"PK":
+        with zipfile.ZipFile(archive_path, "r") as z:
+            z.extractall(dest_dir)
+        return
+    sevenzip = _sh.which("7z") or _sh.which("7za") or _sh.which("7zr")
+    if not sevenzip and os.path.isfile("/usr/bin/7z"):
+        sevenzip = "/usr/bin/7z"
+    if not sevenzip:
+        raise Exception("system 7z not found — cannot extract a .7z/.rar mod archive")
+    result = subprocess.run(
+        [sevenzip, "x", "-y", f"-o{dest_dir}", archive_path],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        raise Exception(f"7z failed: {result.stderr.decode(errors='replace')[:200]}")
+
+
+async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
+    """Install an RE4 loose-file mod: extract the archive (zip/7z/rar), find its `natives/`
+    payload (often wrapped in a `<Mod Name>/` folder alongside modinfo.ini + a screenshot we
+    ignore), and merge that tree into the game ROOT — which is where REFramework's loose-file
+    loader reads it. Paths are lowercased: RE4's engine requests lowercase paths and the Deck's
+    filesystem is case-sensitive, so a mod shipping `natives/STM/...` wouldn't be found otherwise.
+    Every copied file is tracked in `paths` (install-dir-relative) because loose mods all merge
+    into the shared natives/stm tree, so uninstall/toggle must act per-file, not on the folder."""
+    import shutil
+
+    tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_tmp.archive")
+    tmp_extract = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_extract")
+
+    # Clear a previous install's tracked files (active or disabled) so an upgrade leaves no orphans.
+    old_paths = (_load_store().get(mod.id) or {}).get("paths") or []
+    for p in _flat_target_paths(install_dir, old_paths):
+        for cand in (p, p + ".disabled"):
+            try:
+                if os.path.isfile(cand):
+                    os.remove(cand)
+            except Exception:
+                pass
+
+    try:
+        if os.path.exists(tmp_extract):
+            shutil.rmtree(tmp_extract)
+        decky.logger.info(f"Downloading {mod.name} from {url}")
+        await utils.download(url, tmp_archive, game.appid)
+
+        _extract_archive(tmp_archive, tmp_extract)
+
+        # Locate the natives/ payload — shallowest directory named "natives" (case-insensitive).
+        natives_dirs = []
+        for root, dirs, _files in os.walk(tmp_extract):
+            for d in dirs:
+                if d.lower() == "natives":
+                    natives_dirs.append(os.path.join(root, d))
+        if not natives_dirs:
+            decky.logger.error(f"{mod.name}: no natives/ folder in archive — likely a .pak-only mod, not supported yet")
+            return False
+        natives_dirs.sort(key=lambda p: p.count(os.sep))
+        nat = natives_dirs[0]
+        base = os.path.dirname(nat)
+
+        paths: list[str] = []
+        for root, _dirs, files in os.walk(nat):
+            for fn in files:
+                full = os.path.join(root, fn)
+                rel = os.path.relpath(full, base).lower()  # starts at "natives/...", lowercased
+                dst = os.path.join(install_dir, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(full, dst)
+                paths.append(rel)
+        if not paths:
+            decky.logger.error(f"{mod.name}: natives/ folder is empty")
+            return False
+
+        paths.sort()
+        set_installed_record(mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
+        decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {len(paths)} files into natives/")
+        return True
+    except utils.InstallCancelledError:
+        decky.logger.info(f"Install of {mod.name} was cancelled")
+        return None
+    except Exception as e:
+        decky.logger.error(f"Failed to install {mod.name}: {e}")
+        return False
+    finally:
+        if os.path.exists(tmp_archive):
+            os.remove(tmp_archive)
+        if os.path.exists(tmp_extract):
+            shutil.rmtree(tmp_extract)
 
 
 async def _install_mod_zip_into_game(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
@@ -1164,6 +1288,31 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
                 decky.logger.warning(f"No DLLs to {'enable' if enable else 'disable'} for {mod_id}")
                 return False
             decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} ({renamed} dll{'s' if renamed != 1 else ''})")
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to toggle {mod_id}: {e}")
+            return False
+
+    if install_type == "zip_natives":
+        # RE4 loose mod: REFramework's loose loader matches files by exact path, so disabling
+        # renames every tracked file to *.disabled (and enabling renames back). These are game
+        # assets (.tex/.mesh/.spck…), not .dll, so we flip all tracked files, not just DLLs.
+        target_paths = _flat_target_paths(install_dir, record.get("paths"))
+        renamed = 0
+        try:
+            for p in target_paths:
+                if enable:
+                    if os.path.isfile(p + ".disabled") and not os.path.isfile(p):
+                        os.rename(p + ".disabled", p)
+                        renamed += 1
+                else:
+                    if os.path.isfile(p):
+                        os.rename(p, p + ".disabled")
+                        renamed += 1
+            if renamed == 0:
+                decky.logger.warning(f"No files to {'enable' if enable else 'disable'} for {mod_id}")
+                return False
+            decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} ({renamed} file{'s' if renamed != 1 else ''})")
             return True
         except Exception as e:
             decky.logger.error(f"Failed to toggle {mod_id}: {e}")

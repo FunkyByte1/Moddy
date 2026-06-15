@@ -1,0 +1,18 @@
+{
+  "id": "reframework",
+  "name": "REFramework",
+  "files": ["dinput8.dll"],
+  "dirs": [],
+  "indicator": "dinput8.dll",
+  "ready_indicator": null,
+  "launch_options": "WINEDLLOVERRIDES=\"dinput8=n,b\" %command%",
+  "config_files": {
+    "reframework/config.txt": "LooseFileLoader_Enabled true\n"
+  },
+  "source": {
+    "type": "github",
+    "owner": "praydog",
+    "repo": "REFramework",
+    "asset": "RE4.zip"
+  }
+}

@@ -46,6 +46,7 @@ class ModloaderInfo:
     launch_options: str = ""                              # Steam launch options to apply when enabled
     mod_toggle: str = "dll"                               # how a folder mod is enabled/disabled: "dll" (rename *.dll) or "lovelyignore" (.lovelyignore marker)
     native: bool = False                                  # provided by the platform (e.g. Steam Workshop) — nothing to install/enable; always "ready"
+    config_files: dict = field(default_factory=dict)      # post-install config to write, keyed by game-dir-relative path → key-value lines (e.g. REFramework's LooseFileLoader toggle)
 
 
 @dataclass
@@ -153,6 +154,7 @@ def _load_modloaders() -> dict[str, ModloaderInfo]:
                 launch_options=data.get("launch_options", ""),
                 mod_toggle=data.get("mod_toggle", "dll"),
                 native=bool(data.get("native", False)),
+                config_files=dict(data.get("config_files", {})),
             )
         except Exception as e:
             decky.logger.error(f"Failed to load modloader from {where}: {e}")
