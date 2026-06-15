@@ -54,8 +54,12 @@ Enable/disable and uninstall work from the **Installed** tab like any other game
   record can block things. A clean reinstall fixes it.
 - **Free Nexus account.** Browsing works, but downloads need Premium (a Nexus API limitation).
 
-### Known limitations
+### `.pak` mod load order
 
-- **`.pak`-only mods and uninstalling:** Moddy numbers `.pak` mods in install order. Uninstalling a
-  `.pak` mod that has *other* `.pak` mods installed after it can leave a numbering gap; if a later
-  `.pak` mod stops loading, reinstall it. Loose-file (`natives/`) mods aren't affected.
+`.pak` mods override each other by load order, and Moddy loads them **in the order you installed
+them — the most recently installed wins.** So if a mod's page says *"install this after other
+animation / melee / combat mods,"* just install it **last** and it'll take priority.
+
+Uninstalling a `.pak` mod automatically renumbers the rest so they stay contiguous and keep loading
+(and keep their relative priority) — no gaps, nothing to reinstall. There's no manual reorder yet, so
+to change which of two conflicting `.pak` mods wins, reinstall the one that should win last.
