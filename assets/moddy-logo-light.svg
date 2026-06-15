@@ -1,0 +1,23 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Moddy">
+  <!--
+    Moddy logo. A pointy-eared "M" with a flat baseline and a winking cat face.
+    The mark is split into three overlapping strokes so corners can differ:
+      - the two "ear" peaks use miter joins (sharp points)
+      - the center valley uses a bevel join: flat-cut bottom, sharp inner/top corner
+    Colour is driven by `currentColor` (set once on the group below), so recolouring
+    for light/dark/brand variants is a single change.
+  -->
+  <g fill="none" stroke="currentColor" stroke-width="60" stroke-linecap="butt" style="color:#000000">
+    <!-- Left ear: leg + upper half of left diagonal -->
+    <path d="M 110 426 L 110 140 L 183 206" stroke-linejoin="miter" stroke-miterlimit="12"/>
+    <!-- Right ear: leg + upper half of right diagonal -->
+    <path d="M 402 426 L 402 140 L 329 206" stroke-linejoin="miter" stroke-miterlimit="12"/>
+    <!-- Center valley: lower diagonals meeting at (256,272); bevel = flat bottom, sharp top -->
+    <path d="M 161 186 L 256 272 L 351 186" stroke-linejoin="bevel"/>
+    <!-- Baseline bar, flush with the legs' bottom -->
+    <line x1="80" y1="416" x2="432" y2="416" stroke-width="20"/>
+    <!-- Winking face: dash (wink) left, open eye (circle) right -->
+    <line x1="175" y1="370" x2="215" y2="370" stroke-width="12" stroke-linecap="round"/>
+    <circle cx="317" cy="370" r="18" fill="currentColor" stroke="none"/>
+  </g>
+</svg>
