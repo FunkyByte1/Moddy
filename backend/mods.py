@@ -510,8 +510,13 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             "meta": record.get("meta"),
         })
 
-    # 3) Filesystem scan for legacy / manually-placed entries we haven't tracked
-    if os.path.isdir(mods_path):
+    # 3) Filesystem scan for legacy / manually-placed entries we haven't tracked.
+    #    Skip it when the "mods dir" IS the game root (e.g. RE4, mods_dir=""), where a loose-.dll
+    #    scan would surface the game's own engine DLLs (Wwise Ak*, MasteringSuite, MSSpatial,
+    #    steam_api64, amd_ags_x64, CrashHandler/CrashReportDll, the REFramework dinput8 loader, …)
+    #    as phantom mods. Those games track their real mods via records (section 2) and keep mods
+    #    as loose natives/.pak files, not bare DLLs in root — so there's nothing to discover here.
+    if os.path.isdir(mods_path) and os.path.normpath(mods_path) != os.path.normpath(install_dir):
         for entry in os.listdir(mods_path):
             entry_path = os.path.join(mods_path, entry)
             if entry.endswith(".dll") or entry.endswith(".dll.bak"):
