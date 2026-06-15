@@ -2,6 +2,16 @@
 
 A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for one-click mod installation and management on Steam Deck — directly in Game Mode.
 
+## Install
+
+Moddy isn't in the Decky store yet, so install it from its URL:
+
+1. Make sure [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) is installed.
+2. In the Decky panel, open the **store / settings** (the 🛒/⚙️ icon) and enable **Developer mode**.
+3. Use **Install from URL** and enter **`get.moddy.gg`**.
+
+That's it — Moddy appears in the Decky panel. It's **alpha software** — please [report anything that breaks](#reporting-issues).
+
 ## Features
 
 - Browse and install mods without leaving Game Mode
@@ -56,6 +66,16 @@ Then add the key to Moddy. The key is ~30 random characters, so pasting is far e
   (The folder name is lowercase `moddy`; the file is read on startup.)
 
 For a shareable step-by-step (handy for testers), see **[docs/nexus-api-key.md](docs/nexus-api-key.md)**.
+
+## Reporting issues
+
+Moddy is in alpha, so bug reports are genuinely useful. Please open an issue on the [GitHub issue tracker](../../issues) and include:
+
+- What game and mod you were installing
+- What you expected vs. what happened
+- A **log bundle** (see below)
+
+**Exporting logs:** open the Decky panel → **Moddy → Diagnostics → Export logs**. This saves a `moddy-logs-<timestamp>.zip` to your Steam Deck's **Desktop** — switch to Desktop Mode and attach it to your issue (drag it into the GitHub upload box). The bundle contains Moddy's log files and basic version info; your **Nexus API key is not included**.
 
 ## Acknowledgements
 

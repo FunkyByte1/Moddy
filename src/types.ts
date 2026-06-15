@@ -372,6 +372,9 @@ export const getSetting = callable<[key: string], any>('get_setting');
 export const setSetting = callable<[key: string, value: any], boolean>('set_setting');
 export const NEXUS_API_KEY = 'nexus_api_key';
 
+// Bundles logs into a zip on the Deck's Desktop and returns the path (or null on failure).
+export const exportLogs = callable<[], string | null>('export_logs');
+
 export interface WorkshopCatalogItem {
   id: string;
   name: string;

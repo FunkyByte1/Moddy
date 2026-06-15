@@ -1,5 +1,5 @@
-import { PanelSection, PanelSectionRow, TextField, staticClasses } from '@decky/ui';
-import { definePlugin, routerHook } from '@decky/api';
+import { ButtonItem, PanelSection, PanelSectionRow, TextField, staticClasses } from '@decky/ui';
+import { definePlugin, routerHook, toaster } from '@decky/api';
 import { useState, useEffect, useRef } from 'react';
 import { FaPuzzlePiece } from 'react-icons/fa';
 
@@ -7,7 +7,7 @@ import contextMenuPatch, { LibraryContextMenu } from './contextMenuPatch';
 import ModPage from './ModPage';
 import {
   GameStatus, getSupportedAppids, getSupportedGames,
-  getSetting, setSetting, NEXUS_API_KEY,
+  getSetting, setSetting, NEXUS_API_KEY, exportLogs,
 } from './types';
 
 // Account-global settings live here on the landing view, since they aren't tied to one
@@ -53,6 +53,44 @@ function NexusApiKeyField() {
   );
 }
 
+// Bundles Moddy's logs into a zip on the Deck's Desktop so testers can attach it to a
+// bug report. Excludes the Nexus API key (handled backend-side).
+function ExportLogsButton() {
+  const [busy, setBusy] = useState(false);
+
+  const onClick = async () => {
+    setBusy(true);
+    try {
+      const path = await exportLogs();
+      toaster.toast(
+        path
+          ? { title: 'Logs exported', body: path }
+          : { title: 'Log export failed', body: 'See the Decky log for details.' },
+      );
+    } catch {
+      toaster.toast({ title: 'Log export failed', body: 'See the Decky log for details.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={onClick} disabled={busy}>
+          {busy ? 'Exporting…' : 'Export logs'}
+        </ButtonItem>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em' }}>
+          Saves a zip to your Desktop you can attach to a bug report. Your Nexus API key is
+          not included.
+        </div>
+      </PanelSectionRow>
+    </>
+  );
+}
+
 function Content() {
   const [games, setGames] = useState<GameStatus[]>([]);
 
@@ -83,6 +121,9 @@ function Content() {
       </PanelSection>
       <PanelSection title="Settings">
         <NexusApiKeyField />
+      </PanelSection>
+      <PanelSection title="Diagnostics">
+        <ExportLogsButton />
       </PanelSection>
     </>
   );
