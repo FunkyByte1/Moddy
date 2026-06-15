@@ -55,6 +55,8 @@ Then add the key to Moddy. The key is ~30 random characters, so pasting is far e
   ```
   (The folder name is lowercase `moddy`; the file is read on startup.)
 
+For a shareable step-by-step (handy for testers), see **[docs/nexus-api-key.md](docs/nexus-api-key.md)**.
+
 ## Acknowledgements
 
 - The **Balatro Mod Index** (catalog data) is by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project, © 2025 Efe, licensed under the [MIT License](https://github.com/skyline69/balatro-mod-index/blob/main/LICENSE). Moddy uses only the index data — none of that project's source code.
