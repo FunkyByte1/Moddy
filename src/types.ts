@@ -358,8 +358,13 @@ export const getBrowseDenylist = callable<[], string[]>('get_browse_denylist');
 // link; it returns the string 'premium_required' when the configured key isn't Premium.
 export const getNexusCatalog =
   callable<[appid: number, query: string, page: number], ThunderstorePackage[]>('get_nexus_catalog');
+// A selectable payload inside a multi-variant mod archive (e.g. the RE4 stack-size .pak options).
+export interface NexusVariant { id: string; label: string }
+export interface NeedsVariant { needs_variant: true; variants: NexusVariant[] }
+// installNexusMod returns NeedsVariant when the archive bundles >1 variant and none was chosen —
+// pass the chosen variant id back as the 4th arg to install just that one.
 export const installNexusMod =
-  callable<[appid: number, full_name: string, version: string | null], boolean | null | string>('install_nexus_mod');
+  callable<[appid: number, full_name: string, version: string | null, variant: string | null], boolean | null | string | NeedsVariant>('install_nexus_mod');
 
 // Account-global plugin settings (e.g. the Nexus API key). Stored plaintext in the
 // plugin's settings dir; the key is account-wide, not per-game.

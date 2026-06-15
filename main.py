@@ -524,12 +524,14 @@ class Plugin:
             return []
         return nexus.search(domain, query, page)
 
-    async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None):
+    async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None, variant: str | None = None):
         """Install a Nexus mod by its `nexus.<domain>.<mod_id>` catalog id, via the Premium
         download link, recursively installing any declared same-domain Nexus requirements
         first. Returns True=success, False=failed, None=cancelled, and the string
         "premium_required" when the user's API key isn't Premium (v1 can't serve free
-        downloads — those need the website's nxm:// handoff)."""
+        downloads — those need the website's nxm:// handoff). When the mod's archive bundles
+        multiple variants (e.g. RE4 stack-size .pak options) and `variant` isn't given, returns
+        {"needs_variant": True, "variants": [...]} so the UI can ask which to install."""
         game = registry.get_game_by_appid(appid)
         if not game or game.catalog.get("type") != "nexus":
             return False
@@ -541,7 +543,7 @@ class Plugin:
             decky.logger.error(f"Bad Nexus install id: {full_name}")
             return False
         domain, mod_id = parsed
-        return await self._install_nexus_recursive(game, install_dir, domain, mod_id, version, seen=set())
+        return await self._install_nexus_recursive(game, install_dir, domain, mod_id, version, seen=set(), variant=variant, top=True)
 
     async def _install_nexus_recursive(
         self,
@@ -551,6 +553,8 @@ class Plugin:
         mod_id: str,
         version: str | None,
         seen: set,
+        variant: str | None = None,
+        top: bool = False,
     ):
         """Install one Nexus mod plus its requirements (depth-first). Requirements are
         installed at latest (version=None); only the top-level mod honors an explicit version.
@@ -623,7 +627,16 @@ class Plugin:
             dependencies=dep_ids,
         )
         target_version = version or str(info.get("version", "") or "") or "latest"
-        return await mods.install_mod(game, install_dir, mod, version=target_version, url=url)
+        # Only the top-level mod honors a variant choice / can prompt for one. A dependency that
+        # turns out to bundle variants can't ask the user mid-cascade, so install its first by default.
+        res = await mods.install_mod(game, install_dir, mod, version=target_version, url=url, variant=variant if top else None)
+        if isinstance(res, dict) and res.get("needs_variant"):
+            if top:
+                return res  # bubble the variant list up to the UI
+            first = (res.get("variants") or [{}])[0].get("id")
+            decky.logger.warning(f"{key} bundles variants; installing default {first!r} as a dependency")
+            res = await mods.install_mod(game, install_dir, mod, version=target_version, url=url, variant=first)
+        return res
 
     # ── Plugin settings (account-global; e.g. the Nexus API key) ───────────────
     async def get_setting(self, key: str):

@@ -3,10 +3,11 @@ import { toaster } from '@decky/api';
 import { FC, useState, useEffect, useMemo, useRef } from 'react';
 
 import {
-  GameStatus, ThunderstorePackage,
+  GameStatus, ThunderstorePackage, NeedsVariant,
   getNexusCatalog, installNexusMod, uninstallMod, toggleMod,
 } from '../types';
 import DependentsModal from '../components/modals/DependentsModal';
+import VariantModal from '../components/modals/VariantModal';
 import { showOrphanCleanup } from '../orphanCleanup';
 import { CatalogSourceLabel } from '../components/CatalogSource';
 import { centerInView } from '../components/centerInView';
@@ -135,10 +136,21 @@ const NexusBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }> =
   const isInstalled = (it: ThunderstorePackage) => installedIds.has(it.full_name.toLowerCase());
   const selected = items[Math.min(selectedIndex, items.length - 1)] ?? null;
 
-  const handleInstall = async (it: ThunderstorePackage) => {
+  const handleInstall = async (it: ThunderstorePackage, variant: string | null = null) => {
     setInstalling(it.full_name);
     try {
-      const result = await installNexusMod(game.appid, it.full_name, null);
+      const result = await installNexusMod(game.appid, it.full_name, null, variant);
+      if (result && typeof result === 'object' && (result as NeedsVariant).needs_variant) {
+        // Multi-variant archive — let the user pick one, then install that variant.
+        showModal(
+          <VariantModal
+            modName={it.name}
+            variants={(result as NeedsVariant).variants}
+            onPick={(id, close) => { close(); handleInstall(it, id); }}
+          />
+        );
+        return;
+      }
       if (result === 'premium_required') {
         toaster.toast({ title: 'Moddy', body: `${it.name} requires Nexus Premium to download` });
       } else if (result === true) {

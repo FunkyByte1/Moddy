@@ -547,13 +547,14 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
     return installed
 
 
-async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None = None, url: str | None = None) -> bool | None:
+async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None = None, url: str | None = None, variant: str | None = None) -> "bool | None | dict":
     """
     Download and install a mod into the game's mods directory.
     Supports two install types:
     - "file": single DLL, backs up previous version as Mod.dll.vX.Y.Z.bak
     - "zip_dir": extracts zip as a folder into the mods directory
-    Returns True=success, False=failed, None=cancelled.
+    Returns True=success, False=failed, None=cancelled. For "zip_natives" with multiple variants
+    and no `variant` chosen, returns {"needs_variant": True, "variants": [...]}.
     """
     mods_path = resolve_mods_path(game, install_dir)
     os.makedirs(mods_path, exist_ok=True)
@@ -565,7 +566,7 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
     if mod.source.install_type == "zip_into_game":
         return await _install_mod_zip_into_game(game, install_dir, mod, version, url)
     if mod.source.install_type == "zip_natives":
-        return await _install_mod_zip_natives(game, install_dir, mod, version, url)
+        return await _install_mod_zip_natives(game, install_dir, mod, version, url, variant)
     # Guard: only the single-file installer is a safe default. An unrecognized install_type
     # must NOT silently fall through to it — that once dumped a raw mod archive into RE4's
     # game dir (the `nexus-<id>` file). Fail loudly instead.
@@ -1030,7 +1031,29 @@ def _renumber_pak_mods(install_dir: str) -> None:
         _save_store(store)
 
 
-async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
+def _detect_variants(extract_dir: str) -> list[dict]:
+    """List the selectable payloads in an extracted RE4 mod archive. A payload is a directory
+    that directly holds a `.pak`, or that contains a `natives/` subtree. Most mods have exactly
+    one; some bundle several mutually-exclusive options the user must choose between (e.g. the
+    "Max Stack Sizes" mod ships 21 `.pak` variants — 0999/9999/x02…, each in its own folder with
+    a modinfo.ini). Returns [{"id": <path relative to extract_dir>, "label": <folder name>}],
+    sorted; 0 or 1 entries means no choice is needed."""
+    payload_dirs: set[str] = set()
+    for root, dirs, files in os.walk(extract_dir):
+        in_natives = (os.sep + "natives" + os.sep) in (root + os.sep).lower()
+        if not in_natives and any(f.lower().endswith(".pak") for f in files):
+            payload_dirs.add(root)              # a folder holding a .pak
+        for d in dirs:
+            if d.lower() == "natives":
+                payload_dirs.add(root)          # the parent of a natives/ tree
+    variants = []
+    for d in sorted(payload_dirs):
+        rel = os.path.relpath(d, extract_dir)
+        variants.append({"id": rel, "label": os.path.basename(d) if rel != "." else "(default)"})
+    return variants
+
+
+async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None, variant: str | None = None) -> "bool | None | dict":
     """Install an RE4 mod from its archive (zip/7z/rar). Handles the two RE4 mod shapes:
     - Loose-file: a `natives/` tree (often wrapped in a `<Mod Name>/` folder beside modinfo.ini
       + a screenshot we ignore), merged into the game ROOT where REFramework's loose-file loader
@@ -1039,6 +1062,9 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
     - `.pak`: a re_chunk patch the engine loads natively (no REFramework needed). Moddy slots it
       just above the highest existing patch so it overrides the base game, assigning the number
       itself to avoid colliding with the mod's original name or another mod's slot.
+    If the archive bundles multiple variants and none was chosen, returns
+    `{"needs_variant": True, "variants": [...]}` so the UI can ask which to install; pass the
+    chosen variant's `id` back as `variant` to install just that one.
     Every placed file is tracked in `paths` (install-dir-relative) so uninstall/toggle act
     per-file — loose mods all merge into the shared natives/stm tree, so the folder can't be
     treated as one unit."""
@@ -1065,11 +1091,25 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
 
         _extract_archive(tmp_archive, tmp_extract)
 
+        # Resolve which payload to install. Multiple variants + no choice → ask the UI.
+        variants = _detect_variants(tmp_extract)
+        valid_ids = {v["id"] for v in variants}
+        if variant is not None:
+            if variant not in valid_ids:
+                decky.logger.error(f"{mod.name}: unknown variant {variant!r}")
+                return False
+            search_root = os.path.join(tmp_extract, variant)
+        elif len(variants) > 1:
+            decky.logger.info(f"{mod.name}: {len(variants)} variants — asking user to choose")
+            return {"needs_variant": True, "variants": variants}
+        else:
+            search_root = tmp_extract
+
         paths: list[str] = []
 
         # 1. Loose-file payload: merge the shallowest natives/ tree into the game root.
         natives_dirs = []
-        for root, dirs, _files in os.walk(tmp_extract):
+        for root, dirs, _files in os.walk(search_root):
             for d in dirs:
                 if d.lower() == "natives":
                     natives_dirs.append(os.path.join(root, d))
@@ -1089,7 +1129,7 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
         # 2. .pak content mods: slot each above the highest existing patch. Skip any .pak that
         #    lives inside a natives/ tree (those are game assets, already copied above).
         pak_srcs = []
-        for root, _dirs, files in os.walk(tmp_extract):
+        for root, _dirs, files in os.walk(search_root):
             if (os.sep + "natives" + os.sep) in (root + os.sep).lower():
                 continue
             for fn in files:
