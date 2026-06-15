@@ -28,13 +28,17 @@ WINEDLLOVERRIDES="dinput8=n,b" %command%
 
 If it's empty, paste it in yourself.
 
-**The REFramework overlay starts closed.** Moddy configures REFramework to start with its menu
-**closed** (otherwise it pops open on every launch and you'd have to dismiss it). The menu toggle is
-the keyboard **Insert** key — which a controller can't press directly, so on the Deck **bind a button
-to Insert**: Steam → **RE4 → Controller Settings**, add a **keyboard `Insert`** command to a spare
-button (a back paddle like L4/R4, or a chord such as **Steam + ◻**). Pressing it opens/closes the
-overlay; once open, hold the **Steam** button and use the right trackpad as a mouse to click around.
-(REFramework remembers the menu's last state, so if you leave it open on exit it'll reopen next launch.)
+**The REFramework overlay opens on launch.** By default REFramework pops its menu open every time the
+game starts. Its toggle is the keyboard **Insert** key, which a controller can't press — so the first
+thing to do on the Deck is **bind a button to Insert**: Steam → **RE4 → Controller Settings → Edit
+Layout**, pick a spare input (a back paddle like L4/R4, or a chord such as **Steam + ◻**), and
+**Add command → Keyboard → `Insert`**. That button now opens/closes the overlay; once it's open, hold
+the **Steam** button and use the right trackpad as a mouse.
+
+If you'd rather it **start closed**, do it in REFramework itself (it's per-game and Moddy doesn't manage
+it): open the overlay → **Configuration** → tick **"Remember Menu Open/Closed State"**, then **close the
+overlay with its `X`** once. It'll stay closed on future launches, and your Insert button reopens it when
+needed. (Setting this via the config file alone is unreliable — it only takes when toggled in the UI.)
 
 ## 2. Install mods
 
