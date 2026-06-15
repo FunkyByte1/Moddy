@@ -26,9 +26,15 @@ running. Open **RE4 → Properties → Launch Options** and check it reads exact
 WINEDLLOVERRIDES="dinput8=n,b" %command%
 ```
 
-If it's empty, paste it in yourself. (You can verify REFramework is working by launching the game —
-its overlay appears, openable with the **Insert** key, or hold the **Steam** button and use the right
-trackpad as a mouse.)
+If it's empty, paste it in yourself.
+
+**The REFramework overlay starts closed.** Moddy configures REFramework to start with its menu
+**closed** (otherwise it pops open on every launch and you'd have to dismiss it). The menu toggle is
+the keyboard **Insert** key — which a controller can't press directly, so on the Deck **bind a button
+to Insert**: Steam → **RE4 → Controller Settings**, add a **keyboard `Insert`** command to a spare
+button (a back paddle like L4/R4, or a chord such as **Steam + ◻**). Pressing it opens/closes the
+overlay; once open, hold the **Steam** button and use the right trackpad as a mouse to click around.
+(REFramework remembers the menu's last state, so if you leave it open on exit it'll reopen next launch.)
 
 ## 2. Install mods
 

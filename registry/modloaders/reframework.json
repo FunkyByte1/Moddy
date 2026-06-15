@@ -7,7 +7,7 @@
   "ready_indicator": null,
   "launch_options": "WINEDLLOVERRIDES=\"dinput8=n,b\" %command%",
   "config_files": {
-    "reframework/config.txt": "LooseFileLoader_Enabled true\n"
+    "reframework/config.txt": "LooseFileLoader_Enabled true\nREFrameworkConfig_RememberMenuState true\nREFrameworkConfig_MenuOpen false\n"
   },
   "source": {
     "type": "github",
