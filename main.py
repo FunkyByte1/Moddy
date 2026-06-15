@@ -522,7 +522,10 @@ class Plugin:
         domain = game.catalog.get("nexus_domain", "")
         if not domain:
             return []
-        return nexus.search(domain, query, page)
+        # Adult mods are hidden by default. A future Settings toggle just needs to write the
+        # `nexus_include_adult` key; no further backend change required.
+        include_adult = bool(settings.get_setting("nexus_include_adult", False))
+        return nexus.search(domain, query, page, include_adult)
 
     async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None, variant: str | None = None):
         """Install a Nexus mod by its `nexus.<domain>.<mod_id>` catalog id, via the Premium

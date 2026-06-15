@@ -68,14 +68,19 @@ def _headers() -> dict:
 _NODE_FIELDS = "nodes { modId name summary uploader { name } pictureUrl version updatedAt } totalCount"
 
 
-def _search_query(domain: str, term: str, count: int, offset: int) -> str:
+def _search_query(domain: str, term: str, count: int, offset: int, include_adult: bool = False) -> str:
     """Build the GraphQL mods-search query inline. Values are JSON-encoded so terms with
     quotes/backslashes can't break or inject into the query. The filter is built inline
     (not via variables) because that exact shape was verified live; `nameStemmed`/WILDCARD
-    is the tokenized full-text search the website uses, omitted entirely for empty terms."""
+    is the tokenized full-text search the website uses, omitted entirely for empty terms.
+    Unless `include_adult` is set, adult-rated mods are excluded server-side (so pagination
+    counts stay correct) via the `adultContent` BooleanFilter — verified live as the {value,op}
+    shape, not a bare boolean."""
     parts = [f"gameDomainName:{{value:{json.dumps(domain)},op:EQUALS}}"]
     if term:
         parts.append(f"nameStemmed:{{value:{json.dumps(term)},op:WILDCARD}}")
+    if not include_adult:
+        parts.append("adultContent:{value:false,op:EQUALS}")
     filter_str = ",".join(parts)
     return (
         f"{{ mods(filter:{{{filter_str}}}, count:{count}, offset:{offset}) "
@@ -97,9 +102,10 @@ def _node_to_item(domain: str, node: dict) -> catalog.CatalogItem:
     )
 
 
-def search(domain: str, query: str = "", page: int = 1) -> list[catalog.CatalogItem]:
+def search(domain: str, query: str = "", page: int = 1, include_adult: bool = False) -> list[catalog.CatalogItem]:
     """A page of Nexus mods for a game domain, optionally filtered by a search term.
-    Returns [] on error or when no API key is set. Server-side paginated (PAGE_SIZE)."""
+    Returns [] on error or when no API key is set. Server-side paginated (PAGE_SIZE).
+    Adult-rated mods are excluded unless `include_adult` is True."""
     query = (query or "").strip()
     offset = max(0, (page - 1) * PAGE_SIZE)
     try:
@@ -108,7 +114,7 @@ def search(domain: str, query: str = "", page: int = 1) -> list[catalog.CatalogI
         decky.logger.warning("Nexus search skipped: no API key configured")
         return []
 
-    gql = _search_query(domain, query, PAGE_SIZE, offset)
+    gql = _search_query(domain, query, PAGE_SIZE, offset, include_adult)
     data = fetch.post_json(GRAPHQL_URL, {"query": gql}, headers=headers)
     if not isinstance(data, dict):
         return []
