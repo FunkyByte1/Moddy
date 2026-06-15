@@ -830,9 +830,12 @@ class Plugin:
         # Clean up an orphaned mods directory (e.g. MelonLoader's Mods/ folder, which
         # lives outside the modloader dir and so survives its uninstall). For BepInEx
         # this path sits under BepInEx/ and is already gone — the guard makes it a no-op.
+        # CRITICAL: never rmtree when the "mods dir" IS the game root (mods_dir="", e.g. RE4) —
+        # that would delete the entire game. Such games keep mods as tracked loose/.pak files
+        # (already removed by the per-mod uninstall loop above), so there's no dir to orphan.
         try:
             mods_path = mods.resolve_mods_path(game, install_dir)
-            if os.path.isdir(mods_path):
+            if os.path.isdir(mods_path) and os.path.normpath(mods_path) != os.path.normpath(install_dir):
                 shutil.rmtree(mods_path)
                 decky.logger.info(f"Removed orphaned mods dir {mods_path}")
         except Exception as e:
