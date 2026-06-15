@@ -86,3 +86,4 @@ CLAUDE.local.md
 # Local scratch space for test artifacts (keep the dir, ignore its contents)
 tmp/*
 !tmp/.gitkeep
+.vscode/defsettings.json
