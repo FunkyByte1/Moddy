@@ -422,6 +422,9 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             # tracked in the record (toggled via SetWorkshopItemsDisabledLocally), default
             # enabled. Unsubscribe is the uninstall.
             enabled = record.get("enabled", True)
+        elif mod.source.install_type == "zip_natives":
+            # RE4 loose/pak mod: per-file paths, enabled iff the active (non-disabled) form is present.
+            enabled = _natives_mod_enabled(_flat_target_paths(install_dir, paths))
         elif mod.source.install_type == "zip_dir" or paths:
             enabled = _folder_mod_enabled(_mod_target_dirs(mod, mods_path, install_dir, paths), toggle_style)
         else:
@@ -942,14 +945,37 @@ def _extract_archive(archive_path: str, dest_dir: str) -> None:
         raise Exception(f"7z failed: {result.stderr.decode(errors='replace')[:200]}")
 
 
+def _next_pak_slot(install_dir: str) -> int:
+    """Lowest unused re_chunk patch number above every existing one. RE4 loads
+    `re_chunk_000.pak.patch_NNN.pak` in order with higher numbers overriding lower; the base
+    game occupies the low numbers, so a mod pak must sit above the highest present. Counts
+    `.disabled` mod paks too, so a disabled mod's slot isn't handed to another mod. Returns
+    max(existing)+1 (1 if somehow none exist)."""
+    import re
+    highest = 0
+    pat = re.compile(r"^re_chunk_000\.pak\.patch_(\d+)\.pak(?:\.disabled)?$", re.IGNORECASE)
+    try:
+        for name in os.listdir(install_dir):
+            m = pat.match(name)
+            if m:
+                highest = max(highest, int(m.group(1)))
+    except Exception:
+        pass
+    return highest + 1
+
+
 async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
-    """Install an RE4 loose-file mod: extract the archive (zip/7z/rar), find its `natives/`
-    payload (often wrapped in a `<Mod Name>/` folder alongside modinfo.ini + a screenshot we
-    ignore), and merge that tree into the game ROOT — which is where REFramework's loose-file
-    loader reads it. Paths are lowercased: RE4's engine requests lowercase paths and the Deck's
-    filesystem is case-sensitive, so a mod shipping `natives/STM/...` wouldn't be found otherwise.
-    Every copied file is tracked in `paths` (install-dir-relative) because loose mods all merge
-    into the shared natives/stm tree, so uninstall/toggle must act per-file, not on the folder."""
+    """Install an RE4 mod from its archive (zip/7z/rar). Handles the two RE4 mod shapes:
+    - Loose-file: a `natives/` tree (often wrapped in a `<Mod Name>/` folder beside modinfo.ini
+      + a screenshot we ignore), merged into the game ROOT where REFramework's loose-file loader
+      reads it. Paths are lowercased (RE4 requests lowercase; the Deck FS is case-sensitive, so
+      `natives/STM/...` wouldn't be found otherwise).
+    - `.pak`: a re_chunk patch the engine loads natively (no REFramework needed). Moddy slots it
+      just above the highest existing patch so it overrides the base game, assigning the number
+      itself to avoid colliding with the mod's original name or another mod's slot.
+    Every placed file is tracked in `paths` (install-dir-relative) so uninstall/toggle act
+    per-file — loose mods all merge into the shared natives/stm tree, so the folder can't be
+    treated as one unit."""
     import shutil
 
     tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_tmp.archive")
@@ -973,35 +999,50 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
 
         _extract_archive(tmp_archive, tmp_extract)
 
-        # Locate the natives/ payload — shallowest directory named "natives" (case-insensitive).
+        paths: list[str] = []
+
+        # 1. Loose-file payload: merge the shallowest natives/ tree into the game root.
         natives_dirs = []
         for root, dirs, _files in os.walk(tmp_extract):
             for d in dirs:
                 if d.lower() == "natives":
                     natives_dirs.append(os.path.join(root, d))
-        if not natives_dirs:
-            decky.logger.error(f"{mod.name}: no natives/ folder in archive — likely a .pak-only mod, not supported yet")
-            return False
         natives_dirs.sort(key=lambda p: p.count(os.sep))
-        nat = natives_dirs[0]
-        base = os.path.dirname(nat)
+        if natives_dirs:
+            nat = natives_dirs[0]
+            base = os.path.dirname(nat)
+            for root, _dirs, files in os.walk(nat):
+                for fn in files:
+                    full = os.path.join(root, fn)
+                    rel = os.path.relpath(full, base).lower()  # "natives/...", lowercased
+                    dst = os.path.join(install_dir, rel)
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    shutil.copy2(full, dst)
+                    paths.append(rel)
 
-        paths: list[str] = []
-        for root, _dirs, files in os.walk(nat):
+        # 2. .pak content mods: slot each above the highest existing patch. Skip any .pak that
+        #    lives inside a natives/ tree (those are game assets, already copied above).
+        pak_srcs = []
+        for root, _dirs, files in os.walk(tmp_extract):
+            if (os.sep + "natives" + os.sep) in (root + os.sep).lower():
+                continue
             for fn in files:
-                full = os.path.join(root, fn)
-                rel = os.path.relpath(full, base).lower()  # starts at "natives/...", lowercased
-                dst = os.path.join(install_dir, rel)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(full, dst)
-                paths.append(rel)
+                if fn.lower().endswith(".pak"):
+                    pak_srcs.append(os.path.join(root, fn))
+        for src in sorted(pak_srcs):
+            rel = f"re_chunk_000.pak.patch_{_next_pak_slot(install_dir):03d}.pak"
+            shutil.copy2(src, os.path.join(install_dir, rel))
+            paths.append(rel)
+
         if not paths:
-            decky.logger.error(f"{mod.name}: natives/ folder is empty")
+            decky.logger.error(f"{mod.name}: archive has no natives/ folder or .pak file — nothing to install")
             return False
 
         paths.sort()
         set_installed_record(mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
-        decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {len(paths)} files into natives/")
+        n_pak = sum(1 for p in paths if p.lower().startswith("re_chunk_000.pak.patch_"))
+        n_nat = len(paths) - n_pak
+        decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {n_nat} natives file(s), {n_pak} pak(s)")
         return True
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")

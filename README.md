@@ -5,7 +5,7 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for o
 ## Features
 
 - Browse and install mods without leaving Game Mode
-- Mod loader installation and management (MelonLoader, BepInEx, Lovely)
+- Mod loader installation and management (MelonLoader, BepInEx, Lovely, REFramework)
 - Version selection with rollback support
 - Dependency resolution and cascade disable/uninstall
 - Update checking for mods and mod loader
@@ -17,10 +17,10 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for o
 - Slime Rancher 2
 - Risk of Rain 2
 - Balatro
+- Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key) — needs the REFramework loader; see [the RE4 guide](docs/re4-mods.md))*
 
 ### Planned:
 - Stardew Valley
-- Resident Evil 4
 - Haste
 - and more :)
 
