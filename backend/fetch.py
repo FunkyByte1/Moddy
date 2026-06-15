@@ -6,7 +6,21 @@ import urllib.request
 import decky
 
 CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
-USER_AGENT = "Moddy/0.1.0 (+https://github.com/FunkyByte1/Moddy)"
+
+
+def _read_version() -> str:
+    """Single source of truth for the app version: package.json (deployed alongside the
+    backend). Keeps the User-Agent and Nexus Application-Version header from drifting."""
+    try:
+        path = os.path.join(os.path.dirname(__file__), "..", "package.json")
+        with open(path) as f:
+            return json.load(f).get("version", "0.0.0")
+    except Exception:
+        return "0.0.0"
+
+
+VERSION = _read_version()
+USER_AGENT = f"Moddy/{VERSION} (+https://github.com/FunkyByte1/Moddy)"
 
 _CACHE_TTL_SECONDS = 300  # 5 min — covers double-clicks and rapid "Check for Updates" without hiding fresh releases for long
 _cache: dict[str, tuple[float, dict | list]] = {}

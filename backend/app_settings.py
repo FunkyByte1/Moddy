@@ -59,6 +59,12 @@ def set_setting(key: str, value) -> bool:
         with open(tmp, "w") as f:
             json.dump(store, f, indent=2)
         os.replace(tmp, path)
+        # Owner-only: the file holds the user's Nexus API key. Single-user device, but this
+        # keeps the secret out of group/other-readable reach as a basic hardening.
+        try:
+            os.chmod(path, 0o600)
+        except Exception:
+            pass
         _SETTINGS = store
         return True
     except Exception as e:

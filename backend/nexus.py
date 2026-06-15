@@ -33,9 +33,9 @@ GRAPHQL_URL = "https://api.nexusmods.com/v2/graphql"
 
 # Nexus's API Acceptable Use Policy asks every request to identify the application via
 # Application-Name (kept consistent across versions) and Application-Version (current
-# release). Keep APP_VERSION in sync with plugin.json on release.
+# release). Version is derived from package.json (via fetch.VERSION) so it can't drift.
 APP_NAME = "Moddy"
-APP_VERSION = "0.2.0-alpha.1"
+APP_VERSION = fetch.VERSION
 
 PAGE_SIZE = 25  # mirrors the Workshop browse page size
 
