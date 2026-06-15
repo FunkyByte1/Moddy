@@ -7,14 +7,16 @@ import decky
 
 @dataclass
 class ModSource:
-    type: str          # "github" | "github_source" | "thunderstore" | "url" | "steamworkshop"
+    type: str          # "github" | "github_source" | "thunderstore" | "url" | "steamworkshop" | "nexus"
     owner: str = ""    # GitHub owner / Thunderstore author
     repo: str = ""     # GitHub repo / Thunderstore package name
     asset: str = ""    # Asset filename to download (for type="github")
     branch: str = "main"  # Branch to download (for type="github_source")
     url: str = ""      # Direct URL (for type="url")
-    install_type: str = "file"  # "file" | "zip_dir" | "zip_into_game" | "steamworkshop"
+    install_type: str = "file"  # "file" | "zip_dir" | "zip_flat" | "zip_into_game" | "steamworkshop"
     workshop_id: str = ""  # Steam Workshop published file id (for type="steamworkshop")
+    nexus_domain: str = ""  # Nexus game domain slug, e.g. "slimerancher2" (for type="nexus")
+    mod_id: str = ""        # Nexus mod id (for type="nexus"); file_id is resolved at install time
 
 
 @dataclass
@@ -105,6 +107,8 @@ def _parse_source(s: dict) -> ModSource:
         url=s.get("url", ""),
         install_type=s.get("install_type", "file"),
         workshop_id=str(s.get("workshop_id", "")),
+        nexus_domain=s.get("nexus_domain", ""),
+        mod_id=str(s.get("mod_id", "")),
     )
 
 

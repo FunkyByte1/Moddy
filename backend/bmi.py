@@ -23,6 +23,7 @@ import zipfile
 
 import decky
 
+import catalog
 import fetch
 
 _CATALOG_CACHE_TTL_SECONDS = 86400  # 1 day, mirroring the Thunderstore catalog
@@ -55,33 +56,28 @@ def _iso_from_unix(ts) -> str:
 def _to_item(repo: str, key: str, meta: dict, description: str, has_thumb: bool, branch: str) -> dict:
     """Map one BMI meta.json into the trimmed-Thunderstore catalog shape (+ BMI extras)."""
     title = meta.get("title") or meta.get("folderName") or key
-    return {
-        "name": title,
-        "full_name": key,                       # stable id, e.g. "GhostSalt@Phanta"
-        "owner": meta.get("author", ""),
-        "package_url": meta.get("repo", ""),
-        "donation_link": None,
-        "date_updated": _iso_from_unix(meta.get("last-updated", 0)),
-        "rating_score": 0,                      # the index has no likes/score; UI shows date instead
-        "is_deprecated": False,
-        "has_nsfw_content": False,
-        "categories": list(meta.get("categories", [])),
-        "latest": {
-            # BMI `version` is often a git commit hash rather than semver — update
-            # detection is therefore metadata-comparison (stored vs index value), not
-            # semver tracking. See main.check_mod_updates (BMI sources are skipped there).
-            "version_number": str(meta.get("version", "") or ""),
-            "description": description,
-            "icon": _thumbnail_url(repo, key, branch) if has_thumb else "",
-            "dependencies": [],
-            "download_url": meta.get("downloadURL", ""),
-            "file_size": 0,
-        },
-        # BMI-only extras (ignored by the Thunderstore UI shape, consumed at install time):
-        "requires_steamodded": bool(meta.get("requires-steamodded", False)),
-        "requires_talisman": bool(meta.get("requires-talisman", False)),
-        "folder_name": meta.get("folderName") or key.split("@")[-1] or key,
-    }
+    item = catalog.make_item(
+        name=title,
+        full_name=key,                          # stable id, e.g. "GhostSalt@Phanta"
+        owner=meta.get("author", ""),
+        package_url=meta.get("repo", ""),
+        donation_link=None,
+        date_updated=_iso_from_unix(meta.get("last-updated", 0)),
+        rating_score=0,                         # the index has no likes/score; UI shows date instead
+        categories=list(meta.get("categories", [])),
+        # BMI `version` is often a git commit hash rather than semver — update
+        # detection is therefore metadata-comparison (stored vs index value), not
+        # semver tracking. See main.check_mod_updates (BMI sources are skipped there).
+        version_number=str(meta.get("version", "") or ""),
+        description=description,
+        icon=_thumbnail_url(repo, key, branch) if has_thumb else "",
+        download_url=meta.get("downloadURL", ""),
+    )
+    # BMI-only extras (ignored by the shared UI shape, consumed at install time):
+    item["requires_steamodded"] = bool(meta.get("requires-steamodded", False))
+    item["requires_talisman"] = bool(meta.get("requires-talisman", False))
+    item["folder_name"] = meta.get("folderName") or key.split("@")[-1] or key
+    return item
 
 
 def _build_catalog_from_zip(repo: str, zip_bytes: bytes, branch: str) -> list[dict]:

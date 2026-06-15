@@ -12,6 +12,11 @@ import profiles
 import github
 import thunderstore
 import bmi
+import nexus
+# Imported as `settings` for readability, but the file is app_settings.py: a bare module
+# named `settings` collides with decky_loader's own `settings` module (which wins on the
+# import path), so `import settings` would silently resolve to the wrong module.
+import app_settings as settings
 import utils
 import steamworkshop_browse
 
@@ -133,6 +138,8 @@ class Plugin:
                             "asset": m.source.asset,
                             "install_type": m.source.install_type,
                             "workshop_id": m.source.workshop_id,
+                            "nexus_domain": m.source.nexus_domain,
+                            "mod_id": m.source.mod_id,
                         },
                     }
                     for m in game.mods
@@ -266,6 +273,19 @@ class Plugin:
                     return False
                 resolved_version = latest["version"]
                 url = latest["download_url"]
+        elif mod.source.type == "nexus":
+            try:
+                file_id = nexus.primary_file_id(mod.source.nexus_domain, mod.source.mod_id)
+                if not file_id:
+                    decky.logger.error(f"No downloadable file for Nexus mod {mod_id}")
+                    return False
+                url = nexus.get_download_url(mod.source.nexus_domain, mod.source.mod_id, file_id)
+            except nexus.PremiumRequired:
+                decky.logger.error(f"Nexus mod {mod_id} requires Premium to download")
+                return False
+            if not url:
+                decky.logger.error(f"Could not resolve Nexus download URL for {mod_id}")
+                return False
         elif mod.source.type == "url":
             url = mod.source.url
         elif mod.source.type == "steamworkshop":
@@ -316,15 +336,23 @@ class Plugin:
             mod = game.get_mod(mod_id)
             if mod:
                 source_type, owner, repo = mod.source.type, mod.source.owner, mod.source.repo
+                nexus_domain, nexus_mod_id = mod.source.nexus_domain, mod.source.mod_id
             else:
                 source = (mods.get_installed_record(mod_id) or {}).get("source") or {}
                 source_type, owner, repo = source.get("type", ""), source.get("owner", ""), source.get("repo", "")
-            if not owner or not repo:
-                continue
+                nexus_domain, nexus_mod_id = source.get("nexus_domain", ""), source.get("mod_id", "")
             if source_type == "github":
+                if not owner or not repo:
+                    continue
                 latest = github.get_latest_release(owner, repo)
             elif source_type == "thunderstore":
+                if not owner or not repo:
+                    continue
                 latest = thunderstore.get_latest(owner, repo)
+            elif source_type == "nexus":
+                if not nexus_domain or not nexus_mod_id:
+                    continue
+                latest = nexus.get_latest(nexus_domain, nexus_mod_id)
             else:
                 continue
             if latest and latest["version"] != installed_version:
@@ -482,6 +510,127 @@ class Plugin:
             dependencies=[],
         )
         return await mods.install_mod(game, install_dir, mod, version=target_version, url=url)
+
+    # ── Nexus Mods catalog ────────────────────────────────────────────────────
+    async def get_nexus_catalog(self, appid: int, query: str = "", page: int = 1) -> list:
+        """A page (~25 items) of the Nexus catalog for a game whose Browse source is Nexus,
+        searched server-side by `query` via the v2 GraphQL API. Returns [] for non-Nexus
+        games, on error, or when no Nexus API key is configured."""
+        game = registry.get_game_by_appid(appid)
+        if not game or game.catalog.get("type") != "nexus":
+            return []
+        domain = game.catalog.get("nexus_domain", "")
+        if not domain:
+            return []
+        return nexus.search(domain, query, page)
+
+    async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None):
+        """Install a Nexus mod by its `nexus.<domain>.<mod_id>` catalog id, via the Premium
+        download link, recursively installing any declared same-domain Nexus requirements
+        first. Returns True=success, False=failed, None=cancelled, and the string
+        "premium_required" when the user's API key isn't Premium (v1 can't serve free
+        downloads — those need the website's nxm:// handoff)."""
+        game = registry.get_game_by_appid(appid)
+        if not game or game.catalog.get("type") != "nexus":
+            return False
+        install_dir = steam.find_game_install_dir(appid)
+        if not install_dir:
+            return False
+        parsed = nexus.parse_id(full_name)
+        if not parsed:
+            decky.logger.error(f"Bad Nexus install id: {full_name}")
+            return False
+        domain, mod_id = parsed
+        return await self._install_nexus_recursive(game, install_dir, domain, mod_id, version, seen=set())
+
+    async def _install_nexus_recursive(
+        self,
+        game: "registry.GameProfile",
+        install_dir: str,
+        domain: str,
+        mod_id: str,
+        version: str | None,
+        seen: set,
+    ):
+        """Install one Nexus mod plus its requirements (depth-first). Requirements are
+        installed at latest (version=None); only the top-level mod honors an explicit version.
+        Mirrors the Thunderstore cascade: a dependency that's already installed or fails to
+        download is skipped (best-effort), but a Premium-gated download aborts and surfaces
+        "premium_required". Returns True/False/None/"premium_required"."""
+        key = f"nexus.{domain}.{mod_id}"
+        if key in seen:
+            return True
+        seen.add(key)
+
+        # Already installed (and no explicit version pin) — skip, like the Thunderstore cascade.
+        if version is None and mods.get_installed_record(key) is not None:
+            decky.logger.info(f"{key} already installed; skipping")
+            return True
+
+        info = nexus.get_mod(domain, mod_id)
+        if not info:
+            decky.logger.error(f"Nexus mod not found: {key}")
+            return False
+
+        # Resolve + install requirements first. Only same-domain, non-external Nexus mods can
+        # be installed through this game's catalog; others are recorded as deps but left to the
+        # user (logged), since we can't fetch them in this game's context.
+        dep_ids: list[str] = []
+        for req in nexus.get_requirements(domain, mod_id):
+            req_id = f"nexus.{req['domain']}.{req['mod_id']}"
+            dep_ids.append(req_id)
+            # get_requirements only returns reqs with a resolvable Nexus mod id, so the only
+            # thing we can't handle is a different game domain (not in this game's catalog).
+            # The `external` flag doesn't matter — a manually-linked Nexus mod is still installable.
+            if req["domain"] != domain:
+                decky.logger.info(f"Skipping cross-domain requirement {req_id} ({req.get('name')})")
+                continue
+            res = await self._install_nexus_recursive(game, install_dir, req["domain"], req["mod_id"], None, seen)
+            if res == "premium_required":
+                return "premium_required"
+            if res in (False, None):
+                decky.logger.warning(f"Requirement {req_id} did not install (continuing)")
+
+        try:
+            file_id = nexus.primary_file_id(domain, mod_id)
+            if not file_id:
+                decky.logger.error(f"No downloadable file for {key}")
+                return False
+            url = nexus.get_download_url(domain, mod_id, file_id)
+        except nexus.PremiumRequired:
+            decky.logger.info(f"Nexus mod {key} requires Premium")
+            return "premium_required"
+        if not url:
+            decky.logger.error(f"Could not resolve Nexus download URL for {key}")
+            return False
+
+        mod = registry.ModInfo(
+            id=key,
+            name=info.get("name") or key,
+            description=info.get("summary", "") or "",
+            # A safe, collision-free on-disk label; the real name lives in meta for display.
+            filename=f"nexus-{mod_id}",
+            source=registry.ModSource(
+                type="nexus",
+                install_type=game.catalog.get("install_type", "zip_flat"),
+                nexus_domain=domain,
+                mod_id=str(mod_id),
+            ),
+            author=info.get("author", "") or info.get("uploaded_by", "") or "",
+            homepage=f"https://www.nexusmods.com/{domain}/mods/{mod_id}",
+            thumbnail=info.get("picture_url", "") or "",
+            modloader=game.modloaders[0].id if game.modloaders else "",
+            dependencies=dep_ids,
+        )
+        target_version = version or str(info.get("version", "") or "") or "latest"
+        return await mods.install_mod(game, install_dir, mod, version=target_version, url=url)
+
+    # ── Plugin settings (account-global; e.g. the Nexus API key) ───────────────
+    async def get_setting(self, key: str):
+        return settings.get_setting(key)
+
+    async def set_setting(self, key: str, value) -> bool:
+        return settings.set_setting(key, value)
 
     async def _ensure_framework(self, game: "registry.GameProfile", install_dir: str, key: str) -> bool:
         """Install a framework mod (e.g. Steamodded, Talisman) into the Mods folder if it

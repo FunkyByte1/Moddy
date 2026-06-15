@@ -9,6 +9,7 @@ import ModLoaderTab from './tabs/ModLoaderTab';
 import ProfilesTab from './tabs/ProfilesTab';
 import BrowseTab from './tabs/BrowseTab';
 import WorkshopBrowseTab from './tabs/WorkshopBrowseTab';
+import NexusBrowseTab from './tabs/NexusBrowseTab';
 import OptionsModal from './components/modals/OptionsModal';
 import ResetGameModal from './components/modals/ResetGameModal';
 import SaveProfileModal from './components/modals/SaveProfileModal';
@@ -215,7 +216,7 @@ const ModPage: FC = () => {
         onSaveProfile={handleSaveProfile}
         onToggleSelectionMode={activeTab === 'mods' || activeTab === 'installed' ? (close) => { close(); setSelectionMode(m => !m); } : undefined}
         selectionMode={selectionMode}
-        onRefreshCatalog={game.catalog_type ? async (close) => {
+        onRefreshCatalog={(game.catalog_type === 'bmi' || game.catalog_type === 'thunderstore') ? async (close) => {
           close();
           toaster.toast({ title: 'Moddy', body: 'Refreshing mod catalog…' });
           const ok = game.catalog_type === 'bmi'
@@ -309,7 +310,8 @@ const ModPage: FC = () => {
         onSecondaryActionDescription: 'Filter',
       },
     },
-    ...(game.catalog_type ? [{
+    // Bulk-catalog Browse (Thunderstore/BMI): whole catalog filtered client-side.
+    ...(game.catalog_type && game.catalog_type !== 'nexus' ? [{
       id: 'browse',
       title: 'Browse',
       content: (
@@ -327,6 +329,18 @@ const ModPage: FC = () => {
         onMenuActionDescription: 'Options',
         onSecondaryButton: handleBrowseFilterMenu,
         onSecondaryActionDescription: 'Filter',
+      },
+    }] : []),
+    // Nexus games browse a server-paginated/searched catalog in their own tab.
+    ...(game.catalog_type === 'nexus' ? [{
+      id: 'browse',
+      title: 'Browse',
+      content: (
+        <NexusBrowseTab game={game} onRefresh={refresh} />
+      ),
+      footer: {
+        onMenuButton: handleOptionsMenu,
+        onMenuActionDescription: 'Options',
       },
     }] : []),
     // Steam Workshop games browse a server-paginated catalog in their own tab.

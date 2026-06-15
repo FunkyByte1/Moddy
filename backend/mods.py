@@ -94,6 +94,8 @@ def set_installed_record(
             "asset": mod.source.asset,
             "install_type": mod.source.install_type,
             "workshop_id": mod.source.workshop_id,
+            "nexus_domain": mod.source.nexus_domain,
+            "mod_id": mod.source.mod_id,
         }
         record["meta"] = {
             "name": mod.name,
@@ -393,6 +395,18 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
     hidden_ids = game.bundled_framework_ids()
     installed = []
     seen_ids: set[str] = set()
+    # Physical files/dirs already owned by a tracked record, so the filesystem scan (step 3)
+    # doesn't re-list them under a different id. This matters for flat (MelonLoader) mods: a
+    # browsed Nexus mod extracts e.g. Mods/SR2GyroAim.dll, whose filename also matches a curated
+    # mod — without this it would appear twice (once browsed, once as the curated match).
+    claimed_paths: set[str] = set()
+
+    def _claim(record: dict, filename: str | None) -> None:
+        paths = record.get("paths")
+        if paths:
+            claimed_paths.update(os.path.join(install_dir, p) for p in paths)
+        elif filename:
+            claimed_paths.add(os.path.join(mods_path, filename))
 
     # 1) Tracked installs from installed.json — curated mods (have a game.mods entry)
     store = _load_store()
@@ -401,6 +415,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
         if not record:
             continue
         seen_ids.add(mod.id)
+        _claim(record, mod.filename)
         paths = record.get("paths")
         if mod.source.type == "steamworkshop":
             # Workshop mods are present once subscribed; "enabled" is a local Steam flag
@@ -456,7 +471,12 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             continue
         install_type = record.get("install_type") or (record.get("source") or {}).get("install_type") or "file"
         paths = record.get("paths")
-        if install_type == "zip_dir" or paths:
+        if install_type == "zip_flat":
+            target_paths = _flat_target_paths(install_dir, paths)
+            if not _flat_mod_present(target_paths):
+                continue  # installed for a different game
+            enabled = _flat_mod_enabled(target_paths)
+        elif install_type == "zip_dir" or paths:
             target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
             if not any(os.path.exists(d) for d in target_dirs):
                 continue  # installed for a different game
@@ -470,6 +490,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             else:
                 continue  # installed for a different game
         seen_ids.add(mod_id)
+        _claim(record, filename)
         installed.append({
             "id": mod_id,
             "filename": filename,
@@ -485,6 +506,8 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             if entry.endswith(".dll") or entry.endswith(".dll.bak"):
                 enabled = entry.endswith(".dll")
                 actual_filename = entry if enabled else entry[:-4]
+                if os.path.join(mods_path, actual_filename) in claimed_paths:
+                    continue  # already listed by a tracked record (e.g. a browsed Nexus mod)
                 mod = game.get_mod_by_filename(actual_filename)
                 if mod and mod.id in seen_ids:
                     continue
@@ -497,6 +520,8 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                     "meta": None,
                 })
             elif os.path.isdir(entry_path) and not entry.endswith(".bak"):
+                if entry_path in claimed_paths:
+                    continue  # already listed by a tracked record
                 mod = game.get_mod_by_filename(entry)
                 if not mod or mod.id in seen_ids:
                     continue
@@ -524,6 +549,8 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
 
     if mod.source.install_type == "zip_dir":
         return await _install_mod_zip_dir(game, install_dir, mods_path, mod, version, url)
+    if mod.source.install_type == "zip_flat":
+        return await _install_mod_zip_flat(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_into_game":
         return await _install_mod_zip_into_game(game, install_dir, mod, version, url)
     return await _install_mod_file(game, mods_path, mod, version, url)
@@ -777,6 +804,94 @@ def _extract_to_mods_folder(mods_path: str, mod: ModInfo, version: str | None, t
     return True
 
 
+def _flat_target_paths(install_dir: str, paths: list[str] | None) -> list[str]:
+    """Absolute paths of a flat (zip_flat) mod's tracked top-level entries."""
+    return [os.path.join(install_dir, p) for p in (paths or [])]
+
+
+def _flat_mod_present(target_paths: list[str]) -> bool:
+    """Whether a flat mod's files exist on disk (enabled OR disabled form). Used to scope a
+    browsed flat mod to the game whose install dir actually holds it."""
+    for p in target_paths:
+        if os.path.exists(p) or os.path.exists(p + ".disabled"):
+            return True
+    return False
+
+
+def _flat_mod_enabled(target_paths: list[str]) -> bool:
+    """Whether a flat mod is enabled. MelonLoader loads `*.dll` directly from Mods/, so a
+    disabled mod has its DLL renamed to `*.dll.disabled`. Enabled iff a tracked .dll is in
+    active form; for asset-only mods (no tracked DLL) presence == enabled."""
+    dll_paths = [p for p in target_paths if p.endswith(".dll")]
+    if dll_paths:
+        return any(os.path.isfile(p) for p in dll_paths)
+    return any(os.path.exists(p) for p in target_paths)
+
+
+async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
+    """Install a flat-loader mod (e.g. MelonLoader): extract the archive's contents directly
+    into the mods dir so DLLs sit at the top level where the loader scans, stripping a single
+    redundant wrapper folder if the whole archive is nested under one. Tracks the created
+    top-level entries as `paths` so uninstall/toggle can find them. Reinstall overwrites a
+    previous install's tracked paths first."""
+    import zipfile
+    import shutil
+
+    tmp_zip = os.path.join(mods_path, f"{mod.filename}_tmp.zip")
+
+    # Clear a previous install's files so an upgrade doesn't leave orphans behind.
+    old_paths = (_load_store().get(mod.id) or {}).get("paths") or []
+    for p in _flat_target_paths(install_dir, old_paths):
+        for cand in (p, p + ".disabled"):
+            try:
+                if os.path.isdir(cand):
+                    shutil.rmtree(cand)
+                elif os.path.isfile(cand):
+                    os.remove(cand)
+            except Exception:
+                pass
+
+    created_tops: set[str] = set()
+    try:
+        decky.logger.info(f"Downloading {mod.name} from {url}")
+        await utils.download(url, tmp_zip, game.appid)
+
+        with zipfile.ZipFile(tmp_zip, "r") as z:
+            members = [m for m in z.namelist() if m and not m.endswith("/")]
+            top_level = {m.split("/")[0] for m in members}
+            # If everything lives under a single wrapper folder, strip that one level so the
+            # DLL lands at Mods/<dll> rather than Mods/<wrapper>/<dll>.
+            strip = ""
+            if len(top_level) == 1 and any("/" in m for m in members):
+                strip = next(iter(top_level)) + "/"
+            for m in members:
+                base = m.split("/")[-1]
+                if base.lower() in _THUNDERSTORE_METADATA_FILES:
+                    continue
+                rel = m[len(strip):] if strip and m.startswith(strip) else m
+                if not rel:
+                    continue
+                dst = os.path.join(mods_path, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                with z.open(m) as src, open(dst, "wb") as out:
+                    shutil.copyfileobj(src, out)
+                created_tops.add(rel.split("/")[0])
+
+        paths = sorted(os.path.relpath(os.path.join(mods_path, t), install_dir) for t in created_tops)
+        set_installed_record(mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
+        decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {len(created_tops)} entries flat into mods dir")
+        return True
+    except utils.InstallCancelledError:
+        decky.logger.info(f"Install of {mod.name} was cancelled")
+        return None
+    except Exception as e:
+        decky.logger.error(f"Failed to install {mod.name}: {e}")
+        return False
+    finally:
+        if os.path.exists(tmp_zip):
+            os.remove(tmp_zip)
+
+
 async def _install_mod_zip_into_game(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
     """
     Install a zip mod by extracting a named inner folder's contents into install_dir.
@@ -915,15 +1030,18 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
     is_dir_mod = install_type == "zip_dir"
     try:
         if paths:
-            # Multi-location install (e.g. BepInEx patcher) — clean each tracked path
+            # Multi-location install (e.g. BepInEx patcher, flat MelonLoader mod) — clean each
+            # tracked path. A flat mod that's currently disabled has its DLL renamed to
+            # *.dll.disabled, so remove that variant too.
             for relpath in paths:
                 full = os.path.join(install_dir, relpath)
-                if os.path.isdir(full):
-                    shutil.rmtree(full)
-                    decky.logger.info(f"Removed {relpath}")
-                elif os.path.isfile(full):
-                    os.remove(full)
-                    decky.logger.info(f"Removed {relpath}")
+                for cand in (full, full + ".disabled"):
+                    if os.path.isdir(cand):
+                        shutil.rmtree(cand)
+                        decky.logger.info(f"Removed {os.path.relpath(cand, install_dir)}")
+                    elif os.path.isfile(cand):
+                        os.remove(cand)
+                        decky.logger.info(f"Removed {os.path.relpath(cand, install_dir)}")
             # Also clean a legacy mods_path/<filename> folder if one was left from a previous install
             legacy = os.path.join(mods_path, filename)
             if os.path.isdir(legacy):
@@ -1020,6 +1138,36 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
         else record.get("install_type") or (record.get("source") or {}).get("install_type")
     )
     filename = mod.filename if mod else record.get("filename", mod_id)
+
+    if install_type == "zip_flat":
+        # Flat-loader mod (MelonLoader): toggle every tracked *.dll between active and
+        # *.dll.disabled so the loader skips it. Asset-only mods have nothing to toggle.
+        target_paths = _flat_target_paths(install_dir, record.get("paths"))
+        renamed = 0
+        try:
+            for base in target_paths:
+                # Walk dirs; flip plain file paths directly.
+                candidates = []
+                if os.path.isdir(base):
+                    for root, _dirs, files in os.walk(base):
+                        candidates += [os.path.join(root, f) for f in files]
+                else:
+                    candidates = [base, base + ".disabled"]
+                for c in candidates:
+                    if enable and c.endswith(".dll.disabled") and os.path.isfile(c):
+                        os.rename(c, c[:-len(".disabled")])
+                        renamed += 1
+                    elif not enable and c.endswith(".dll") and os.path.isfile(c):
+                        os.rename(c, c + ".disabled")
+                        renamed += 1
+            if renamed == 0:
+                decky.logger.warning(f"No DLLs to {'enable' if enable else 'disable'} for {mod_id}")
+                return False
+            decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} ({renamed} dll{'s' if renamed != 1 else ''})")
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to toggle {mod_id}: {e}")
+            return False
 
     if install_type == "zip_dir":
         paths = record.get("paths")

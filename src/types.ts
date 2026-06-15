@@ -353,6 +353,20 @@ export const refreshBmiCatalog = callable<[appid: number], boolean>('refresh_bmi
 export const installBmiMod = callable<[appid: number, mod_id: string, version: string | null], boolean | null>('install_bmi_mod');
 export const getBrowseDenylist = callable<[], string[]>('get_browse_denylist');
 
+// Nexus Mods catalog — server-paginated/searched (~25 items per page), returned in the
+// shared ThunderstorePackage item shape. installNexusMod resolves a Premium CDN download
+// link; it returns the string 'premium_required' when the configured key isn't Premium.
+export const getNexusCatalog =
+  callable<[appid: number, query: string, page: number], ThunderstorePackage[]>('get_nexus_catalog');
+export const installNexusMod =
+  callable<[appid: number, full_name: string, version: string | null], boolean | null | string>('install_nexus_mod');
+
+// Account-global plugin settings (e.g. the Nexus API key). Stored plaintext in the
+// plugin's settings dir; the key is account-wide, not per-game.
+export const getSetting = callable<[key: string], any>('get_setting');
+export const setSetting = callable<[key: string, value: any], boolean>('set_setting');
+export const NEXUS_API_KEY = 'nexus_api_key';
+
 export interface WorkshopCatalogItem {
   id: string;
   name: string;

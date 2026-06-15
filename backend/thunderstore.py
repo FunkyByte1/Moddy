@@ -5,6 +5,7 @@ import time
 import urllib.request
 import decky
 
+import catalog
 import fetch
 
 # ── Thunderstore package API ──────────────────────────────────────────────────
@@ -80,26 +81,24 @@ def _trim_package(pkg: dict) -> dict | None:
     if not versions:
         return None
     latest = versions[0]
-    return {
-        "name": pkg.get("name", ""),
-        "full_name": pkg.get("full_name", ""),
-        "owner": pkg.get("owner", ""),
-        "package_url": pkg.get("package_url", ""),
-        "donation_link": pkg.get("donation_link"),
-        "date_updated": pkg.get("date_updated", ""),
-        "rating_score": pkg.get("rating_score", 0),
-        "is_deprecated": bool(pkg.get("is_deprecated", False)),
-        "has_nsfw_content": bool(pkg.get("has_nsfw_content", False)),
-        "categories": list(pkg.get("categories", [])),
-        "latest": {
-            "version_number": latest.get("version_number", ""),
-            "description": latest.get("description", ""),
-            "icon": latest.get("icon", ""),
-            "dependencies": list(latest.get("dependencies", [])),
-            "download_url": latest.get("download_url", ""),
-            "file_size": latest.get("file_size", 0),
-        },
-    }
+    return catalog.make_item(
+        name=pkg.get("name", ""),
+        full_name=pkg.get("full_name", ""),
+        owner=pkg.get("owner", ""),
+        package_url=pkg.get("package_url", ""),
+        donation_link=pkg.get("donation_link"),
+        date_updated=pkg.get("date_updated", ""),
+        rating_score=pkg.get("rating_score", 0),
+        is_deprecated=bool(pkg.get("is_deprecated", False)),
+        has_nsfw_content=bool(pkg.get("has_nsfw_content", False)),
+        categories=list(pkg.get("categories", [])),
+        version_number=latest.get("version_number", ""),
+        description=latest.get("description", ""),
+        icon=latest.get("icon", ""),
+        dependencies=list(latest.get("dependencies", [])),
+        download_url=latest.get("download_url", ""),
+        file_size=latest.get("file_size", 0),
+    )
 
 
 def get_community_catalog(community: str, force: bool = False) -> list[dict]:
