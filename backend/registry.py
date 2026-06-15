@@ -47,6 +47,8 @@ class ModloaderInfo:
     mod_toggle: str = "dll"                               # how a folder mod is enabled/disabled: "dll" (rename *.dll) or "lovelyignore" (.lovelyignore marker)
     native: bool = False                                  # provided by the platform (e.g. Steam Workshop) — nothing to install/enable; always "ready"
     config_files: dict = field(default_factory=dict)      # post-install config to write, keyed by game-dir-relative path → key-value lines (e.g. REFramework's LooseFileLoader toggle)
+    uninstall_files: list[str] = field(default_factory=list)  # extra files removed on uninstall but NOT installed (e.g. REFramework runtime logs)
+    uninstall_dirs: list[str] = field(default_factory=list)   # extra dirs removed on uninstall but NOT installed (e.g. REFramework's runtime-generated reframework/ config dir)
 
 
 @dataclass
@@ -155,6 +157,8 @@ def _load_modloaders() -> dict[str, ModloaderInfo]:
                 mod_toggle=data.get("mod_toggle", "dll"),
                 native=bool(data.get("native", False)),
                 config_files=dict(data.get("config_files", {})),
+                uninstall_files=list(data.get("uninstall_files", [])),
+                uninstall_dirs=list(data.get("uninstall_dirs", [])),
             )
         except Exception as e:
             decky.logger.error(f"Failed to load modloader from {where}: {e}")

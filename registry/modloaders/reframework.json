@@ -9,6 +9,8 @@
   "config_files": {
     "reframework/config.txt": "LooseFileLoader_Enabled true\n"
   },
+  "uninstall_dirs": ["reframework"],
+  "uninstall_files": ["reframework_revision.txt", "reframework_loose_files.txt", "reframework_accessed_files.txt"],
   "source": {
     "type": "github",
     "owner": "praydog",

@@ -168,6 +168,24 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
                 path = os.path.join(install_dir, candidate)
                 if os.path.isdir(path):
                     shutil.rmtree(path)
+        # Extra cleanup: files/dirs that aren't installed by Moddy but are part of the loader's
+        # on-disk footprint (e.g. REFramework's runtime-generated reframework/ dir + logs). We
+        # only install dinput8.dll, but a clean uninstall should leave nothing behind.
+        for f in ml.uninstall_files:
+            for candidate in [f, f + ".disabled"]:
+                path = os.path.join(install_dir, candidate)
+                if os.path.isfile(path):
+                    os.remove(path)
+        for d in ml.uninstall_dirs:
+            # Defensive: never let a stray/empty entry resolve to the game root and rmtree it.
+            if not d or os.path.normpath(d) in (".", os.sep, ""):
+                continue
+            for candidate in [d, d + ".disabled"]:
+                path = os.path.join(install_dir, candidate)
+                if os.path.normpath(path) == os.path.normpath(install_dir):
+                    continue
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
         # Restore backed up version.dll if present
         bak = os.path.join(install_dir, "version.dll.deckhand_bak")
         if os.path.isfile(bak):
