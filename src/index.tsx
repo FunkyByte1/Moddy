@@ -14,14 +14,16 @@ import {
 // game. Currently just the Nexus Mods personal API key (used by the Nexus Browse tab).
 function NexusApiKeyField() {
   const [value, setValue] = useState('');
-  const [loaded, setLoaded] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    getSetting(NEXUS_API_KEY).then(k => {
-      setValue(typeof k === 'string' ? k : '');
-      setLoaded(true);
-    });
+    // Populate from the stored key, but NEVER gate the field's enabled state on this load.
+    // A previous version disabled the field until the load resolved; when get_setting threw
+    // (the settings-module collision) it stayed disabled and unfocusable forever. Keep it
+    // always editable, and don't clobber anything the user has already typed.
+    getSetting(NEXUS_API_KEY)
+      .then(k => { if (typeof k === 'string' && k) setValue(prev => (prev === '' ? k : prev)); })
+      .catch(() => {});
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, []);
 
@@ -37,7 +39,6 @@ function NexusApiKeyField() {
         <TextField
           label="Nexus Mods API key"
           value={value}
-          disabled={!loaded}
           bIsPassword
           onChange={e => onChange(e.target.value)}
         />

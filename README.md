@@ -32,6 +32,28 @@ Mods and modloaders are downloaded directly from their original publishers:
 - **GitHub Releases** — for projects that publish built assets there (e.g. MelonLoader, Starlight, R2API).
 - **[Thunderstore](https://thunderstore.io)** — for the wider Risk of Rain 2 / BepInEx mod ecosystem, accessed via Thunderstore's public API the same way [r2modman](https://github.com/ebkr/r2modmanPlus), [Thunderstore Mod Manager](https://www.overwolf.com/app/Thunderstore-Thunderstore_Mod_Manager), and [Gale](https://github.com/Kesomannen/gale) do. Moddy does not host, redistribute, or modify any mod content — it links to and downloads from the original sources, and each mod's license is set by its author.
 - **[Balatro Mod Index](https://github.com/skyline69/balatro-mod-index)** — for Balatro mods, Moddy reads the community mod index maintained by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project (© 2025 Efe, MIT-licensed). Moddy reads the index directly from its public GitHub repository to list mods, then downloads each mod from its own original source. Huge thanks to that project and its contributors for curating the index.
+- **[Nexus Mods](https://www.nexusmods.com)** — accessed through the official Nexus Mods API using **your own personal API key** (the same way [Vortex](https://www.nexusmods.com/about/vortex/) does). Moddy does not host or redistribute any mod content; it searches via the public API and downloads each file from Nexus's own CDN. **This version supports downloads for Nexus Premium accounts only** — free accounts can browse, but Nexus's API only returns a direct download link to Premium members. Your API key is stored only on your device and is sent only to Nexus.
+
+### Setting up your Nexus Mods API key
+
+To browse or install Nexus mods you need a (free) Nexus account and a **personal API key**:
+
+1. Sign in at [nexusmods.com](https://www.nexusmods.com), then open **Account settings → [API Keys](https://www.nexusmods.com/users/myaccount?tab=api)**.
+2. Under **Personal API Key**, click **Generate** (or copy your existing one).
+
+Then add the key to Moddy. The key is ~30 random characters, so pasting is far easier than typing it on the Game Mode keyboard — pick whichever is convenient:
+
+- **Desktop Mode (easiest):** switch to Desktop Mode, open the Decky panel → **Moddy → Settings**, and **paste** your key into the *Nexus Mods API key* field (real keyboard + clipboard).
+- **Game Mode:** open the Decky panel → **Moddy → Settings** and type the key into the *Nexus Mods API key* field with the on-screen keyboard.
+- **Advanced (SSH / file):** edit `~/homebrew/settings/moddy/settings.json` on the deck and set `nexus_api_key`, then restart Decky so it's picked up:
+  ```bash
+  mkdir -p ~/homebrew/settings/moddy
+  cat > ~/homebrew/settings/moddy/settings.json <<'EOF'
+  { "nexus_api_key": "PASTE_YOUR_KEY_HERE" }
+  EOF
+  sudo systemctl restart plugin_loader
+  ```
+  (The folder name is lowercase `moddy`; the file is read on startup.)
 
 ## Acknowledgements
 
