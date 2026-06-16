@@ -31,8 +31,8 @@ That's it — Moddy appears in the Decky panel. It's **alpha software** — plea
 - Haste
 - Risk of Rain 2
 - Balatro
-- Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key) — needs the REFramework loader)*
-- Slime Rancher 2 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key) — needs the MelonLoader loader)*
+- Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
+- Slime Rancher 2 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 
 ### Planned:
 - Stardew Valley
