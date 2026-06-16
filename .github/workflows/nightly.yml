@@ -29,6 +29,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Stamp build version with the commit SHA
+        # CalVer base from package.json (e.g. 2026.6.15) + the build SHA as semver build
+        # metadata, so each nightly self-identifies in-app and in the Nexus header.
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.version=p.version.split('+')[0]+'+${GITHUB_SHA::7}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');console.log('Stamped version:',p.version)"
+
       - name: Build release zip
         run: |
           chmod +x release.sh
