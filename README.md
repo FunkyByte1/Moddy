@@ -14,7 +14,7 @@ Moddy isn't in the Decky store yet, so install it from its URL:
 2. In the Decky panel, open the **store / settings** (the 🛒/⚙️ icon) and enable **Developer mode**.
 3. Use **Install from URL** and enter **`get.moddy.gg`**.
 
-That's it — Moddy appears in the Decky panel. It's **alpha software** — please [report anything that breaks](#reporting-issues).
+That's it — Moddy appears in the Decky panel. It's **alpha software** — please [report anything that breaks](#reporting-issues). Mods are third-party software and run with full access to your system — please read the [Disclaimer](#disclaimer) before installing anything.
 
 ## Features
 
@@ -44,13 +44,9 @@ That's it — Moddy appears in the Decky panel. It's **alpha software** — plea
 
 ## Mod Sources
 
-Mods and modloaders are downloaded directly from their original publishers:
+Moddy downloads mods and mod loaders **directly from their original publishers** — GitHub, [Thunderstore](https://thunderstore.io), the [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index), [Nexus Mods](https://www.nexusmods.com), and the Steam Workshop — the same way other mod managers do. It does **not** host, redistribute, or modify any mod content; each mod's license is set by its author.
 
-- **GitHub Releases** — for projects that publish built assets there (e.g. MelonLoader, Starlight, R2API).
-- **[Thunderstore](https://thunderstore.io)** — for the wider Risk of Rain 2 / BepInEx mod ecosystem, accessed via Thunderstore's public API the same way [r2modman](https://github.com/ebkr/r2modmanPlus), [Thunderstore Mod Manager](https://www.overwolf.com/app/Thunderstore-Thunderstore_Mod_Manager), and [Gale](https://github.com/Kesomannen/gale) do. Moddy does not host, redistribute, or modify any mod content — it links to and downloads from the original sources, and each mod's license is set by its author.
-- **[Balatro Mod Index](https://github.com/skyline69/balatro-mod-index)** — for Balatro mods, Moddy reads a community-maintained index directly from its public GitHub repository to list mods, then downloads each mod from its own original source. (Index attribution and license are in [Acknowledgements](#acknowledgements).)
-- **[Nexus Mods](https://www.nexusmods.com)** — accessed through the official Nexus Mods API using **your own personal API key**. Moddy does not host or redistribute any mod content; it searches via the public API and downloads each file from Nexus's own CDN. **This version supports downloads for Nexus Premium accounts only** — free accounts can browse, but Nexus's API only returns a direct download link to Premium members. Your API key is stored only on your device and is sent only to Nexus.
-- **[Steam Workshop](https://steamcommunity.com/workshop/)** — for games that mod through the Workshop (e.g. Haste), Moddy subscribes to items through Steam's own client and Steam downloads and updates them. Moddy hosts nothing — it just toggles your subscriptions.
+Nexus downloads use the official API with **your own personal API key** — **Premium accounts only** (free accounts can browse, but Nexus only returns download links to Premium members). Your key is stored only on your device and sent only to Nexus.
 
 ### Setting up your Nexus Mods API key
 
@@ -85,10 +81,6 @@ Moddy is in alpha, so bug reports are genuinely useful. Please open an issue on 
 
 **Exporting logs:** open the Decky panel → **Moddy → Diagnostics → Export logs**. This saves a `moddy-logs-<timestamp>.zip` to your Steam Deck's **Desktop** — switch to Desktop Mode and attach it to your issue (drag it into the GitHub upload box). The bundle contains Moddy's log files and basic version info; your **Nexus API key is not included**.
 
-## Acknowledgements
-
-- The **Balatro Mod Index** (catalog data) is by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project, © 2025 Efe, licensed under the [MIT License](https://github.com/skyline69/balatro-mod-index/blob/main/LICENSE). Moddy uses only the index data — none of that project's source code.
-
 ## Disclaimer
 
 Mods installed through Moddy are **third-party software not authored, audited, or endorsed by this project**. They are downloaded from their original publishers and run with the same privileges as your user account — they are not sandboxed or isolated from the rest of your system.
@@ -96,6 +88,31 @@ Mods installed through Moddy are **third-party software not authored, audited, o
 Use Moddy and any mods you install **at your own risk**. The author accepts no responsibility or liability for any damage arising from their use, including but not limited to corrupted or lost save data, broken or unbootable game installations, system instability, exposure to malicious code, or **bans from anti-cheat systems or online services**. Modifying a game may violate its terms of service, and online/multiplayer titles in particular may detect mods and penalize your account.
 
 Review the source and author before installing anything you don't recognize. Moddy is provided **"AS IS"**, without warranty of any kind. See the [License](#license) below for the full warranty disclaimer.
+
+## Acknowledgements
+
+- The **Balatro Mod Index** (catalog data) is by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project, © 2025 Efe, licensed under the [MIT License](https://github.com/skyline69/balatro-mod-index/blob/main/LICENSE). Moddy uses only the index data — none of that project's source code.
+
+## Support these projects, not me
+
+Moddy is mostly glue — the real work behind every install is done by the projects below. **Please send your support their way before mine.** The best ways to help any of them: star the repo, report bugs, and contribute — and where a project shows a **Sponsor** button, consider donating.
+
+**Moddy runs on:**
+
+- **[Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader)** — the homebrew loader that makes Moddy, and the entire Steam Deck plugin scene, possible.
+
+**Mods are loaded by:**
+
+- **[MelonLoader](https://github.com/LavaGang/MelonLoader)** — by LavaGang
+- **[BepInEx](https://github.com/BepInEx/BepInEx)**
+- **[Lovely](https://github.com/ethangreen-dev/lovely-injector)** — by ethangreen-dev
+- **[REFramework](https://github.com/praydog/REFramework)** — by praydog
+
+**Catalogs are curated by:**
+
+- **[Balatro Mod Index](https://github.com/skyline69/balatro-mod-index)** — the community-maintained Balatro catalog, by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project (Efe).
+
+**And above all,** the many developers of the frameworks and mods you actually install — Moddy is nothing without what they make. Find them on [Thunderstore](https://thunderstore.io), [Nexus Mods](https://www.nexusmods.com), and their own pages, and support them directly.
 
 ## AI Disclosure
 
