@@ -34,12 +34,11 @@ jobs:
           chmod +x release.sh
           ./release.sh "nightly-${GITHUB_SHA::7}"
 
-      - name: Publish rolling nightly release to public repo
+      - name: Publish rolling nightly release
         env:
-          # PAT with contents:write on FunkyByte1/Moddy-releases (the public repo).
-          # GITHUB_TOKEN can't write cross-repo, so a fine-grained PAT is required.
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          PUBLIC_REPO: FunkyByte1/Moddy-releases
+          # Same-repo releases: the built-in GITHUB_TOKEN suffices (see `permissions` above).
+          GH_TOKEN: ${{ github.token }}
+          PUBLIC_REPO: ${{ github.repository }}
         run: |
           set -e
           TAG=nightly
@@ -51,11 +50,10 @@ jobs:
           # Remove the previous nightly release + tag so the new one rolls forward.
           gh release delete "$TAG" --repo "$PUBLIC_REPO" --yes --cleanup-tag || true
 
-          # No --target: the source commit doesn't exist in the public repo, so the
-          # tag is created at the public repo's default branch. The SHA is recorded
-          # in the notes for traceability.
+          # Same repo now, so pin the rolling tag to the exact build commit.
           gh release create "$TAG" "$ZIP" "$STABLE_ZIP" \
             --repo "$PUBLIC_REPO" \
+            --target "$GITHUB_SHA" \
             --title "Nightly ($SHORT_SHA)" \
             --notes "Automated build from \`main\` at commit ${GITHUB_SHA}. Unstable — expect bugs." \
             --prerelease
@@ -66,6 +64,7 @@ jobs:
           SHA_TAG="nightly-${SHORT_SHA}"
           gh release create "$SHA_TAG" "$ZIP" \
             --repo "$PUBLIC_REPO" \
+            --target "$GITHUB_SHA" \
             --title "Nightly ($SHORT_SHA)" \
             --notes "Automated build from \`main\` at commit ${GITHUB_SHA}. Unstable — expect bugs." \
             --prerelease || true
