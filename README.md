@@ -22,7 +22,7 @@ That's it — Moddy appears in the Decky panel. It's **alpha software** — plea
 - Mod loader installation and management (MelonLoader, BepInEx, Lovely, REFramework)
 - Version selection with rollback support
 - Dependency resolution and cascade disable/uninstall
-- Update checking for mods and mod loader
+- Update checking for mods and mod loaders
 - Controller-native UI with d-pad navigation
 
 ## Supported Games
@@ -42,19 +42,19 @@ That's it — Moddy appears in the Decky panel. It's **alpha software** — plea
 - Monster Hunter World
 - and more :)
 
-
 ## Mod Sources
 
 Mods and modloaders are downloaded directly from their original publishers:
 
 - **GitHub Releases** — for projects that publish built assets there (e.g. MelonLoader, Starlight, R2API).
 - **[Thunderstore](https://thunderstore.io)** — for the wider Risk of Rain 2 / BepInEx mod ecosystem, accessed via Thunderstore's public API the same way [r2modman](https://github.com/ebkr/r2modmanPlus), [Thunderstore Mod Manager](https://www.overwolf.com/app/Thunderstore-Thunderstore_Mod_Manager), and [Gale](https://github.com/Kesomannen/gale) do. Moddy does not host, redistribute, or modify any mod content — it links to and downloads from the original sources, and each mod's license is set by its author.
-- **[Balatro Mod Index](https://github.com/skyline69/balatro-mod-index)** — for Balatro mods, Moddy reads the community mod index maintained by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project (© 2025 Efe, MIT-licensed). Moddy reads the index directly from its public GitHub repository to list mods, then downloads each mod from its own original source. Huge thanks to that project and its contributors for curating the index.
-- **[Nexus Mods](https://www.nexusmods.com)** — accessed through the official Nexus Mods API using **your own personal API key** (the same way [Vortex](https://www.nexusmods.com/about/vortex/) does). Moddy does not host or redistribute any mod content; it searches via the public API and downloads each file from Nexus's own CDN. **This version supports downloads for Nexus Premium accounts only** — free accounts can browse, but Nexus's API only returns a direct download link to Premium members. Your API key is stored only on your device and is sent only to Nexus.
+- **[Balatro Mod Index](https://github.com/skyline69/balatro-mod-index)** — for Balatro mods, Moddy reads a community-maintained index directly from its public GitHub repository to list mods, then downloads each mod from its own original source. (Index attribution and license are in [Acknowledgements](#acknowledgements).)
+- **[Nexus Mods](https://www.nexusmods.com)** — accessed through the official Nexus Mods API using **your own personal API key**. Moddy does not host or redistribute any mod content; it searches via the public API and downloads each file from Nexus's own CDN. **This version supports downloads for Nexus Premium accounts only** — free accounts can browse, but Nexus's API only returns a direct download link to Premium members. Your API key is stored only on your device and is sent only to Nexus.
+- **[Steam Workshop](https://steamcommunity.com/workshop/)** — for games that mod through the Workshop (e.g. Haste), Moddy subscribes to items through Steam's own client and Steam downloads and updates them. Moddy hosts nothing — it just toggles your subscriptions.
 
 ### Setting up your Nexus Mods API key
 
-To browse or install Nexus mods you need a (free) Nexus account and a **personal API key**:
+To browse or install Nexus mods you need a Nexus account and a **personal API key**:
 
 1. Sign in at [nexusmods.com](https://www.nexusmods.com), then open **Account settings → [API Keys](https://www.nexusmods.com/users/myaccount?tab=api)**.
 2. Under **Personal API Key**, click **Generate** (or copy your existing one).
@@ -88,7 +88,6 @@ Moddy is in alpha, so bug reports are genuinely useful. Please open an issue on 
 ## Acknowledgements
 
 - The **Balatro Mod Index** (catalog data) is by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project, © 2025 Efe, licensed under the [MIT License](https://github.com/skyline69/balatro-mod-index/blob/main/LICENSE). Moddy uses only the index data — none of that project's source code.
-- Balatro modding is powered by the [Lovely injector](https://github.com/ethangreen-dev/lovely-injector) and [Steamodded](https://github.com/Steamodded/smods), installed from their official releases.
 
 ## Disclaimer
 
@@ -100,9 +99,7 @@ Review the source and author before installing anything you don't recognize. Mod
 
 ## AI Disclosure
 
-Yes, a large portion of this was made with AI/vibe-coding. I'm a single person working on this in the small amounts of free time I get, and AI is the tool that lets me ship at all.
-
-I'm open to someone de-slopping the project and submitting PRs. If that happens, I'll use a lot less AI going forward. But for now, it's what I have, and I'd rather be upfront about it than pretend otherwise.
+A large portion of this codebase was made with the help of AI. I'm a single person working on this in the small amounts of free time I get. AI is a tool that lets me ship this at all. I know some people are against the use of AI, so I'd rather be upfront about its use than pretend otherwise.
 
 ## Development
 
