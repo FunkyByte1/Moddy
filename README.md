@@ -32,10 +32,14 @@ That's it — Moddy appears in the Decky panel. It's **alpha software** — plea
 - Risk of Rain 2
 - Balatro
 - Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key) — needs the REFramework loader; see [the RE4 guide](docs/re4-mods.md))*
+- Haste
 
 ### Planned:
 - Stardew Valley
-- Haste
+- No Man's Sky
+- Enter the Gungeon
+- Deep Rock Galactic
+- Monster Hunter World
 - and more :)
 
 
