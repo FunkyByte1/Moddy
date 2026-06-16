@@ -75,11 +75,11 @@ jobs:
             --notes "Automated build from \`main\` at commit ${GITHUB_SHA}. Unstable — expect bugs." \
             --prerelease || true
 
-          # Prune per-SHA nightlies, keeping only the 10 most recent. The rolling
+          # Prune per-SHA nightlies, keeping only the 30 most recent. The rolling
           # `nightly` tag is excluded by the `nightly-` prefix filter.
           gh release list --repo "$PUBLIC_REPO" --limit 200 \
             --json tagName,createdAt \
-            --jq 'map(select(.tagName | startswith("nightly-"))) | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' \
+            --jq 'map(select(.tagName | startswith("nightly-"))) | sort_by(.createdAt) | reverse | .[30:] | .[].tagName' \
             | while read -r OLD_TAG; do
                 [ -n "$OLD_TAG" ] || continue
                 echo "Pruning old nightly: $OLD_TAG"
