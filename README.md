@@ -1,8 +1,7 @@
-<p align="center">
-  <img src="assets/moddy-logo-tile.png" alt="Moddy" width="128" height="128">
-</p>
-
-<h1 align="center">Moddy</h1>
+<h1 align="center">
+  <img src="assets/moddy-logo-tile.png" alt="" height="44" align="middle">
+  &nbsp;Moddy
+</h1>
 
 A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for one-click mod installation and management on Steam Deck — directly in Game Mode.
 
