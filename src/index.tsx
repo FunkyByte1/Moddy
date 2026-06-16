@@ -1,6 +1,7 @@
 import { ButtonItem, PanelSection, PanelSectionRow, TextField, staticClasses } from '@decky/ui';
 import { definePlugin, routerHook, toaster } from '@decky/api';
 import { useState, useEffect, useRef } from 'react';
+import { FaEye, FaEyeSlash } from 'react-icons/fa';
 
 import contextMenuPatch, { LibraryContextMenu } from './contextMenuPatch';
 import ModPage from './ModPage';
@@ -31,6 +32,7 @@ function ModdyIcon() {
 // game. Currently just the Nexus Mods personal API key (used by the Nexus Browse tab).
 function NexusApiKeyField() {
   const [value, setValue] = useState('');
+  const [show, setShow] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -56,9 +58,16 @@ function NexusApiKeyField() {
         <TextField
           label="Nexus Mods API key"
           value={value}
-          bIsPassword
+          bIsPassword={!show}
           onChange={e => onChange(e.target.value)}
         />
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={() => setShow(s => !s)}>
+          {show
+            ? <span><FaEyeSlash style={{ marginRight: '6px', verticalAlign: 'middle' }} />Hide key</span>
+            : <span><FaEye style={{ marginRight: '6px', verticalAlign: 'middle' }} />Show key</span>}
+        </ButtonItem>
       </PanelSectionRow>
       <PanelSectionRow>
         <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em' }}>
