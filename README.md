@@ -28,11 +28,11 @@ That's it — Moddy appears in the Decky panel. It's **alpha software** — plea
 ## Supported Games
 ### Currently Supported:
 
-- Slime Rancher 2
+- Haste
 - Risk of Rain 2
 - Balatro
-- Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key) — needs the REFramework loader; see [the RE4 guide](docs/re4-mods.md))*
-- Haste
+- Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key) — needs the REFramework loader)*
+- Slime Rancher 2 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key) — needs the MelonLoader loader)*
 
 ### Planned:
 - Stardew Valley
