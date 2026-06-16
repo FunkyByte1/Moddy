@@ -54,13 +54,18 @@ function NexusApiKeyField() {
 
   return (
     <>
+      {/* Decky's bIsPassword is a no-op on current Steam builds, so mask the input
+          visually with CSS instead. The real value stays intact (editing/paste work);
+          the Show/Hide toggle just flips the masking. */}
+      <style>{`.moddy-apikey-mask input { -webkit-text-security: disc !important; }`}</style>
       <PanelSectionRow>
-        <TextField
-          label="Nexus Mods API key"
-          value={value}
-          bIsPassword={!show}
-          onChange={e => onChange(e.target.value)}
-        />
+        <div className={show ? undefined : 'moddy-apikey-mask'}>
+          <TextField
+            label="Nexus Mods API key"
+            value={value}
+            onChange={e => onChange(e.target.value)}
+          />
+        </div>
       </PanelSectionRow>
       <PanelSectionRow>
         <ButtonItem layout="below" onClick={() => setShow(s => !s)}>
@@ -72,7 +77,7 @@ function NexusApiKeyField() {
       <PanelSectionRow>
         <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em' }}>
           Generate a personal key at nexusmods.com → Account → API Keys. Premium accounts
-          can install directly; free accounts can browse only.
+          can install; a key is required for browsing.
         </div>
       </PanelSectionRow>
     </>
