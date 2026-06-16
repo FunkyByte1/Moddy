@@ -357,7 +357,7 @@ export const getBrowseDenylist = callable<[], string[]>('get_browse_denylist');
 // shared ThunderstorePackage item shape. installNexusMod resolves a Premium CDN download
 // link; it returns the string 'premium_required' when the configured key isn't Premium.
 export const getNexusCatalog =
-  callable<[appid: number, query: string, page: number], ThunderstorePackage[]>('get_nexus_catalog');
+  callable<[appid: number, query: string, page: number, include_adult: boolean], ThunderstorePackage[]>('get_nexus_catalog');
 // A selectable payload inside a multi-variant mod archive (e.g. the RE4 stack-size .pak options).
 export interface NexusVariant { id: string; label: string }
 export interface NeedsVariant { needs_variant: true; variants: NexusVariant[] }
@@ -371,6 +371,12 @@ export const installNexusMod =
 export const getSetting = callable<[key: string], any>('get_setting');
 export const setSetting = callable<[key: string, value: any], boolean>('set_setting');
 export const NEXUS_API_KEY = 'nexus_api_key';
+// Account-global gate for NSFW content. When off, the per-game Browse filter hides the
+// "Show NSFW" control and NSFW mods stay filtered out; when on, it's offered per-session.
+export const NSFW_ENABLED = 'nsfw_enabled';
+// Sub-setting (only meaningful when NSFW_ENABLED): seed each game's Browse filter with
+// "Show NSFW" already on, instead of off. Still toggleable per-session.
+export const NSFW_DEFAULT_ON = 'nsfw_default_on';
 
 // Bundles logs into a zip on the Deck's Desktop and returns the path (or null on failure).
 export const exportLogs = callable<[], string | null>('export_logs');

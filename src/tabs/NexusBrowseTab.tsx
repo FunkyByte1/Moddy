@@ -6,6 +6,7 @@ import {
   GameStatus, ThunderstorePackage, NeedsVariant,
   getNexusCatalog, installNexusMod, uninstallMod, toggleMod,
 } from '../types';
+import { NexusFilter } from '../components/modals/NexusFilterModal';
 import DependentsModal from '../components/modals/DependentsModal';
 import VariantModal from '../components/modals/VariantModal';
 import { showOrphanCleanup } from '../orphanCleanup';
@@ -49,7 +50,16 @@ const Row: FC<{
   </Focusable>
 );
 
-const NexusBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }> = ({ game, onRefresh }) => {
+const NexusBrowseTab: FC<{
+  game: GameStatus;
+  onRefresh: () => Promise<void>;
+  filter: NexusFilter;
+  onFilterButton: () => void;
+  // False until the parent's NSFW default-on seed has resolved. Holding the first fetch
+  // until then avoids a wasted non-adult request followed by an adult re-fetch — Nexus
+  // rate limits are strict, so the initial query must use the final include_adult value.
+  ready: boolean;
+}> = ({ game, onRefresh, filter, onFilterButton, ready }) => {
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [items, setItems] = useState<ThunderstorePackage[]>([]);
@@ -66,11 +76,14 @@ const NexusBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }> =
   }, [search]);
 
   useEffect(() => {
+    // Wait for the parent's NSFW seed so the first query uses the final include_adult.
+    if (!ready) return;
     let cancelled = false;
     (async () => {
       setLoading(true); setSelectedIndex(0);
       try {
-        const data = await getNexusCatalog(game.appid, debounced, 1);
+        // Adult content is a server-side filter, so toggling Show NSFW re-fetches page 1.
+        const data = await getNexusCatalog(game.appid, debounced, 1, filter.showNsfw);
         if (!cancelled) { setItems(data); setPage(1); setHasMore(data.length >= PAGE_FULL); }
       } catch {
         if (!cancelled) toaster.toast({ title: 'Moddy', body: 'Failed to load Nexus catalog' });
@@ -79,14 +92,14 @@ const NexusBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }> =
       }
     })();
     return () => { cancelled = true; };
-  }, [game.appid, debounced]);
+  }, [game.appid, debounced, filter.showNsfw, ready]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
       const next = page + 1;
-      const data = await getNexusCatalog(game.appid, debounced, next);
+      const data = await getNexusCatalog(game.appid, debounced, next, filter.showNsfw);
       const have = new Set(items.map(i => i.full_name));
       setItems(prev => [...prev, ...data.filter(i => !have.has(i.full_name))]);
       setPage(next);
@@ -113,7 +126,7 @@ const NexusBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }> =
   }, [items, pendingFocus]);
 
   const handleLoadMore = async () => {
-    const lastMod = Math.max(0, items.length - 1);
+    const lastMod = Math.max(0, visible.length - 1);
     await loadMore();
     setPendingFocus(lastMod);
   };
@@ -134,7 +147,23 @@ const NexusBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }> =
     [game.installed_mods],
   );
   const isInstalled = (it: ThunderstorePackage) => installedIds.has(it.full_name.toLowerCase());
-  const selected = items[Math.min(selectedIndex, items.length - 1)] ?? null;
+
+  // Install-status filter is applied client-side over the loaded pages (NSFW is handled
+  // server-side via the re-fetch above). `visible` is what the list renders and indexes.
+  const visible = useMemo(
+    () => items.filter(it => {
+      const inst = installedIds.has(it.full_name.toLowerCase());
+      if (inst && !filter.installed) return false;
+      if (!inst && !filter.notInstalled) return false;
+      return true;
+    }),
+    [items, installedIds, filter.installed, filter.notInstalled],
+  );
+
+  // Keep the selection in range when the install-status filter shrinks the list.
+  useEffect(() => { setSelectedIndex(0); }, [filter.installed, filter.notInstalled]);
+
+  const selected = visible[Math.min(selectedIndex, visible.length - 1)] ?? null;
 
   const handleInstall = async (it: ThunderstorePackage, variant: string | null = null) => {
     setInstalling(it.full_name);
@@ -197,13 +226,17 @@ const NexusBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }> =
   };
 
   return (
-    <Focusable style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+    <Focusable
+      style={{ display: 'flex', height: '100%', overflow: 'hidden' }}
+      onSecondaryButton={onFilterButton}
+      onSecondaryActionDescription="Filter"
+    >
       <Focusable style={{ width: LEFT_PANEL_WIDTH, borderRight: '1px solid var(--gpColorSeparator)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: 8 }}>
           <TextField label="Search Nexus" value={search} onChange={e => setSearch(e.target.value)} />
           <CatalogSourceLabel source="nexus" />
           <div style={{ marginTop: 6, minHeight: 16, fontSize: 11, color: 'var(--gpColorTextSecondary)' }}>
-            {loading ? 'Loading…' : items.length > 0 ? `${items.length} mod${items.length === 1 ? '' : 's'}` : ''}
+            {loading ? 'Loading…' : visible.length > 0 ? `${visible.length} mod${visible.length === 1 ? '' : 's'}` : ''}
           </div>
         </div>
         <Focusable style={{ flex: 1, overflowY: 'auto', padding: '0 8px 60px' }}>
@@ -216,9 +249,13 @@ const NexusBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }> =
             <div style={{ padding: 16, color: 'var(--gpColorTextSecondary)' }}>
               {debounced ? 'No matches.' : 'Catalog unavailable — set your Nexus API key in the Moddy panel and check your network.'}
             </div>
+          ) : visible.length === 0 ? (
+            <div style={{ padding: 16, color: 'var(--gpColorTextSecondary)' }}>
+              No mods match the filter.
+            </div>
           ) : (
             <>
-              {items.map((it, i) => (
+              {visible.map((it, i) => (
                 <Row key={it.full_name} item={it} selected={i === selectedIndex} installed={isInstalled(it)}
                   onSelect={() => setSelectedIndex(i)} onActivate={focusDetail}
                   innerRef={el => { if (el) rowRefs.current.set(i, el); else rowRefs.current.delete(i); }} />

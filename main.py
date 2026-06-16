@@ -512,20 +512,24 @@ class Plugin:
         return await mods.install_mod(game, install_dir, mod, version=target_version, url=url)
 
     # ── Nexus Mods catalog ────────────────────────────────────────────────────
-    async def get_nexus_catalog(self, appid: int, query: str = "", page: int = 1) -> list:
+    async def get_nexus_catalog(self, appid: int, query: str = "", page: int = 1,
+                                include_adult: bool | None = None) -> list:
         """A page (~25 items) of the Nexus catalog for a game whose Browse source is Nexus,
         searched server-side by `query` via the v2 GraphQL API. Returns [] for non-Nexus
-        games, on error, or when no Nexus API key is configured."""
+        games, on error, or when no Nexus API key is configured.
+
+        `include_adult` is driven per-fetch by the Browse filter's "Show NSFW" toggle. When
+        the caller omits it, fall back to the `nexus_include_adult` setting key."""
         game = registry.get_game_by_appid(appid)
         if not game or game.catalog.get("type") != "nexus":
             return []
         domain = game.catalog.get("nexus_domain", "")
         if not domain:
             return []
-        # Adult mods are hidden by default. A future Settings toggle just needs to write the
-        # `nexus_include_adult` key; no further backend change required.
-        include_adult = bool(settings.get_setting("nexus_include_adult", False))
-        return nexus.search(domain, query, page, include_adult)
+        # Adult mods are hidden by default; the Browse filter's NSFW toggle opts in per-fetch.
+        if include_adult is None:
+            include_adult = bool(settings.get_setting("nexus_include_adult", False))
+        return nexus.search(domain, query, page, bool(include_adult))
 
     async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None, variant: str | None = None):
         """Install a Nexus mod by its `nexus.<domain>.<mod_id>` catalog id, via the Premium

@@ -38,9 +38,12 @@ const BrowseFilterModal: FC<{
   filter: BrowseFilter;
   categories: string[];
   defaultFilter?: BrowseFilter;
+  // Account-global "Allow NSFW" gate (Settings). When off, the Show NSFW control is
+  // hidden entirely and NSFW mods stay filtered out; when on, it's offered per-session.
+  nsfwEnabled?: boolean;
   onChange: (filter: BrowseFilter) => void;
   closeModal?: () => void;
-}> = ({ filter, categories, defaultFilter = defaultBrowseFilter, onChange, closeModal }) => {
+}> = ({ filter, categories, defaultFilter = defaultBrowseFilter, nsfwEnabled = false, onChange, closeModal }) => {
   const [local, setLocal] = useState<BrowseFilter>(filter);
   const update = (next: BrowseFilter) => { setLocal(next); onChange(next); };
 
@@ -88,11 +91,13 @@ const BrowseFilterModal: FC<{
             checked={local.showDeprecated}
             onChange={(v) => update({ ...local, showDeprecated: v })}
           />
-          <DialogCheckbox
-            label="Show NSFW"
-            checked={local.showNsfw}
-            onChange={(v) => update({ ...local, showNsfw: v })}
-          />
+          {nsfwEnabled && (
+            <DialogCheckbox
+              label="Show NSFW"
+              checked={local.showNsfw}
+              onChange={(v) => update({ ...local, showNsfw: v })}
+            />
+          )}
           <DialogCheckbox
             label="Hide Libraries"
             checked={local.hideLibraries}
@@ -112,6 +117,11 @@ const BrowseFilterModal: FC<{
               ))}
             </div>
           </Section>
+        )}
+        {!nsfwEnabled && (
+          <div style={{ marginTop: '8px', color: 'var(--gpColorTextSecondary)', fontSize: '0.75em' }}>
+            NSFW mods are hidden. Enable "Allow NSFW content" in Moddy's Settings to show them.
+          </div>
         )}
       </div>
     </ModalRoot>

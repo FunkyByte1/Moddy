@@ -2,7 +2,7 @@ import { Tabs, showModal } from '@decky/ui';
 import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, useRef, FC } from 'react';
 
-import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions } from './types';
+import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
 import ModsTab from './tabs/ModsTab';
 import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
@@ -18,6 +18,7 @@ import OverwriteProfileModal from './components/modals/OverwriteProfileModal';
 import FilterModal, { ModFilter, defaultModFilter } from './components/modals/FilterModal';
 import InstalledFilterModal, { InstalledFilter, defaultInstalledFilter } from './components/modals/InstalledFilterModal';
 import BrowseFilterModal, { BrowseFilter, defaultBrowseFilter } from './components/modals/BrowseFilterModal';
+import NexusFilterModal, { NexusFilter, defaultNexusFilter } from './components/modals/NexusFilterModal';
 
 const ModPage: FC = () => {
   const appid = parseInt(window.location.pathname.split('/').pop() ?? '0');
@@ -30,6 +31,10 @@ const ModPage: FC = () => {
   const [filter, setFilter] = useState<ModFilter>(defaultModFilter);
   const [installedFilter, setInstalledFilter] = useState<InstalledFilter>(defaultInstalledFilter);
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>(defaultBrowseFilter);
+  const [nexusFilter, setNexusFilter] = useState<NexusFilter>(defaultNexusFilter);
+  // Gates the Nexus tab's first fetch until the NSFW seed below has resolved, so it
+  // queries with the right include_adult value once instead of fetching twice.
+  const [nsfwSeedResolved, setNsfwSeedResolved] = useState(false);
   const [browseCategories, setBrowseCategories] = useState<string[]>([]);
   const [profilesRefreshKey, setProfilesRefreshKey] = useState(0);
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
@@ -40,6 +45,22 @@ const ModPage: FC = () => {
     const found = games.find(g => g.appid === appid);
     if (found) setGame(found);
   };
+
+  // Seed the Browse filters' "Show NSFW" from the global default-on sub-setting, once.
+  // Only takes effect when NSFW is allowed; the per-session toggle can still override it.
+  useEffect(() => {
+    (async () => {
+      const [enabled, defaultOn] = await Promise.all([
+        getSetting(NSFW_ENABLED).catch(() => false),
+        getSetting(NSFW_DEFAULT_ON).catch(() => false),
+      ]);
+      if (enabled && defaultOn) {
+        setBrowseFilter(f => ({ ...f, showNsfw: true }));
+        setNexusFilter(f => ({ ...f, showNsfw: true }));
+      }
+      setNsfwSeedResolved(true);
+    })();
+  }, []);
 
   useEffect(() => {
     refresh();
@@ -105,14 +126,30 @@ const ModPage: FC = () => {
     );
   };
 
-  const handleBrowseFilterMenu = () => {
+  const handleBrowseFilterMenu = async () => {
+    // Read the gate fresh on open: the routed page can stay mounted across a trip to
+    // Settings, so the mount-time value can be stale. Keep state in sync for next time.
+    const enabled = !!(await getSetting(NSFW_ENABLED).catch(() => false));
     showModal(
       <BrowseFilterModal
         filter={browseFilter}
         categories={browseCategories}
         defaultFilter={game.catalog_type === 'bmi' ? { ...defaultBrowseFilter, hideLibraries: false } : defaultBrowseFilter}
+        nsfwEnabled={enabled}
         onChange={setBrowseFilter}
       />
+    );
+  };
+
+  const handleNexusFilterMenu = async () => {
+    // Read the NSFW gate fresh on open, same as the Thunderstore/BMI filter.
+    const enabled = !!(await getSetting(NSFW_ENABLED).catch(() => false));
+    // If the gate has since been turned off, drop any lingering NSFW opt-in so adult
+    // content stops being fetched (the checkbox to turn it off is hidden when gated off).
+    const current = enabled ? nexusFilter : { ...nexusFilter, showNsfw: false };
+    if (current.showNsfw !== nexusFilter.showNsfw) setNexusFilter(current);
+    showModal(
+      <NexusFilterModal filter={current} nsfwEnabled={enabled} onChange={setNexusFilter} />
     );
   };
 
@@ -336,11 +373,19 @@ const ModPage: FC = () => {
       id: 'browse',
       title: 'Browse',
       content: (
-        <NexusBrowseTab game={game} onRefresh={refresh} />
+        <NexusBrowseTab
+          game={game}
+          onRefresh={refresh}
+          filter={nexusFilter}
+          onFilterButton={handleNexusFilterMenu}
+          ready={nsfwSeedResolved}
+        />
       ),
       footer: {
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
+        onSecondaryButton: handleNexusFilterMenu,
+        onSecondaryActionDescription: 'Filter',
       },
     }] : []),
     // Steam Workshop games browse a server-paginated catalog in their own tab.
