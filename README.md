@@ -4,7 +4,7 @@
 
 <h1 align="center">Moddy</h1>
 
-A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for one-click mod installation and management on Steam Deck — directly in Game Mode.
+A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for one-click mod installation and management on Steam Deck, directly in Game Mode.
 
 ## Install
 
@@ -14,7 +14,7 @@ Moddy isn't in the Decky store yet, so install it from its URL:
 2. In the Decky panel, open the **store / settings** (the 🛒/⚙️ icon) and enable **Developer mode**.
 3. Use **Install from URL** and enter **`get.moddy.gg`**.
 
-That's it — Moddy appears in the Decky panel. It's **alpha software** — please [report anything that breaks](#reporting-issues). Mods are third-party software and run with full access to your system — please read the [Disclaimer](#disclaimer) before installing anything.
+That's it. Moddy appears in the Decky panel. It's **alpha software** — please [report anything that breaks](#reporting-issues). Mods are third-party software and run with full access to your system. **Please read the [Disclaimer](#disclaimer) before installing anything.**
 
 ## Features
 
@@ -46,7 +46,7 @@ That's it — Moddy appears in the Decky panel. It's **alpha software** — plea
 
 Moddy downloads mods and mod loaders **directly from their original publishers** — GitHub, [Thunderstore](https://thunderstore.io), the [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index), [Nexus Mods](https://www.nexusmods.com), and the Steam Workshop — the same way other mod managers do. It does **not** host, redistribute, or modify any mod content; each mod's license is set by its author.
 
-Nexus downloads use the official API with **your own personal API key** — **Premium accounts only** (free accounts can browse, but Nexus only returns download links to Premium members). Your key is stored only on your device and sent only to Nexus.
+Nexus downloads use the official API with your own personal API key. Moddy currently supports **Premium accounts only** (free accounts can browse, but Nexus only returns download links to Premium members). Your key is stored only on your device and sent only to Nexus.
 
 ### Setting up your Nexus Mods API key
 
@@ -55,7 +55,7 @@ To browse or install Nexus mods you need a Nexus account and a **personal API ke
 1. Sign in at [nexusmods.com](https://www.nexusmods.com), then open **Account settings → [API Keys](https://www.nexusmods.com/users/myaccount?tab=api)**.
 2. Under **Personal API Key**, click **Generate** (or copy your existing one).
 
-Then add the key to Moddy. The key is ~30 random characters, so pasting is far easier than typing it on the Game Mode keyboard — pick whichever is convenient:
+Then add the key to Moddy. The key is ~90 random characters, so pasting is far easier than typing it on the Game Mode keyboard. Pick whichever is convenient:
 
 - **Desktop Mode (easiest):** switch to Desktop Mode, open the Decky panel → **Moddy → Settings**, and **paste** your key into the *Nexus Mods API key* field (real keyboard + clipboard).
 - **Game Mode:** open the Decky panel → **Moddy → Settings** and type the key into the *Nexus Mods API key* field with the on-screen keyboard.
@@ -79,11 +79,11 @@ Moddy is in alpha, so bug reports are genuinely useful. Please open an issue on 
 - What you expected vs. what happened
 - A **log bundle** (see below)
 
-**Exporting logs:** open the Decky panel → **Moddy → Diagnostics → Export logs**. This saves a `moddy-logs-<timestamp>.zip` to your Steam Deck's **Desktop** — switch to Desktop Mode and attach it to your issue (drag it into the GitHub upload box). The bundle contains Moddy's log files and basic version info; your **Nexus API key is not included**.
+**Exporting logs:** open the Decky panel → **Moddy → Diagnostics → Export logs**. This saves a `moddy-logs-<timestamp>.zip` to your Steam Deck's **Desktop** . Switch to Desktop Mode and attach it to your issue (drag it into the GitHub upload box). The bundle contains Moddy's log files and basic version info; your **Nexus API key is not included**.
 
 ## Disclaimer
 
-Mods installed through Moddy are **third-party software not authored, audited, or endorsed by this project**. They are downloaded from their original publishers and run with the same privileges as your user account — they are not sandboxed or isolated from the rest of your system.
+Mods installed through Moddy are **third-party software not authored, audited, or endorsed by this project**. They are downloaded from their original publishers and run with the same privileges as your user account. They are **not** sandboxed or isolated from the rest of your system.
 
 Use Moddy and any mods you install **at your own risk**. The author accepts no responsibility or liability for any damage arising from their use, including but not limited to corrupted or lost save data, broken or unbootable game installations, system instability, exposure to malicious code, or **bans from anti-cheat systems or online services**. Modifying a game may violate its terms of service, and online/multiplayer titles in particular may detect mods and penalize your account.
 
@@ -91,11 +91,11 @@ Review the source and author before installing anything you don't recognize. Mod
 
 ## Acknowledgements
 
-- The **Balatro Mod Index** (catalog data) is by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project, © 2025 Efe, licensed under the [MIT License](https://github.com/skyline69/balatro-mod-index/blob/main/LICENSE). Moddy uses only the index data — none of that project's source code.
+- The **Balatro Mod Index** (catalog data) is by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project, © 2025 Efe, licensed under the [MIT License](https://github.com/skyline69/balatro-mod-index/blob/main/LICENSE). Moddy uses only the index data, but none of that project's source code.
 
 ## Support these projects, not me
 
-Moddy is mostly glue — the real work behind every install is done by the projects below. **Please send your support their way before mine.** The best ways to help any of them: star the repo, report bugs, and contribute — and where a project shows a **Sponsor** button, consider donating.
+Moddy is mostly glue. The real work behind every install is done by the projects below. **Please send your support their way before mine.** The best ways to help any of them: star the repo, report bugs, and contribute. Where a project shows a **Sponsor** button, consider donating.
 
 **Moddy runs on:**
 
