@@ -19,6 +19,13 @@ const OptionsModal: FC<{
         <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '16px' }}>
           Options
         </div>
+        {onToggleSelectionMode && (
+          <div style={{ marginBottom: '8px' }}>
+            <ButtonItem layout="below" onClick={() => onToggleSelectionMode(close)}>
+              {selectionMode ? 'Exit Selection Mode' : 'Select Multiple Mods…'}
+            </ButtonItem>
+          </div>
+        )}
         <div style={{ marginBottom: '4px' }}>
           <ButtonItem layout="below" disabled={!canSaveProfile} onClick={() => onSaveProfile(close)}>
             Save Current Mods as Profile…
@@ -34,13 +41,6 @@ const OptionsModal: FC<{
             Check for Mod Updates
           </ButtonItem>
         </div>
-        {onToggleSelectionMode && (
-          <div style={{ marginBottom: '8px' }}>
-            <ButtonItem layout="below" onClick={() => onToggleSelectionMode(close)}>
-              {selectionMode ? 'Exit Selection Mode' : 'Select Multiple Mods…'}
-            </ButtonItem>
-          </div>
-        )}
         {onRefreshCatalog && (
           <div style={{ marginBottom: '8px' }}>
             <ButtonItem layout="below" onClick={() => onRefreshCatalog(close)}>
