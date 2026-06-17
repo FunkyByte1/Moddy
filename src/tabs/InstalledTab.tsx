@@ -151,14 +151,31 @@ const InstalledTab: FC<{
   );
   const selectedEntry = modEntries[Math.min(selectedIndex, modEntries.length - 1)];
 
-  // Installed mods (enabled or not) that declare `id` as a dependency.
-  const dependentsOf = (id: string, requireEnabled: boolean): InstalledMod[] => {
-    const target = id.toLowerCase();
-    return game.installed_mods.filter(m => {
-      if (m.id.toLowerCase() === target) return false;
-      if (requireEnabled && !m.enabled) return false;
-      return (m.meta?.dependencies ?? []).some(d => resolveDepId(d) === target);
-    });
+  // Transitive set of installed mods that depend (directly or indirectly) on any of
+  // `rootIds` — the reverse mirror of collectEnableDeps. Disabling/removing a mod should
+  // account for the whole downstream chain, not just direct dependents (X needs A, Y
+  // needs X → disabling A reaches Y, not just X). With `requireEnabled`, only enabled
+  // dependents are followed (a disabled mod is already inert); without it, every
+  // installed dependent (e.g. for uninstall, which breaks dependents whether on or off).
+  // Excludes the roots themselves; cycle-guarded via `seen`.
+  const collectDependents = (rootIds: string[], requireEnabled: boolean): InstalledMod[] => {
+    const rootSet = new Set(rootIds.map(i => i.toLowerCase()));
+    const seen = new Set<string>();
+    const result: InstalledMod[] = [];
+    const stack = [...rootSet];
+    while (stack.length > 0) {
+      const target = stack.pop()!;
+      for (const m of game.installed_mods) {
+        const ml = m.id.toLowerCase();
+        if (ml === target || seen.has(ml) || rootSet.has(ml)) continue;
+        if (requireEnabled && !m.enabled) continue;
+        if (!(m.meta?.dependencies ?? []).some(d => resolveDepId(d) === target)) continue;
+        seen.add(ml);
+        result.push(m);
+        stack.push(ml);
+      }
+    }
+    return result;
   };
 
   // Version changes / updates re-download through the Thunderstore install path
@@ -211,7 +228,7 @@ const InstalledTab: FC<{
     }
 
     if (!enable) {
-      const dependents = dependentsOf(id, true);
+      const dependents = collectDependents([id], true);
       if (dependents.length > 0) {
         showModal(
           <DependentsModal
@@ -233,7 +250,7 @@ const InstalledTab: FC<{
   const handleDeleteMod = async (mod: ModInfo) => {
     const currentVersion = modByLowerId.get(mod.id.toLowerCase())?.version ?? null;
     const backedUp = await getBackedUpVersions(game.appid, mod.id);
-    const dependents = dependentsOf(mod.id, false);
+    const dependents = collectDependents([mod.id], false);
 
     const showDeleteModal = () => showModal(
       <DeleteVersionModal
@@ -402,13 +419,9 @@ const InstalledTab: FC<{
 
   const runBulkDisable = async (ids: string[]) => {
     if (ids.length === 0) return;
-    const targetSet = new Set(ids.map(i => i.toLowerCase()));
-    // Enabled mods outside the selection that depend on something being disabled.
-    const dependents = game.installed_mods.filter(m =>
-      m.enabled &&
-      !targetSet.has(m.id.toLowerCase()) &&
-      (m.meta?.dependencies ?? []).some(d => targetSet.has(resolveDepId(d)))
-    );
+    // Enabled mods outside the selection that (transitively) depend on something being
+    // disabled. collectDependents excludes the selection (the roots) itself.
+    const dependents = collectDependents(ids, true);
 
     const disableTargets = async () => {
       const ordered = topoEnableOrder(ids).reverse();
@@ -440,11 +453,9 @@ const InstalledTab: FC<{
 
   const handleBulkUninstall = async () => {
     if (bulkUninstallTargets.length === 0) return;
-    const targetSet = new Set(bulkUninstallTargets.map(i => i.toLowerCase()));
-    const dependents = game.installed_mods.filter(m =>
-      !targetSet.has(m.id.toLowerCase()) &&
-      (m.meta?.dependencies ?? []).some(d => targetSet.has(resolveDepId(d)))
-    );
+    // Every installed mod outside the selection that (transitively) depends on one being
+    // uninstalled — enabled or not, since uninstall breaks them either way.
+    const dependents = collectDependents(bulkUninstallTargets, false);
 
     const uninstallAll = async () => {
       let failed = 0;
