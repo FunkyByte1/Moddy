@@ -451,14 +451,17 @@ class Plugin:
             include_adult = bool(settings.get_setting("nexus_include_adult", False))
         return nexus.search(domain, query, page, bool(include_adult))
 
-    async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None, variant: str | None = None):
+    async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None,
+                                variant: str | None = None, installed: "list | None" = None):
         """Install a Nexus mod by its `nexus.<domain>.<mod_id>` catalog id, via the Premium
         download link, recursively installing any declared same-domain Nexus requirements
         first. Returns True=success, False=failed, None=cancelled, and the string
         "premium_required" when the user's API key isn't Premium (v1 can't serve free
         downloads — those need the website's nxm:// handoff). When the mod's archive bundles
         multiple variants (e.g. RE4 stack-size .pak options) and `variant` isn't given, returns
-        {"needs_variant": True, "variants": [...]} so the UI can ask which to install."""
+        {"needs_variant": True, "variants": [...]} so the UI can ask which to install.
+        `installed` collects the ids freshly installed this run (the queue passes the job's list so
+        a parked-then-cancelled install can be rolled back); a cancel/failure rolls it back here."""
         game = registry.get_game_by_appid(appid)
         if not game or game.catalog.get("type") != "nexus":
             return False
@@ -470,7 +473,41 @@ class Plugin:
             decky.logger.error(f"Bad Nexus install id: {full_name}")
             return False
         domain, mod_id = parsed
-        return await self._install_nexus_recursive(game, install_dir, domain, mod_id, version, seen=set(), variant=variant, top=True)
+        if installed is None:
+            installed = []
+        # Size the cascade for "N of M" (best-effort — Nexus resolution makes API calls, but the
+        # requirement tree is shallow and get_mod is cached).
+        plan: list[str] = []
+        self._resolve_nexus_plan(domain, mod_id, version, set(), plan)
+        await download_queue.note_total(len(plan))
+        res = await self._install_nexus_recursive(
+            game, install_dir, domain, mod_id, version, seen=set(), variant=variant, top=True,
+            installed=installed,
+        )
+        # Roll back on cancel (None) or failure (False) — but NOT when parking for a variant choice
+        # (a dict), which is resolved later. Requirements installed before the park are in
+        # `installed`, so a subsequent cancel-at-prompt still rolls them back (via the queue hook).
+        if (res is None or res is False) and installed:
+            await self._rollback_installs(game, install_dir, installed)
+        return res
+
+    def _resolve_nexus_plan(
+        self, domain: str, mod_id: str, version: str | None, seen: set, plan: list,
+    ) -> None:
+        """Depth-first count of same-domain packages a Nexus install will download (mirrors
+        _install_nexus_recursive's skip logic), to size "N of M". Makes API calls (cached)."""
+        key = f"nexus.{domain}.{mod_id}"
+        if key in seen:
+            return
+        seen.add(key)
+        if version is None and mods.get_installed_record(key) is not None:
+            return
+        if not nexus.get_mod(domain, mod_id):
+            return
+        for req in nexus.get_requirements(domain, mod_id):
+            if req["domain"] == domain:
+                self._resolve_nexus_plan(req["domain"], req["mod_id"], None, seen, plan)
+        plan.append(key)
 
     async def _install_nexus_recursive(
         self,
@@ -482,6 +519,7 @@ class Plugin:
         seen: set,
         variant: str | None = None,
         top: bool = False,
+        installed: "list | None" = None,
     ):
         """Install one Nexus mod plus its requirements (depth-first). Requirements are
         installed at latest (version=None); only the top-level mod honors an explicit version.
@@ -497,6 +535,8 @@ class Plugin:
         if version is None and mods.get_installed_record(key) is not None:
             decky.logger.info(f"{key} already installed; skipping")
             return True
+        # A fresh install is rollback-eligible; an update of an already-present mod is not.
+        was_fresh = mods.get_installed_record(key) is None
 
         info = nexus.get_mod(domain, mod_id)
         if not info:
@@ -516,7 +556,7 @@ class Plugin:
             if req["domain"] != domain:
                 decky.logger.info(f"Skipping cross-domain requirement {req_id} ({req.get('name')})")
                 continue
-            res = await self._install_nexus_recursive(game, install_dir, req["domain"], req["mod_id"], None, seen)
+            res = await self._install_nexus_recursive(game, install_dir, req["domain"], req["mod_id"], None, seen, installed=installed)
             if res == "premium_required":
                 return "premium_required"
             if res in (False, None):
@@ -556,14 +596,16 @@ class Plugin:
         target_version = version or str(info.get("version", "") or "") or "latest"
         # Only the top-level mod honors a variant choice / can prompt for one. A dependency that
         # turns out to bundle variants can't ask the user mid-cascade, so install its first by default.
-        await download_queue.set_sublabel(mod.name)
+        await download_queue.note_item(mod.name)
         res = await mods.install_mod(game, install_dir, mod, version=target_version, url=url, variant=variant if top else None)
         if isinstance(res, dict) and res.get("needs_variant"):
             if top:
-                return res  # bubble the variant list up to the UI
+                return res  # park for the UI (requirements already recorded in `installed`)
             first = (res.get("variants") or [{}])[0].get("id")
             decky.logger.warning(f"{key} bundles variants; installing default {first!r} as a dependency")
             res = await mods.install_mod(game, install_dir, mod, version=target_version, url=url, variant=first)
+        if res is True and was_fresh and installed is not None:
+            installed.append(key)
         return res
 
     # ── Plugin settings (account-global; e.g. the Nexus API key) ───────────────
@@ -931,25 +973,49 @@ class Plugin:
     # Catalog installs that fetch archives via utils.download (Thunderstore / BMI) are enqueued
     # and drained by a single serial worker, so the UI can show a queue + per-item progress
     # without blocking. The existing install_* methods are reused as the job bodies.
+    # The job body is `run(job)`; Thunderstore/BMI ignore the job arg, Nexus reads job.variant
+    # (set when the user resolves a parked variant prompt) and job.installed (so a parked cancel
+    # can roll back what was installed so far).
     async def enqueue_thunderstore(self, appid: int, full_name: str, name: str,
                                    version: str | None = None, with_deps: bool = True,
                                    allow_missing: bool = False) -> int:
         return await download_queue.enqueue(
             appid, name or full_name, full_name, "thunderstore",
-            lambda: self.install_thunderstore_mod(appid, full_name, version, with_deps, allow_missing),
+            lambda job: self.install_thunderstore_mod(appid, full_name, version, with_deps, allow_missing),
         )
 
     async def enqueue_bmi(self, appid: int, mod_id: str, name: str,
                           version: str | None = None) -> int:
         return await download_queue.enqueue(
             appid, name or mod_id, mod_id, "bmi",
-            lambda: self.install_bmi_mod(appid, mod_id, version),
+            lambda job: self.install_bmi_mod(appid, mod_id, version),
         )
 
-    # Nexus and Workshop are intentionally NOT queued yet: Nexus installs can need an
-    # interactive variant/Premium handshake mid-download (so they don't fit a fire-and-forget
-    # job without an "awaiting input" state), and Workshop content is downloaded by Steam after
-    # a client-side subscribe. Both keep their existing inline paths.
+    async def enqueue_nexus(self, appid: int, full_name: str, name: str,
+                            version: str | None = None) -> int:
+        parsed = nexus.parse_id(full_name)
+        mod_id = parsed[1] if parsed else ""
+        return await download_queue.enqueue(
+            appid, name or full_name, full_name, "nexus",
+            run=lambda job: self.install_nexus_mod(appid, full_name, version, job.variant, installed=job.installed),
+            # If the user cancels at the variant prompt, undo the requirements installed so far and
+            # drop the cached archive the resume would have reused. Resolved at call time (not
+            # captured at enqueue) so it works even if the install dir wasn't known when enqueued.
+            rollback=lambda job: self._rollback_job(appid, job.installed),
+            cleanup=(lambda: mods.discard_natives_cache(f"nexus-{mod_id}")) if mod_id else None,
+        )
+
+    async def _rollback_job(self, appid: int, ids: list) -> None:
+        game = registry.get_game_by_appid(appid)
+        install_dir = steam.find_game_install_dir(appid) if game else None
+        if game and install_dir and ids:
+            await self._rollback_installs(game, install_dir, ids)
+
+    async def resume_download_job(self, job_id: int, variant: str) -> bool:
+        return await download_queue.resume(job_id, variant)
+
+    # Workshop stays inline: Steam downloads the content itself after a client-side subscribe,
+    # so there's no download for the queue to track.
 
     async def cancel_download_job(self, job_id: int) -> bool:
         return await download_queue.cancel(job_id)

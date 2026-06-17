@@ -1036,13 +1036,20 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
             except Exception:
                 pass
 
+    # When the queue parks this install to ask which variant to use, we keep the extracted archive
+    # so the resume can install the choice without downloading again. `park` tells the finally not
+    # to delete that extract; `reuse` (a chosen variant + a cache already on disk) skips the fetch.
+    park = False
     try:
-        if os.path.exists(tmp_extract):
-            shutil.rmtree(tmp_extract)
-        decky.logger.info(f"Downloading {mod.name} from {url}")
-        await utils.download(url, tmp_archive, game.appid)
-
-        _extract_archive(tmp_archive, tmp_extract)
+        reuse = variant is not None and os.path.isdir(tmp_extract)
+        if reuse:
+            decky.logger.info(f"Resuming {mod.name} from cached archive (variant {variant!r})")
+        else:
+            if os.path.exists(tmp_extract):
+                shutil.rmtree(tmp_extract)
+            decky.logger.info(f"Downloading {mod.name} from {url}")
+            await utils.download(url, tmp_archive, game.appid)
+            _extract_archive(tmp_archive, tmp_extract)
 
         # Resolve which payload to install. Multiple variants + no choice → ask the UI.
         variants = _detect_variants(tmp_extract)
@@ -1054,6 +1061,7 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
             search_root = os.path.join(tmp_extract, variant)
         elif len(variants) > 1:
             decky.logger.info(f"{mod.name}: {len(variants)} variants — asking user to choose")
+            park = True
             return {"needs_variant": True, "variants": variants}
         else:
             search_root = tmp_extract
@@ -1112,8 +1120,21 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
     finally:
         if os.path.exists(tmp_archive):
             os.remove(tmp_archive)
-        if os.path.exists(tmp_extract):
+        # Keep the extracted archive when parked for a variant choice; the resume reuses it.
+        if not park and os.path.exists(tmp_extract):
             shutil.rmtree(tmp_extract)
+
+
+def discard_natives_cache(filename: str) -> None:
+    """Drop the extracted-archive cache left behind by a parked variant install (used when the
+    user cancels at the variant prompt instead of resuming). Best-effort."""
+    import shutil
+    tmp_extract = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{filename}_extract")
+    try:
+        if os.path.isdir(tmp_extract):
+            shutil.rmtree(tmp_extract)
+    except Exception as e:
+        decky.logger.warning(f"Failed to discard natives cache {tmp_extract}: {e}")
 
 
 async def _install_mod_zip_into_game(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:

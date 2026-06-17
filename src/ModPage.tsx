@@ -3,7 +3,7 @@ import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, useRef, FC } from 'react';
 
 import DownloadQueuePill from './components/DownloadQueuePill';
-import { useQueueFooterProps } from './components/DownloadQueueModal';
+import { useQueueFooterProps, promptVariant } from './components/DownloadQueueModal';
 import { useDownloadQueue } from './downloadQueue';
 
 import { GameStatus, ModUpdate, getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
@@ -22,6 +22,10 @@ import OverwriteProfileModal from './components/modals/OverwriteProfileModal';
 import InstalledFilterModal, { InstalledFilter, defaultInstalledFilter } from './components/modals/InstalledFilterModal';
 import BrowseFilterModal, { BrowseFilter, defaultBrowseFilter } from './components/modals/BrowseFilterModal';
 import NexusFilterModal, { NexusFilter, defaultNexusFilter } from './components/modals/NexusFilterModal';
+
+// Module-level so a parked job's picker auto-pops only once for its whole lifetime, even if the
+// page unmounts/remounts (job ids are monotonic, never reused). Prevents duplicate stacked pickers.
+const autoPromptedVariants = new Set<number>();
 
 const ModPage: FC = () => {
   const appid = parseInt(window.location.pathname.split('/').pop() ?? '0');
@@ -56,7 +60,15 @@ const ModPage: FC = () => {
   useEffect(() => {
     let needRefresh = false;
     for (const j of queue) {
-      if (j.appid !== appid || handledJobs.current.has(j.job_id)) continue;
+      if (j.appid !== appid) continue;
+      // A job parked on a variant choice: pop the picker once. (Re-pickable from the queue modal
+      // or the Quick Access panel afterwards.)
+      if (j.status === 'needs_input' && !autoPromptedVariants.has(j.job_id)) {
+        autoPromptedVariants.add(j.job_id);
+        promptVariant(j);
+        continue;
+      }
+      if (handledJobs.current.has(j.job_id)) continue;
       if (j.status === 'done') {
         handledJobs.current.add(j.job_id);
         needRefresh = true;
@@ -64,7 +76,8 @@ const ModPage: FC = () => {
       } else if (j.status === 'failed') {
         handledJobs.current.add(j.job_id);
         needRefresh = true; // a partial install may have rolled back — resync the list
-        toaster.toast({ title: 'Moddy', body: `Failed to install ${j.name}` });
+        const detail = j.error && j.error !== 'Install failed' ? ` — ${j.error}` : '';
+        toaster.toast({ title: 'Moddy', body: `Failed to install ${j.name}${detail}` });
       } else if (j.status === 'cancelled') {
         handledJobs.current.add(j.job_id);
         needRefresh = true; // cancel rolls back what it installed — resync the list

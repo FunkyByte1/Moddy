@@ -357,9 +357,9 @@ export const installNexusMod =
 // backend uses it for the queue row. Live state arrives via the `queue_state` / `queue_progress`
 // events consumed by the downloadQueue store. (Workshop and modloader installs keep their own
 // inline paths and are not queued.)
-export type QueueStatus = 'queued' | 'downloading' | 'done' | 'failed' | 'cancelled';
-// Nexus/Workshop aren't queued yet (interactive variant handshake / Steam-driven download).
-export type QueueKind = 'thunderstore' | 'bmi';
+// 'needs_input' = parked mid-install awaiting a user choice (a Nexus variant). Workshop stays inline.
+export type QueueStatus = 'queued' | 'downloading' | 'needs_input' | 'done' | 'failed' | 'cancelled';
+export type QueueKind = 'thunderstore' | 'bmi' | 'nexus';
 export interface QueueJob {
   job_id: number;
   appid: number;
@@ -372,6 +372,7 @@ export interface QueueJob {
   sub_label: string;   // package currently downloading within this job (a dep, or the mod itself)
   items_done: number;  // "N" — packages started in this job's cascade
   items_total: number; // "M" — total packages this job installs (0 = unknown / single)
+  variants: NexusVariant[]; // present while status is 'needs_input' — the choices to offer
 }
 export const enqueueThunderstore =
   callable<[appid: number, full_name: string, name: string, version: string | null, with_deps?: boolean, allow_missing?: boolean], number>('enqueue_thunderstore');
@@ -381,6 +382,10 @@ export const getUnresolvedDependencies =
   callable<[appid: number, full_name: string, with_deps?: boolean], string[]>('get_unresolved_dependencies');
 export const enqueueBmi =
   callable<[appid: number, mod_id: string, name: string, version: string | null], number>('enqueue_bmi');
+export const enqueueNexus =
+  callable<[appid: number, full_name: string, name: string, version: string | null], number>('enqueue_nexus');
+// Resume a job parked on a variant choice (status 'needs_input'); installs from the cached archive.
+export const resumeDownloadJob = callable<[job_id: number, variant: string], boolean>('resume_download_job');
 export const cancelDownloadJob = callable<[job_id: number], boolean>('cancel_download_job');
 export const clearDownloadJob = callable<[job_id: number], boolean>('clear_download_job');
 export const clearFinishedDownloads = callable<[], void>('clear_finished_downloads');

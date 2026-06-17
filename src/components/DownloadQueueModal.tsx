@@ -2,29 +2,26 @@ import { ModalRoot, DialogButton, Focusable } from '@decky/ui';
 import { showModal } from '@decky/ui';
 import { FC, useEffect } from 'react';
 
-import { QueueJob, cancelDownloadJob, clearDownloadJob, clearFinishedDownloads } from '../types';
-import { useDownloadQueue, isActiveStatus } from '../downloadQueue';
+import { QueueJob, cancelDownloadJob, clearDownloadJob, clearFinishedDownloads, resumeDownloadJob } from '../types';
+import { useDownloadQueue, isActiveStatus, jobStatusText } from '../downloadQueue';
+import VariantModal from './modals/VariantModal';
+
+/** Ask which variant to install for a parked (needs_input) job, then resume it from its cache. */
+export function promptVariant(job: QueueJob): void {
+  showModal(
+    <VariantModal
+      modName={job.name}
+      variants={job.variants}
+      onPick={(id, close) => { close(); resumeDownloadJob(job.job_id, id); }}
+    />
+  );
+}
 
 // The full download-queue panel. Rendered via showModal so SteamUI's ModalRoot traps gamepad
 // focus inside it (and B/back closes it) — which is how you get "focus moves to the panel and
 // stays there until you close it". The header pill is just the at-a-glance trigger that opens
 // this. Lives in its own module (with the open() helper and the footer-button hook) so the
 // store stays component-free and there's no import cycle.
-
-const statusLine = (j: QueueJob): string => {
-  switch (j.status) {
-    case 'downloading': {
-      // "N of M" only when there's more than one package (mod + deps) in this job.
-      const nOfM = j.items_total > 1 ? ` · ${j.items_done} of ${j.items_total}` : '';
-      const label = j.sub_label || 'Downloading…';
-      return `${label}${nOfM} · ${j.percent}%`;
-    }
-    case 'queued': return 'Queued';
-    case 'done': return 'Done';
-    case 'cancelled': return 'Cancelled';
-    case 'failed': return j.error ? `Failed — ${j.error}` : 'Failed';
-  }
-};
 
 const statusColor = (j: QueueJob): string => {
   switch (j.status) {
@@ -68,19 +65,30 @@ const DownloadQueueModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => 
                 >
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{j.name}</span>
-                    <span style={{ fontSize: '0.85em', color: statusColor(j) }}>{statusLine(j)}</span>
+                    <span style={{ fontSize: '0.85em', color: statusColor(j) }}>{jobStatusText(j)}</span>
                     {j.status === 'downloading' && (
                       <div style={{ width: '100%', height: '5px', background: 'var(--gpColorBg)', borderRadius: '3px' }}>
                         <div style={{ width: `${j.percent}%`, height: '100%', background: 'var(--gpSystemLightBlue)', borderRadius: '3px', transition: 'width 0.2s ease' }} />
                       </div>
                     )}
                   </div>
-                  <DialogButton
-                    style={{ minWidth: '90px', width: '90px', height: '36px', padding: '0', flexShrink: 0 }}
-                    onClick={() => (active ? cancelDownloadJob(j.job_id) : clearDownloadJob(j.job_id))}
-                  >
-                    {active ? 'Cancel' : 'Clear'}
-                  </DialogButton>
+                  {j.status === 'needs_input' ? (
+                    <Focusable flow-children="horizontal" style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                      <DialogButton style={{ minWidth: '96px', width: '96px', height: '36px', padding: '0' }} onClick={() => promptVariant(j)}>
+                        Choose…
+                      </DialogButton>
+                      <DialogButton style={{ minWidth: '90px', width: '90px', height: '36px', padding: '0' }} onClick={() => cancelDownloadJob(j.job_id)}>
+                        Cancel
+                      </DialogButton>
+                    </Focusable>
+                  ) : (
+                    <DialogButton
+                      style={{ minWidth: '90px', width: '90px', height: '36px', padding: '0', flexShrink: 0 }}
+                      onClick={() => (active ? cancelDownloadJob(j.job_id) : clearDownloadJob(j.job_id))}
+                    >
+                      {active ? 'Cancel' : 'Clear'}
+                    </DialogButton>
+                  )}
                 </div>
               );
             })}

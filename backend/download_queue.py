@@ -24,6 +24,7 @@ import utils
 
 STATUS_QUEUED = "queued"
 STATUS_DOWNLOADING = "downloading"
+STATUS_NEEDS_INPUT = "needs_input"  # parked mid-install awaiting a user choice (e.g. a variant)
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 STATUS_CANCELLED = "cancelled"
@@ -38,7 +39,7 @@ class Job:
         self.name = name  # pretty display name
         self.ref = ref  # install id (full_name / mod_id) so the UI can match a card to its job
         self.kind = kind  # thunderstore | nexus | bmi
-        self.run = run  # async callable () -> bool | None
+        self.run = run  # async callable run(job) -> bool | None | dict | str
         self.status = STATUS_QUEUED
         self.error = ""
         self.percent = 0
@@ -46,6 +47,12 @@ class Job:
         self.items_done = 0  # packages started so far in this job's cascade (1-based "N")
         self.items_total = 0  # total packages this job will install ("M"); 0 = unknown
         self.cancel_requested = False
+        # Parked-job (needs_input) support — used by the Nexus variant flow.
+        self.variant: "str | None" = None      # the chosen variant, set on resume
+        self.variants: list = []                # options to present while parked
+        self.installed: list = []               # ids freshly installed this job (survives a park)
+        self.rollback = None                    # optional async rollback(job) for a parked cancel
+        self.cleanup = None                     # optional sync cleanup() (e.g. drop a cached extract)
 
     def to_dict(self) -> dict:
         return {
@@ -60,6 +67,7 @@ class Job:
             "sub_label": self.sub_label,
             "items_done": self.items_done,
             "items_total": self.items_total,
+            "variants": self.variants,
         }
 
 
@@ -88,11 +96,14 @@ async def _emit_state() -> None:
     await decky.emit("queue_state", snapshot())
 
 
-async def enqueue(appid: int, name: str, ref: str, kind: str, run) -> int:
-    """Register a job and hand it to the worker. Returns the new job_id immediately."""
+async def enqueue(appid: int, name: str, ref: str, kind: str, run, rollback=None, cleanup=None) -> int:
+    """Register a job and hand it to the worker. Returns the new job_id immediately. `rollback`
+    (async rollback(job)) and `cleanup` (sync) are invoked if a parked job is cancelled."""
     global _next_id
     _ensure_worker()
     job = Job(_next_id, appid, name, ref, kind, run)
+    job.rollback = rollback
+    job.cleanup = cleanup
     _next_id += 1
     _jobs[job.job_id] = job
     _order.append(job.job_id)
@@ -103,18 +114,54 @@ async def enqueue(appid: int, name: str, ref: str, kind: str, run) -> int:
 
 
 async def cancel(job_id: int) -> bool:
-    """Cancel a job. A queued job is dropped before it starts; the running job is signalled
-    through the shared install-cancel flag (it's the only one downloading, so this is safe)."""
+    """Cancel a job. A running job is signalled through the shared install-cancel flag; a queued
+    job is dropped before it starts; a parked (needs_input) job is rolled back here, since it's
+    holding installed requirements + a cached archive but isn't downloading."""
     job = _jobs.get(job_id)
     if job is None or job.status in _FINISHED:
         return False
     job.cancel_requested = True
     if job_id == _active_id:
+        # Downloading now: the cancel flag stops it, and install_nexus_mod's own rollback runs.
         utils.cancel_install()
     else:
-        # Not started yet: mark cancelled now; the worker skips it when it pops the id.
+        # Not downloading — queued, parked for input, or a just-resumed job waiting its turn. Tear
+        # down anything it installed before it stopped (a no-op for a fresh / non-Nexus job, whose
+        # `installed` is empty and rollback/cleanup hooks are None).
+        await _discard_parked(job)
         job.status = STATUS_CANCELLED
         await _emit_state()
+    return True
+
+
+async def _discard_parked(job: Job) -> None:
+    """Tear down a parked job that's being cancelled: roll back what it installed, drop its cache."""
+    if job.rollback is not None:
+        try:
+            await job.rollback(job)
+        except Exception as e:  # noqa: BLE001
+            decky.logger.warning(f"Parked-job rollback failed for {job.name}: {e}")
+    if job.cleanup is not None:
+        try:
+            job.cleanup()
+        except Exception as e:  # noqa: BLE001
+            decky.logger.warning(f"Parked-job cleanup failed for {job.name}: {e}")
+
+
+async def resume(job_id: int, variant: str) -> bool:
+    """Resume a parked job with the user's choice (e.g. a variant) — re-queue it; the worker
+    re-runs it, reusing the cached archive so there's no second download."""
+    job = _jobs.get(job_id)
+    if job is None or job.status != STATUS_NEEDS_INPUT:
+        return False
+    job.variant = variant
+    job.variants = []
+    job.cancel_requested = False
+    job.status = STATUS_QUEUED
+    _ensure_worker()
+    assert _queue is not None
+    _queue.put_nowait(job_id)
+    await _emit_state()
     return True
 
 
@@ -164,13 +211,15 @@ async def set_sublabel(name: str) -> None:
 
 
 async def note_total(total: int) -> None:
-    """Set how many packages the active job will install (the "M" in "N of M")."""
+    """Set how many packages the active job will install (the "M" in "N of M"). Resets the "N"
+    counter, since this marks the start of a fresh counting pass (e.g. a resumed job re-resolves)."""
     if _active_id is None:
         return
     job = _jobs.get(_active_id)
     if job is None:
         return
     job.items_total = total
+    job.items_done = 0
     await _emit_state()
 
 
@@ -202,11 +251,18 @@ async def _worker() -> None:
         job.status = STATUS_DOWNLOADING
         await _emit_state()
         try:
-            # Trust the install result: None means it was cancelled mid-download, True installed,
-            # False failed. (A cancel that arrived too late to stop a download that then succeeded
-            # is honestly a success — the mod is installed.)
-            result = await job.run()
-            if result is None:
+            # Result: None = cancelled mid-download, True = installed, False = failed. A dict with
+            # needs_variant parks the job for a user choice (the install kept its cached archive);
+            # a string is a handled error (e.g. "premium_required"). (A cancel that arrived too late
+            # to stop a download that then succeeded is honestly a success — the mod is installed.)
+            result = await job.run(job)
+            if isinstance(result, dict) and result.get("needs_variant"):
+                job.variants = result.get("variants") or []
+                job.status = STATUS_NEEDS_INPUT  # parked; worker moves on (does NOT block)
+            elif isinstance(result, str):
+                job.status = STATUS_FAILED
+                job.error = "Nexus Premium account required" if result == "premium_required" else result
+            elif result is None:
                 job.status = STATUS_CANCELLED
             elif result:
                 job.status = STATUS_DONE
@@ -220,7 +276,8 @@ async def _worker() -> None:
             job.error = str(e)
         finally:
             _active_id = None
-            job.sub_label = ""
+            if job.status != STATUS_NEEDS_INPUT:
+                job.sub_label = ""
             await _emit_state()
 
 

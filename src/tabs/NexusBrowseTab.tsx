@@ -3,13 +3,13 @@ import { toaster } from '@decky/api';
 import { FC, useState, useEffect, useMemo, useRef } from 'react';
 
 import {
-  GameStatus, ThunderstorePackage, NeedsVariant,
-  getNexusCatalog, installNexusMod, uninstallMod, toggleMod,
+  GameStatus, ThunderstorePackage,
+  getNexusCatalog, enqueueNexus, uninstallMod, toggleMod,
 } from '../types';
+import { useDownloadQueue, isActiveStatus } from '../downloadQueue';
 import { useQueueFooterProps } from '../components/DownloadQueueModal';
 import { NexusFilter } from '../components/modals/NexusFilterModal';
 import DependentsModal from '../components/modals/DependentsModal';
-import VariantModal from '../components/modals/VariantModal';
 import { showOrphanCleanup } from '../orphanCleanup';
 import { CatalogSourceLabel } from '../components/CatalogSource';
 import { centerInView } from '../components/centerInView';
@@ -166,30 +166,21 @@ const NexusBrowseTab: FC<{
 
   const selected = visible[Math.min(selectedIndex, visible.length - 1)] ?? null;
 
-  const handleInstall = async (it: ThunderstorePackage, variant: string | null = null) => {
-    setInstalling(it.full_name);
-    try {
-      const result = await installNexusMod(game.appid, it.full_name, null, variant);
-      if (result && typeof result === 'object' && (result as NeedsVariant).needs_variant) {
-        // Multi-variant archive — let the user pick one, then install that variant.
-        showModal(
-          <VariantModal
-            modName={it.name}
-            variants={(result as NeedsVariant).variants}
-            onPick={(id, close) => { close(); handleInstall(it, id); }}
-          />
-        );
-        return;
-      }
-      if (result === 'premium_required') {
-        toaster.toast({ title: 'Moddy', body: `${it.name} requires Nexus Premium to download` });
-      } else if (result === true) {
-        toaster.toast({ title: 'Moddy', body: `Installed ${it.name}` });
-        await onRefresh();
-      } else if (result === false) {
-        toaster.toast({ title: 'Moddy', body: `Failed to install ${it.name}` });
-      }
-    } finally { setInstalling(null); }
+  // A mod whose job is queued/downloading/parked reads as busy. `installing` (local) still covers
+  // the inline uninstall path below.
+  const queue = useDownloadQueue();
+  const queuedRefs = useMemo(
+    () => new Set(queue.filter(j => isActiveStatus(j.status)).map(j => j.ref.toLowerCase())),
+    [queue]
+  );
+  const isBusy = (it: ThunderstorePackage) =>
+    installing === it.full_name || queuedRefs.has(it.full_name.toLowerCase());
+
+  // Hand the install to the background queue. Variant selection and any failure are surfaced via
+  // the queue (the variant prompt pops from ModPage when the job parks); ModPage refreshes + toasts
+  // on completion. Uninstall stays inline below.
+  const handleInstall = (it: ThunderstorePackage) => {
+    enqueueNexus(game.appid, it.full_name, it.name, null);
   };
 
   const handleUninstall = (it: ThunderstorePackage) => {
@@ -302,10 +293,10 @@ const NexusBrowseTab: FC<{
               <PanelSectionRow>
                 <ButtonItem
                   layout="below"
-                  disabled={installing === selected.full_name}
+                  disabled={isBusy(selected)}
                   onClick={() => (isInstalled(selected) ? handleUninstall(selected) : handleInstall(selected))}
                 >
-                  {installing === selected.full_name ? '…' : isInstalled(selected) ? 'Uninstall' : 'Install'}
+                  {isBusy(selected) ? '…' : isInstalled(selected) ? 'Uninstall' : 'Install'}
                 </ButtonItem>
               </PanelSectionRow>
             </PanelSection>

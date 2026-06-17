@@ -34,10 +34,25 @@ export function useDownloadQueue(): QueueJob[] {
   return useSyncExternalStore(subscribe, getSnapshot);
 }
 
-// A job is "active" (occupying the queue) while it is waiting or downloading; done/failed/
-// cancelled rows linger only so the user can see the outcome until they clear them.
+// A job is "active" (occupying the queue) while it is waiting, downloading, or parked for a user
+// choice; done/failed/cancelled rows linger only so the user can see the outcome until cleared.
 export const isActiveStatus = (s: QueueJob['status']): boolean =>
-  s === 'queued' || s === 'downloading';
+  s === 'queued' || s === 'downloading' || s === 'needs_input';
+
+/** One-line human status for a job, shared by the modal and the Quick Access panel. */
+export function jobStatusText(j: QueueJob): string {
+  switch (j.status) {
+    case 'downloading': {
+      const nOfM = j.items_total > 1 ? ` · ${j.items_done} of ${j.items_total}` : '';
+      return `${j.sub_label || 'Downloading…'}${nOfM} · ${j.percent}%`;
+    }
+    case 'queued': return 'Queued';
+    case 'needs_input': return 'Waiting — choose a version';
+    case 'done': return 'Done';
+    case 'cancelled': return 'Cancelled';
+    case 'failed': return j.error ? `Failed — ${j.error}` : 'Failed';
+  }
+}
 
 export interface QueueSummary {
   active: QueueJob[];      // queued + downloading, in order
