@@ -7,6 +7,7 @@ import {
   installMod, installThunderstoreMod, uninstallMod, toggleMod,
   getModReleases, getBackedUpVersions, deleteModVersion, getBrowseDenylist,
 } from '../types';
+import { useQueueFooterProps } from '../components/DownloadQueueModal';
 import { ModEntry } from '../components/ModEntry';
 import ModDetailPanel from '../components/ModDetailPanel';
 import ModListItem from '../components/ModListItem';
@@ -501,10 +502,13 @@ const InstalledTab: FC<{
   const onItemToggle = useCallback((id: string, enable: boolean) => handleToggleRef.current(id, enable), []);
   const onItemFocus = useCallback((index: number) => setSelectedIndex(index), []);
 
+  const queueFooter = useQueueFooterProps();
+
   return (
     <Focusable style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
       <Focusable
         style={{ width: '30%', overflowY: 'auto', paddingBottom: '60px', borderRight: '1px solid var(--gpColorSeparator)', padding: '8px' }}
+        {...queueFooter}
         onMenuButton={onMenuButton}
         onMenuActionDescription="Options"
         onSecondaryButton={onFilterButton}
@@ -525,6 +529,7 @@ const InstalledTab: FC<{
       {selectionMode ? (
         <Focusable
           style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', paddingBottom: '60px', display: 'flex', flexDirection: 'column' }}
+          {...queueFooter}
           onMenuButton={onMenuButton}
           onMenuActionDescription="Options"
           onSecondaryButton={onFilterButton}

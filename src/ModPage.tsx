@@ -2,6 +2,10 @@ import { Tabs, showModal } from '@decky/ui';
 import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, useRef, FC } from 'react';
 
+import DownloadQueuePill from './components/DownloadQueuePill';
+import { useQueueFooterProps } from './components/DownloadQueueModal';
+import { useDownloadQueue } from './downloadQueue';
+
 import { GameStatus, ModUpdate, getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
 import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
@@ -42,6 +46,39 @@ const ModPage: FC = () => {
     const found = await getGameStatus(appid);
     if (found) setGame(found);
   };
+
+  // Background download queue: enqueued installs finish out-of-band, so this page watches the
+  // shared store and reacts when one of *its* jobs reaches a terminal state — refreshing the
+  // installed list on success and toasting the outcome (the work the old inline install path
+  // used to do right after its await).
+  const queue = useDownloadQueue();
+  const handledJobs = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    let needRefresh = false;
+    for (const j of queue) {
+      if (j.appid !== appid || handledJobs.current.has(j.job_id)) continue;
+      if (j.status === 'done') {
+        handledJobs.current.add(j.job_id);
+        needRefresh = true;
+        toaster.toast({ title: 'Moddy', body: `Installed ${j.name}` });
+      } else if (j.status === 'failed') {
+        handledJobs.current.add(j.job_id);
+        needRefresh = true; // a partial install may have rolled back — resync the list
+        toaster.toast({ title: 'Moddy', body: `Failed to install ${j.name}` });
+      } else if (j.status === 'cancelled') {
+        handledJobs.current.add(j.job_id);
+        needRefresh = true; // cancel rolls back what it installed — resync the list
+      }
+    }
+    if (needRefresh) refresh();
+  }, [queue]);
+
+  // The Downloads (Y) button opens the focus-trapped queue modal, shown as a footer-legend prompt
+  // (only while the queue is non-empty). Spread into each tab's footer alongside Options/Filter.
+  // The named onOptionsButton (Y) dispatches through SteamUI's footer system reliably regardless
+  // of which child holds focus, and shows a bottom-bar prompt — neither of which the View/Select
+  // button supports.
+  const queueFooter = useQueueFooterProps();
 
   // Seed the Browse filters' "Show NSFW" from the global default-on sub-setting, once.
   // Only takes effect when NSFW is allowed; the per-session toggle can still override it.
@@ -304,6 +341,7 @@ const ModPage: FC = () => {
         />
       ),
       footer: {
+        ...queueFooter,
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
       },
@@ -333,6 +371,7 @@ const ModPage: FC = () => {
         />
       ),
       footer: {
+        ...queueFooter,
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
         onSecondaryButton: handleInstalledFilterMenu,
@@ -354,6 +393,7 @@ const ModPage: FC = () => {
         />
       ),
       footer: {
+        ...queueFooter,
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
         onSecondaryButton: handleBrowseFilterMenu,
@@ -374,6 +414,7 @@ const ModPage: FC = () => {
         />
       ),
       footer: {
+        ...queueFooter,
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
         onSecondaryButton: handleNexusFilterMenu,
@@ -388,6 +429,7 @@ const ModPage: FC = () => {
         <WorkshopBrowseTab game={game} onRefresh={refresh} />
       ),
       footer: {
+        ...queueFooter,
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
       },
@@ -404,6 +446,7 @@ const ModPage: FC = () => {
         />
       ),
       footer: {
+        ...queueFooter,
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
       },
@@ -414,13 +457,24 @@ const ModPage: FC = () => {
     <div style={{
       marginTop: 'var(--basicui-header-height, 40px)',
       height: 'calc(100% - var(--basicui-header-height, 40px))',
+      display: 'flex',
+      flexDirection: 'column',
     }}>
-      <Tabs
-        autoFocusContents
-        activeTab={activeTab}
-        onShowTab={(tab: string) => setSelectedTab(tab)}
-        tabs={tabs}
-      />
+      {/* Download-queue pill: only present while the queue is non-empty, so it adds no layout
+          when idle. Overlaps the tab content (high z-index) when expanded. */}
+      {queue.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 12px', position: 'relative', zIndex: 50 }}>
+          <DownloadQueuePill />
+        </div>
+      )}
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <Tabs
+          autoFocusContents
+          activeTab={activeTab}
+          onShowTab={(tab: string) => setSelectedTab(tab)}
+          tabs={tabs}
+        />
+      </div>
     </div>
   );
 };

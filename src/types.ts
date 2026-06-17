@@ -349,6 +349,43 @@ export interface NeedsVariant { needs_variant: true; variants: NexusVariant[] }
 export const installNexusMod =
   callable<[appid: number, full_name: string, version: string | null, variant: string | null], boolean | null | string | NeedsVariant>('install_nexus_mod');
 
+// ── Background download queue ──────────────────────────────────────────────
+// Catalog installs that fetch archives server-side (Thunderstore / Nexus / BMI) are enqueued
+// and drained by a single serial backend worker, so the UI can show a queue + per-item
+// progress without blocking. Each enqueue returns immediately with a numeric job id. The
+// `name` arg is the pretty display name (the frontend has it from the catalog item); the
+// backend uses it for the queue row. Live state arrives via the `queue_state` / `queue_progress`
+// events consumed by the downloadQueue store. (Workshop and modloader installs keep their own
+// inline paths and are not queued.)
+export type QueueStatus = 'queued' | 'downloading' | 'done' | 'failed' | 'cancelled';
+// Nexus/Workshop aren't queued yet (interactive variant handshake / Steam-driven download).
+export type QueueKind = 'thunderstore' | 'bmi';
+export interface QueueJob {
+  job_id: number;
+  appid: number;
+  name: string;       // pretty display name
+  ref: string;        // install id (full_name / mod_id) — match a catalog card to its job
+  kind: QueueKind;
+  status: QueueStatus;
+  error: string;
+  percent: number;
+  sub_label: string;   // package currently downloading within this job (a dep, or the mod itself)
+  items_done: number;  // "N" — packages started in this job's cascade
+  items_total: number; // "M" — total packages this job installs (0 = unknown / single)
+}
+export const enqueueThunderstore =
+  callable<[appid: number, full_name: string, name: string, version: string | null, with_deps?: boolean, allow_missing?: boolean], number>('enqueue_thunderstore');
+// Declared dependencies of a Thunderstore mod that aren't in the catalog (refreshes once before
+// reporting, to rule out a stale cache). Empty = all resolvable. Used to warn / offer "install anyway".
+export const getUnresolvedDependencies =
+  callable<[appid: number, full_name: string, with_deps?: boolean], string[]>('get_unresolved_dependencies');
+export const enqueueBmi =
+  callable<[appid: number, mod_id: string, name: string, version: string | null], number>('enqueue_bmi');
+export const cancelDownloadJob = callable<[job_id: number], boolean>('cancel_download_job');
+export const clearDownloadJob = callable<[job_id: number], boolean>('clear_download_job');
+export const clearFinishedDownloads = callable<[], void>('clear_finished_downloads');
+export const getDownloadQueue = callable<[], QueueJob[]>('get_download_queue');
+
 // Account-global plugin settings (e.g. the Nexus API key). Stored plaintext in the
 // plugin's settings dir; the key is account-wide, not per-game.
 export const getSetting = callable<[key: string], any>('get_setting');

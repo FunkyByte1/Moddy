@@ -7,15 +7,19 @@ import {
   GameStatus,
   ThunderstorePackage,
   getThunderstoreCatalog,
-  installThunderstoreMod,
+  enqueueThunderstore,
   getBmiCatalog,
-  installBmiMod,
+  enqueueBmi,
+  getUnresolvedDependencies,
   uninstallMod,
   toggleMod,
   getBrowseDenylist,
 } from '../types';
+import { useDownloadQueue, isActiveStatus } from '../downloadQueue';
+import { useQueueFooterProps } from '../components/DownloadQueueModal';
 import DependentsModal from '../components/modals/DependentsModal';
 import DependencyInstallModal from '../components/modals/DependencyInstallModal';
+import MissingDependencyModal from '../components/modals/MissingDependencyModal';
 import { showOrphanCleanup } from '../orphanCleanup';
 import { CatalogSourceLabel } from '../components/CatalogSource';
 import { BrowseFilter } from '../components/modals/BrowseFilterModal';
@@ -264,6 +268,29 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     [game.installed_mods]
   );
 
+  // Mods/deps already covered by an in-flight or queued install: each job's own mod (`ref`)
+  // plus the dependencies it declares (looked up in the catalog). The serial worker installs
+  // a shared dependency only once — its cascade skips deps that are already recorded — so this
+  // set lets the UI stop re-prompting for (and visually re-queuing) a dep that's about to exist
+  // because an earlier job is still downloading it.
+  const queue = useDownloadQueue();
+  const queuedRefs = useMemo(
+    () => new Set(queue.filter(j => isActiveStatus(j.status)).map(j => j.ref.toLowerCase())),
+    [queue]
+  );
+  const pendingDepIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const j of queue) {
+      if (!isActiveStatus(j.status)) continue;
+      ids.add(j.ref.toLowerCase());
+      const p = catalog.find(c => c.full_name.toLowerCase() === j.ref.toLowerCase());
+      for (const d of p?.latest.dependencies ?? []) {
+        ids.add(d.split('-').slice(0, -1).join('-').toLowerCase());
+      }
+    }
+    return ids;
+  }, [queue, catalog]);
+
   // Library categories ("Libraries"/"API") are governed by the dedicated
   // "Show Libraries" toggle, so they're kept out of the generic category list to
   // avoid two controls fighting over the same mods.
@@ -313,7 +340,13 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
           p.latest.description.toLowerCase().includes(q)
       );
     }
-    list.sort((a, b) => b.rating_score - a.rating_score);
+    switch (filter.sortBy) {
+      case 'name': list.sort((a, b) => a.name.localeCompare(b.name)); break;
+      // ISO date strings sort lexically, newest first.
+      case 'updated': list.sort((a, b) => (b.date_updated ?? '').localeCompare(a.date_updated ?? '')); break;
+      case 'rating':
+      default: list.sort((a, b) => b.rating_score - a.rating_score); break;
+    }
     return list;
   }, [catalog, query, denylist, filter, installedIds, libraryCategorySet]);
 
@@ -325,24 +358,31 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     listRef.current?.scrollToItem(0);
   }, [query, filter]);
 
-  const runInstall = async (pkg: ThunderstorePackage, withDeps = true) => {
-    setInstalling(pkg.full_name);
-    try {
-      const result = isBmi
-        ? await installBmiMod(game.appid, pkg.full_name, null)
-        : await installThunderstoreMod(game.appid, pkg.full_name, null, withDeps);
-      if (result === true) {
-        toaster.toast({ title: 'Moddy', body: `Installed ${pkg.name}` });
-        await onRefresh();
-      } else if (result === false) {
-        toaster.toast({ title: 'Moddy', body: `Failed to install ${pkg.name}` });
-      }
-    } finally {
-      setInstalling(null);
-    }
+  // Installs are handed to the background download queue (the pill / QAM show progress);
+  // the queue's completion is what refreshes the installed list + toasts (see ModPage), so
+  // this just enqueues and returns. Uninstall stays inline (handleUninstall, below).
+  const runInstall = (pkg: ThunderstorePackage, withDeps = true, allowMissing = false) => {
+    if (isBmi) enqueueBmi(game.appid, pkg.full_name, pkg.name, null);
+    else enqueueThunderstore(game.appid, pkg.full_name, pkg.name, null, withDeps, allowMissing);
   };
 
-  const handleInstall = (pkg: ThunderstorePackage) => {
+  const handleInstall = async (pkg: ThunderstorePackage) => {
+    // Thunderstore only: a declared dependency might not be in the catalog (can't auto-install).
+    // Check up front (the backend refreshes once to rule out a stale cache) and, if so, let the
+    // user install anyway without it rather than failing the whole install.
+    if (!isBmi) {
+      const unresolved = await getUnresolvedDependencies(game.appid, pkg.full_name).catch(() => [] as string[]);
+      if (unresolved.length > 0) {
+        showModal(
+          <MissingDependencyModal
+            modName={pkg.name}
+            missingNames={unresolved}
+            onInstallAnyway={close => { close(); runInstall(pkg, true, true); }}
+          />
+        );
+        return;
+      }
+    }
     // Thunderstore deps are versioned strings ("Owner-Mod-1.2.3"); the install id is the
     // un-versioned full_name. Only prompt for deps that aren't already installed — the
     // backend cascades them on install, so this modal is a confirmation gate (like the
@@ -350,7 +390,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     // deps, so this is effectively a no-op gate for them and they install directly.)
     const missingDeps = pkg.latest.dependencies
       .map(d => d.split('-').slice(0, -1).join('-'))
-      .filter(id => id && !installedIds.has(id.toLowerCase()));
+      .filter(id => id && !installedIds.has(id.toLowerCase()) && !pendingDepIds.has(id.toLowerCase()));
 
     if (missingDeps.length > 0) {
       const depNames = missingDeps.map(id =>
@@ -429,6 +469,11 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     ? installedIds.has(selectedPkg.full_name.toLowerCase())
     : false;
 
+  // A mod whose job is queued/downloading reads as "busy" on its detail button, same as the
+  // old inline install. `installing` (local) still covers the inline uninstall path.
+  const selectedBusy = !!installing && installing === selectedPkg?.full_name
+    || (!!selectedPkg && queuedRefs.has(selectedPkg.full_name.toLowerCase()));
+
   // Always render the Focusable layout, even during loading. If the loading
   // branch returns a bare div with no focusable children, Steam's autoFocus
   // misses on tab entry and the user ends up with focus stranded on the
@@ -470,6 +515,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
   return (
     <Focusable
       style={{ display: 'flex', height: '100%', overflow: 'hidden' }}
+      {...useQueueFooterProps()}
       onSecondaryButton={onFilterButton}
       onSecondaryActionDescription="Filter"
     >
@@ -501,7 +547,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
       <Focusable style={{ flex: 1, overflowY: 'auto', paddingBottom: 60 }}>
         <DetailPanel
           pkg={selectedPkg}
-          installing={installing}
+          installing={selectedBusy ? (selectedPkg?.full_name ?? null) : null}
           isInstalled={selectedIsInstalled}
           onInstall={handleInstall}
           onUninstall={handleUninstall}

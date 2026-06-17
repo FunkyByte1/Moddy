@@ -1,5 +1,13 @@
-import { ButtonItem, DialogCheckbox, ModalRoot } from '@decky/ui';
+import { ButtonItem, DialogCheckbox, Dropdown, ModalRoot } from '@decky/ui';
 import { useState, FC, ReactNode } from 'react';
+
+// Catalog sort order. 'rating' (Thunderstore likes / popularity) is the historical default.
+export type BrowseSort = 'rating' | 'name' | 'updated';
+export const BROWSE_SORT_OPTIONS: { data: BrowseSort; label: string }[] = [
+  { data: 'rating', label: 'Popularity' },
+  { data: 'name', label: 'Name (A–Z)' },
+  { data: 'updated', label: 'Recently updated' },
+];
 
 export interface BrowseFilter {
   installed: boolean;
@@ -8,6 +16,7 @@ export interface BrowseFilter {
   showNsfw: boolean;
   hideLibraries: boolean; // hide library/framework mods (default true)
   categories: string[]; // selected categories; empty = all categories
+  sortBy: BrowseSort;
 }
 
 export const defaultBrowseFilter: BrowseFilter = {
@@ -17,13 +26,14 @@ export const defaultBrowseFilter: BrowseFilter = {
   showNsfw: false,
   hideLibraries: true,
   categories: [],
+  sortBy: 'rating',
 };
 
 // The library default differs by catalog (Thunderstore hides, BMI shows), so it's
 // compared against the passed-in default rather than assumed.
 const isDefault = (f: BrowseFilter, d: BrowseFilter): boolean =>
   f.installed && f.notInstalled && !f.showDeprecated && !f.showNsfw &&
-  f.hideLibraries === d.hideLibraries && f.categories.length === 0;
+  f.hideLibraries === d.hideLibraries && f.categories.length === 0 && f.sortBy === d.sortBy;
 
 const Section: FC<{ title: string; children: ReactNode }> = ({ title, children }) => (
   <div style={{ marginBottom: '12px' }}>
@@ -73,6 +83,13 @@ const BrowseFilterModal: FC<{
             Reset Filters
           </ButtonItem>
         </div>
+        <Section title="Sort By">
+          <Dropdown
+            rgOptions={BROWSE_SORT_OPTIONS.map(o => ({ data: o.data, label: o.label }))}
+            selectedOption={local.sortBy}
+            onChange={(o) => update({ ...local, sortBy: o.data as BrowseSort })}
+          />
+        </Section>
         <Section title="Install Status">
           <DialogCheckbox
             label="Installed"

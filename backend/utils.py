@@ -25,6 +25,17 @@ def cancel_install() -> None:
     _cancel_event.set()
 
 
+async def _report_queue_progress(percent: int) -> None:
+    """Mirror download progress to the background download queue, if a job is active.
+    Imported lazily so utils has no import-time dependency on download_queue (which imports
+    utils), and a no-op when nothing is queued."""
+    try:
+        import download_queue
+        await download_queue.report_progress(percent)
+    except Exception:
+        pass
+
+
 class InstallCancelledError(Exception):
     pass
 
@@ -102,6 +113,7 @@ async def download(url: str, dest: str, appid: int) -> None:
                         if total and downloaded < total:
                             break  # premature close; fall through to resume
                         await decky.emit("install_progress", appid, 100)
+                        await _report_queue_progress(100)
                         return
                     f.write(chunk)
                     downloaded += len(chunk)
@@ -110,6 +122,7 @@ async def download(url: str, dest: str, appid: int) -> None:
                         if percent != last_percent:
                             last_percent = percent
                             await decky.emit("install_progress", appid, percent)
+                            await _report_queue_progress(percent)
                     await asyncio.sleep(0)  # yield to the event loop
         except InstallCancelledError:
             raise

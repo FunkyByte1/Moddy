@@ -5,7 +5,8 @@ import { useState, useEffect } from 'react';
 import contextMenuPatch, { LibraryContextMenu } from './contextMenuPatch';
 import ModPage from './ModPage';
 import SettingsPage from './SettingsPage';
-import { GameStatus, getSupportedAppids, getSupportedGames, exportLogs } from './types';
+import { GameStatus, getSupportedAppids, getSupportedGames, exportLogs, cancelDownloadJob, clearFinishedDownloads } from './types';
+import { initDownloadQueue, teardownDownloadQueue, useDownloadQueue, summarize, isActiveStatus } from './downloadQueue';
 
 // Bundles Moddy's logs into a zip on the Deck's Desktop so testers can attach it to a
 // bug report. Excludes the Nexus API key (handled backend-side).
@@ -63,6 +64,55 @@ function ModdyIcon() {
   );
 }
 
+// Live view of the background download queue inside the Quick Access panel — the only place
+// the queue stays visible after you leave a game's ModPage. Hidden entirely when idle.
+function DownloadsSection() {
+  const jobs = useDownloadQueue();
+  if (jobs.length === 0) return null;
+  const { hasFinished } = summarize(jobs);
+
+  const statusLine = (j: typeof jobs[number]): string => {
+    switch (j.status) {
+      case 'downloading': {
+        const nOfM = j.items_total > 1 ? ` · ${j.items_done} of ${j.items_total}` : '';
+        return `${j.sub_label || 'Downloading…'}${nOfM} · ${j.percent}%`;
+      }
+      case 'queued': return 'Queued';
+      case 'done': return 'Done';
+      case 'cancelled': return 'Cancelled';
+      case 'failed': return j.error ? `Failed — ${j.error}` : 'Failed';
+    }
+  };
+
+  return (
+    <PanelSection title="Downloads">
+      {jobs.map(j => (
+        <PanelSectionRow key={j.job_id}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.name}</span>
+              {isActiveStatus(j.status) && (
+                <ButtonItem layout="inline" onClick={() => cancelDownloadJob(j.job_id)}>✕</ButtonItem>
+              )}
+            </div>
+            <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em' }}>{statusLine(j)}</div>
+            {j.status === 'downloading' && (
+              <div style={{ width: '100%', height: '4px', background: 'var(--gpColorBgTertiary)', borderRadius: '2px' }}>
+                <div style={{ width: `${j.percent}%`, height: '100%', background: 'var(--gpSystemLightBlue)', borderRadius: '2px', transition: 'width 0.2s ease' }} />
+              </div>
+            )}
+          </div>
+        </PanelSectionRow>
+      ))}
+      {hasFinished && (
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={() => clearFinishedDownloads()}>Clear finished</ButtonItem>
+        </PanelSectionRow>
+      )}
+    </PanelSection>
+  );
+}
+
 function Content() {
   const [games, setGames] = useState<GameStatus[]>([]);
 
@@ -72,6 +122,7 @@ function Content() {
 
   return (
     <>
+      <DownloadsSection />
       <PanelSection>
         <PanelSectionRow>
           <ButtonItem
@@ -107,6 +158,10 @@ export default definePlugin(() => {
   routerHook.addRoute('/moddy/:appid', ModPage, { exact: true });
   routerHook.addRoute('/moddy-settings', SettingsPage, { exact: true });
 
+  // Subscribe the shared download-queue store to backend events once, for the plugin's
+  // lifetime — so the queue survives navigating between (and away from) game pages.
+  initDownloadQueue();
+
   // contextMenuPatch reads this set live at render time, so async population is fine —
   // the "Configure Mods" menu item appears as soon as the backend responds.
   const supportedAppIds = new Set<number>();
@@ -123,6 +178,7 @@ export default definePlugin(() => {
     onDismount() {
       routerHook.removeRoute('/moddy/:appid');
       routerHook.removeRoute('/moddy-settings');
+      teardownDownloadQueue();
       menuPatch?.unpatch();
     },
   };

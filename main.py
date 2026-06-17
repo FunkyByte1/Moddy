@@ -19,6 +19,7 @@ import nexus
 import app_settings as settings
 import utils
 import steamworkshop_browse
+import download_queue
 
 
 def _catalog_for_game(game: "registry.GameProfile") -> list[dict]:
@@ -427,6 +428,7 @@ class Plugin:
             modloader=game.modloaders[0].id if game.modloaders else "",
             dependencies=[],
         )
+        await download_queue.set_sublabel(mod.name)
         return await mods.install_mod(game, install_dir, mod, version=target_version, url=url)
 
     # ── Nexus Mods catalog ────────────────────────────────────────────────────
@@ -554,6 +556,7 @@ class Plugin:
         target_version = version or str(info.get("version", "") or "") or "latest"
         # Only the top-level mod honors a variant choice / can prompt for one. A dependency that
         # turns out to bundle variants can't ask the user mid-cascade, so install its first by default.
+        await download_queue.set_sublabel(mod.name)
         res = await mods.install_mod(game, install_dir, mod, version=target_version, url=url, variant=variant if top else None)
         if isinstance(res, dict) and res.get("needs_variant"):
             if top:
@@ -660,13 +663,33 @@ class Plugin:
         """Lowercase full_names the Browse tab should hide and cascade-install should skip."""
         return sorted(self._BROWSE_DENYLIST)
 
+    async def get_unresolved_dependencies(self, appid: int, full_name: str, with_deps: bool = True) -> list:
+        """Declared dependencies of `full_name` that aren't in the catalog (so they can't be
+        installed). Resolves the dependency tree up front; if anything looks missing, refreshes the
+        catalog once and re-resolves first — a "missing" dep is most often just a stale cache. The
+        UI calls this before installing so it can warn / offer "install anyway". Empty = all good."""
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.thunderstore_community:
+            return []
+        unresolved: list[str] = []
+        self._resolve_thunderstore_plan(game, full_name, None, with_deps, set(), [], unresolved)
+        if unresolved:
+            # Could be a stale catalog — pull a fresh copy and re-resolve before reporting.
+            thunderstore.refresh_community_catalog(game.thunderstore_community)
+            unresolved = []
+            self._resolve_thunderstore_plan(game, full_name, None, with_deps, set(), [], unresolved)
+        return unresolved
+
     async def install_thunderstore_mod(
-        self, appid: int, full_name: str, version: str | None = None, with_deps: bool = True
+        self, appid: int, full_name: str, version: str | None = None, with_deps: bool = True,
+        allow_missing: bool = False,
     ) -> bool | None:
         """Install a Thunderstore mod by full_name (e.g. 'RiskofThunder-R2API_Core'),
         recursively installing any declared dependencies first. Already-installed
         deps and denylisted modloader packages are skipped. Pass with_deps=False to install
         only the named mod and leave its dependencies out (the UI's "skip dependencies").
+        allow_missing=True installs the mod even if a declared dependency isn't in the catalog
+        (it's skipped instead of failing — the UI's "install anyway").
         Returns True=success, False=failed, None=cancelled."""
         game = registry.get_game_by_appid(appid)
         if not game or not game.thunderstore_community:
@@ -674,9 +697,68 @@ class Plugin:
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return False
-        return await self._install_thunderstore_recursive(
-            game, install_dir, full_name, version, seen=set(), with_deps=with_deps
+        # Size the cascade up front (mod + deps that aren't already installed) so the UI can show
+        # "N of M". Cheap — resolves against the in-memory catalog, no downloads.
+        plan: list[str] = []
+        self._resolve_thunderstore_plan(game, full_name, version, with_deps, set(), plan, [])
+        await download_queue.note_total(len(plan))
+        # Atomic cancel: track the packages this run freshly installs so a cancel mid-cascade can
+        # undo them, leaving the system as if the install never started. Updates of already-present
+        # mods aren't tracked (a cancelled download leaves the prior version intact).
+        installed_this_run: list[str] = []
+        result = await self._install_thunderstore_recursive(
+            game, install_dir, full_name, version, seen=set(), with_deps=with_deps,
+            installed_this_run=installed_this_run, allow_missing=allow_missing,
         )
+        # Roll back on cancel (None) or hard failure (False) — either way the install didn't
+        # complete, so leave no partial trace.
+        if not result and installed_this_run:
+            await self._rollback_installs(game, install_dir, installed_this_run)
+        return result
+
+    def _resolve_thunderstore_plan(
+        self, game: "registry.GameProfile", full_name: str, version: str | None,
+        with_deps: bool, seen: set, plan: list, unresolved: list,
+    ) -> None:
+        """Walk the dependency tree, mirroring _install_thunderstore_recursive's skip logic, into:
+        `plan` — depth-first packages an install will actually download (used to size "N of M"); and
+        `unresolved` — declared deps not found in the catalog. Downloads nothing."""
+        key = full_name.lower()
+        if key in seen or key in self._BROWSE_DENYLIST:
+            return
+        seen.add(key)
+        existing = mods.get_installed_record(full_name)
+        if existing is None:
+            for k in (mods._load_store() or {}).keys():
+                if k.lower() == key:
+                    existing = mods.get_installed_record(k)
+                    break
+        if existing and version is None:
+            return
+        pkg = thunderstore.find_package(game.thunderstore_community, full_name)
+        if not pkg:
+            unresolved.append(full_name)
+            return
+        if with_deps:
+            explicit: list[str] = []
+            for dep_str in pkg.get("latest", {}).get("dependencies", []):
+                parsed = thunderstore.parse_dep(dep_str)
+                if parsed:
+                    explicit.append(parsed[0])
+            for dep_full_name in list(game.implicit_deps) + explicit:
+                self._resolve_thunderstore_plan(game, dep_full_name, None, True, seen, plan, unresolved)
+        plan.append(full_name)
+
+    async def _rollback_installs(self, game: "registry.GameProfile", install_dir: str, ids: list) -> None:
+        """Undo a cancelled install: uninstall the mods it freshly installed, newest first (so a
+        mod is removed before the dependencies it sits on). Pre-existing mods aren't in this list,
+        so a shared dependency installed by an earlier job is left untouched."""
+        for mod_id in reversed(ids):
+            try:
+                await mods.uninstall_mod(game, install_dir, mod_id)
+                decky.logger.info(f"Rolled back {mod_id} after cancelled install")
+            except Exception as e:
+                decky.logger.warning(f"Rollback of {mod_id} failed: {e}")
 
     async def _install_thunderstore_recursive(
         self,
@@ -686,6 +768,9 @@ class Plugin:
         version: str | None,
         seen: set,
         with_deps: bool = True,
+        installed_this_run: "list | None" = None,
+        allow_missing: bool = False,
+        is_dependency: bool = False,
     ) -> bool | None:
         key = full_name.lower()
         if key in seen:
@@ -707,8 +792,16 @@ class Plugin:
         if existing and version is None:
             decky.logger.info(f"{full_name} already installed; skipping")
             return True
+        # A fresh install is rollback-eligible; an update of an already-present mod is not (a
+        # cancelled download leaves the prior version in place, so there's nothing to undo).
+        was_fresh = existing is None
         pkg = thunderstore.find_package(game.thunderstore_community, full_name)
         if not pkg:
+            # A dependency we can't find: skip it under "install anyway", else fail the cascade.
+            # (The top-level mod always fails if missing — you can't install what isn't there.)
+            if is_dependency and allow_missing:
+                decky.logger.warning(f"Dependency {full_name} not in catalog; skipping (install anyway)")
+                return True
             decky.logger.error(f"Thunderstore package not found in catalog: {full_name}")
             return False
         latest = pkg.get("latest", {})
@@ -729,14 +822,19 @@ class Plugin:
         dep_full_names = list(game.implicit_deps) + explicit_deps if with_deps else []
         for dep_full_name in dep_full_names:
             dep_result = await self._install_thunderstore_recursive(
-                game, install_dir, dep_full_name, None, seen
+                game, install_dir, dep_full_name, None, seen, installed_this_run=installed_this_run,
+                allow_missing=allow_missing, is_dependency=True,
             )
             if dep_result is None:
-                return None  # propagate cancellation
+                return None  # propagate cancellation (rollback happens at the top level)
             if not dep_result:
-                decky.logger.warning(
-                    f"Dependency {dep_full_name} of {full_name} failed to install; continuing"
+                # Atomic install: a dependency that fails aborts the whole cascade, so the
+                # top-level caller rolls back everything installed so far rather than leaving a
+                # mod whose requirements are only partly met.
+                decky.logger.error(
+                    f"Dependency {dep_full_name} of {full_name} failed to install; aborting"
                 )
+                return False
         target_version = version or latest.get("version_number")
         if version:
             url = thunderstore.get_download_url(pkg["owner"], pkg["name"], version)
@@ -763,7 +861,11 @@ class Plugin:
             modloader=ml_id,
             dependencies=list(latest.get("dependencies", [])),
         )
-        return await mods.install_mod(game, install_dir, mod, version=target_version, url=url)
+        await download_queue.note_item(mod.name)
+        res = await mods.install_mod(game, install_dir, mod, version=target_version, url=url)
+        if res and was_fresh and installed_this_run is not None:
+            installed_this_run.append(mod.id)
+        return res
 
     async def reset_game(self, appid: int) -> dict:
         """Reset a game to its unmodded state: uninstall every tracked mod, then every
@@ -825,6 +927,43 @@ class Plugin:
     async def cancel_install(self) -> None:
         utils.cancel_install()
 
+    # ── Background download queue ─────────────────────────────────────────────
+    # Catalog installs that fetch archives via utils.download (Thunderstore / BMI) are enqueued
+    # and drained by a single serial worker, so the UI can show a queue + per-item progress
+    # without blocking. The existing install_* methods are reused as the job bodies.
+    async def enqueue_thunderstore(self, appid: int, full_name: str, name: str,
+                                   version: str | None = None, with_deps: bool = True,
+                                   allow_missing: bool = False) -> int:
+        return await download_queue.enqueue(
+            appid, name or full_name, full_name, "thunderstore",
+            lambda: self.install_thunderstore_mod(appid, full_name, version, with_deps, allow_missing),
+        )
+
+    async def enqueue_bmi(self, appid: int, mod_id: str, name: str,
+                          version: str | None = None) -> int:
+        return await download_queue.enqueue(
+            appid, name or mod_id, mod_id, "bmi",
+            lambda: self.install_bmi_mod(appid, mod_id, version),
+        )
+
+    # Nexus and Workshop are intentionally NOT queued yet: Nexus installs can need an
+    # interactive variant/Premium handshake mid-download (so they don't fit a fire-and-forget
+    # job without an "awaiting input" state), and Workshop content is downloaded by Steam after
+    # a client-side subscribe. Both keep their existing inline paths.
+
+    async def cancel_download_job(self, job_id: int) -> bool:
+        return await download_queue.cancel(job_id)
+
+    async def clear_finished_downloads(self) -> None:
+        await download_queue.clear_finished()
+
+    async def clear_download_job(self, job_id: int) -> bool:
+        return await download_queue.clear_job(job_id)
+
+    async def get_download_queue(self) -> list:
+        """Snapshot of the queue so a freshly-mounted UI can hydrate before any event fires."""
+        return download_queue.snapshot()
+
     async def get_profiles(self, appid: int) -> list:
         game = registry.get_game_by_appid(appid)
         if not game:
@@ -861,6 +1000,7 @@ class Plugin:
         decky.logger.info("Decky Mod Manager loaded")
 
     async def _unload(self):
+        download_queue.shutdown()
         decky.logger.info("Decky Mod Manager unloaded")
 
     async def _uninstall(self):

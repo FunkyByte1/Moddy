@@ -6,6 +6,7 @@ import {
   GameStatus, ThunderstorePackage, NeedsVariant,
   getNexusCatalog, installNexusMod, uninstallMod, toggleMod,
 } from '../types';
+import { useQueueFooterProps } from '../components/DownloadQueueModal';
 import { NexusFilter } from '../components/modals/NexusFilterModal';
 import DependentsModal from '../components/modals/DependentsModal';
 import VariantModal from '../components/modals/VariantModal';
@@ -228,6 +229,7 @@ const NexusBrowseTab: FC<{
   return (
     <Focusable
       style={{ display: 'flex', height: '100%', overflow: 'hidden' }}
+      {...useQueueFooterProps()}
       onSecondaryButton={onFilterButton}
       onSecondaryActionDescription="Filter"
     >

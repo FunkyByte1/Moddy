@@ -8,6 +8,7 @@ import { FC } from 'react';
 
 import { GameStatus, ModInfo, ModUpdate } from '../types';
 import { ModEntry } from './ModEntry';
+import { useQueueFooterProps } from './DownloadQueueModal';
 import { SHOW_VERSION_OPTIONS } from '../featureFlags';
 
 const ModDetailPanel: FC<{
@@ -26,10 +27,12 @@ const ModDetailPanel: FC<{
   onFilterButton: () => void;
 }> = ({ entry, game, busy, installing, progress, updates, onInstall, onDelete, onUpdate, onChangeVersion, onCancel, onMenuButton, onFilterButton }) => {
   const update = updates.find(u => u.id === entry.id);
+  const queueFooter = useQueueFooterProps();
 
   return (
     <Focusable
       style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', paddingBottom: '60px', display: 'flex', flexDirection: 'column' }}
+      {...queueFooter}
       onMenuButton={onMenuButton}
       onMenuActionDescription="Options"
       onSecondaryButton={onFilterButton}

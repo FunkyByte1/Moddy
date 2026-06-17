@@ -10,6 +10,7 @@ import {
 import ApplyProfileModal from '../components/modals/ApplyProfileModal';
 import RenameProfileModal from '../components/modals/RenameProfileModal';
 import DeleteProfileModal from '../components/modals/DeleteProfileModal';
+import { useQueueFooterProps } from '../components/DownloadQueueModal';
 
 const formatDate = (iso: string): string => {
   try {
@@ -145,10 +146,13 @@ const ProfilesTab: FC<{
     );
   };
 
+  const queueFooter = useQueueFooterProps();
+
   return (
     <Focusable style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
       <Focusable
         style={{ width: '30%', overflowY: 'auto', paddingBottom: '60px', borderRight: '1px solid var(--gpColorSeparator)', padding: '8px' }}
+        {...queueFooter}
         onMenuButton={onMenuButton}
         onMenuActionDescription="Options"
       >
@@ -183,6 +187,7 @@ const ProfilesTab: FC<{
       {selected && (
         <Focusable
           style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', paddingBottom: '60px', display: 'flex', flexDirection: 'column' }}
+          {...queueFooter}
           onMenuButton={onMenuButton}
           onMenuActionDescription="Options"
         >
