@@ -100,7 +100,7 @@ export interface GameStatus {
   // Frameworks bundled with the loader (e.g. Steamodded), shown on the Mod Loader tab.
   modloader_bundled: string[];
   thunderstore_community: string;
-  // Which Browse catalog backs this game: 'bmi', 'thunderstore', or '' (curated-only).
+  // Which Browse catalog backs this game: 'bmi', 'thunderstore', 'nexus', or '' (Steam Workshop).
   catalog_type: string;
   // Catalog categories the UI treats as "library" (hidden from mod lists by default).
   library_categories: string[];
@@ -110,7 +110,6 @@ export interface GameStatus {
   modloader_enabled: boolean;
   modloader_ready: boolean;
   installed_mods: InstalledMod[];
-  mods: ModInfo[];
 }
 
 export const setLaunchOptions = (appid: number, options: string) => {
@@ -173,24 +172,17 @@ export const removeModloaderLaunchOptions = (appid: number, modloaderOptions: st
 // WorkshopItem is the same internal IPC the in-client Workshop button uses, so it
 // has no such side effect. The backend still keeps the install record so Moddy can
 // list/manage the mod; the actual subscribe/unsubscribe is done from here.
-const _workshopIds = new Map<string, string>();     // `${appid}:${mod_id}` -> publishedfileid
-const _workshopDeps = new Map<string, string[]>();  // `${appid}:${mod_id}` -> dependency mod ids
-const _workshopIdToMod = new Map<string, string>(); // `${appid}:${fileid}` -> curated mod id
-
-const workshopIdFor = (appid: number, modId: string): string | undefined => {
-  const direct = _workshopIds.get(`${appid}:${modId}`);
-  if (direct) return direct;
-  // Non-curated reconciled subscriptions use a synthetic id: workshop.<appid>.<fileid>
+// Workshop subscriptions are tracked by a synthetic id: workshop.<appid>.<fileid>.
+const workshopIdFor = (_appid: number, modId: string): string | undefined => {
   const m = modId.match(/^workshop\.\d+\.(\d+)$/);
   return m ? m[1] : undefined;
 };
 
-// The Moddy mod id used to install/track a Workshop file id: the curated id when one
-// matches (so browse installs dedupe against curated mods), else the synthetic id.
+// The Moddy mod id used to install/track a Workshop file id.
 export const workshopModId = (appid: number, fileId: string): string =>
-  _workshopIdToMod.get(`${appid}:${fileId}`) ?? `workshop.${appid}.${fileId}`;
+  `workshop.${appid}.${fileId}`;
 
-// The Workshop file id behind a Moddy mod id (curated or synthetic), if any.
+// The Workshop file id behind a synthetic Moddy mod id (workshop.<appid>.<fileid>), if any.
 export const fileIdForMod = (appid: number, modId: string): string | undefined =>
   workshopIdFor(appid, modId);
 
@@ -263,26 +255,12 @@ const getSubscribedWorkshopItems = async (appid: number): Promise<ReturnType<typ
 const reconcileWorkshopSubscriptions =
   callable<[appid: number, items: any[]], boolean>('reconcile_workshop_subscriptions');
 
-const indexWorkshopMods = (games: GameStatus[]): void => {
-  for (const g of games) {
-    for (const m of g.mods || []) {
-      if (m.source?.type === 'steamworkshop' && m.source.workshop_id) {
-        _workshopIds.set(`${g.appid}:${m.id}`, m.source.workshop_id);
-        _workshopDeps.set(`${g.appid}:${m.id}`, m.dependencies || []);
-        _workshopIdToMod.set(`${g.appid}:${m.source.workshop_id}`, m.id);
-      }
-    }
-  }
-};
-
 const _getSupportedGames = callable<[], GameStatus[]>('get_supported_games');
-// Wrapper: index curated Workshop mods, then reconcile each Workshop game's tracked
-// list against the user's real Steam subscriptions (captures auto-installed deps and
-// mods subscribed/unsubscribed outside Moddy). Re-fetches once if anything changed so
-// the returned data reflects the synced state.
+// Wrapper: reconcile each Workshop game's tracked list against the user's real Steam
+// subscriptions (captures auto-installed deps and mods subscribed/unsubscribed outside
+// Moddy). Re-fetches once if anything changed so the returned data reflects the synced state.
 export const getSupportedGames = async (): Promise<GameStatus[]> => {
   let games = await _getSupportedGames();
-  indexWorkshopMods(games);
   let changed = false;
   for (const g of games) {
     if (g.modloader !== 'steamworkshop') continue;
@@ -292,7 +270,6 @@ export const getSupportedGames = async (): Promise<GameStatus[]> => {
   }
   if (changed) {
     games = await _getSupportedGames();
-    indexWorkshopMods(games);
   }
   return games;
 };
@@ -306,23 +283,13 @@ export const checkModloaderUpdate = callable<[appid: number], ModloaderUpdate | 
 export const cancelInstall = callable<[], void>('cancel_install');
 export const resetGame = callable<[appid: number], ResetResult>('reset_game');
 const _installMod = callable<[appid: number, mod_id: string, version: string | null], boolean | null>('install_mod');
-// Workshop mods: subscribe declared dependencies first (each is itself a curated Workshop
-// mod), then the mod, then record via the backend. Steam also auto-subscribes an author's
-// declared "required items", but resolving deps here covers ones the author didn't link on
-// the Workshop and makes Moddy actually track them. `seen` guards against cycles.
+// Workshop mods: subscribe via SteamClient first (an item's required items are resolved
+// and subscribed by installWorkshopTree), then record via the backend.
 export const installMod = async (
-  appid: number, mod_id: string, version: string | null, seen: Set<string> = new Set(),
+  appid: number, mod_id: string, version: string | null,
 ): Promise<boolean | null> => {
   const wid = workshopIdFor(appid, mod_id);
-  if (wid) {
-    seen.add(mod_id);
-    for (const dep of _workshopDeps.get(`${appid}:${mod_id}`) || []) {
-      if (!seen.has(dep) && workshopIdFor(appid, dep)) {
-        await installMod(appid, dep, null, seen);
-      }
-    }
-    subscribeWorkshopItem(appid, wid, true);
-  }
+  if (wid) subscribeWorkshopItem(appid, wid, true);
   return _installMod(appid, mod_id, version);
 };
 
@@ -346,7 +313,8 @@ export const getBackedUpVersions = callable<[appid: number, mod_id: string], str
 export const deleteModVersion = callable<[appid: number, mod_id: string, version: string], boolean>('delete_mod_version');
 export const getThunderstoreCatalog = callable<[appid: number], ThunderstorePackage[]>('get_thunderstore_catalog');
 export const refreshThunderstoreCatalog = callable<[appid: number], boolean>('refresh_thunderstore_catalog');
-export const installThunderstoreMod = callable<[appid: number, full_name: string, version: string | null], boolean | null>('install_thunderstore_mod');
+// with_deps=false installs only the named mod, leaving its dependencies out ("skip deps").
+export const installThunderstoreMod = callable<[appid: number, full_name: string, version: string | null, with_deps?: boolean], boolean | null>('install_thunderstore_mod');
 // Balatro Mod Index (BMI) catalog — same ThunderstorePackage item shape as Thunderstore.
 export const getBmiCatalog = callable<[appid: number], ThunderstorePackage[]>('get_bmi_catalog');
 export const refreshBmiCatalog = callable<[appid: number], boolean>('refresh_bmi_catalog');
@@ -401,7 +369,7 @@ export const getWorkshopCatalog =
 export const getWorkshopRequiredItems =
   callable<[appid: number, fileid: string], WorkshopCatalogItem[]>('get_workshop_required_items');
 
-// Stamp real metadata onto a just-installed non-curated record so it shows its name
+// Stamp real metadata onto a just-installed Workshop record so it shows its name
 // immediately instead of the "Workshop item <id>" placeholder until the next reconcile.
 export const setWorkshopMeta =
   callable<[appid: number, fileid: string, name: string, thumbnail: string, description: string], boolean>('set_workshop_meta');
@@ -412,11 +380,14 @@ export const installWorkshopTree = async (
   appid: number, fileId: string,
   meta?: { name?: string; thumbnail?: string; description?: string },
   seen: Set<string> = new Set(),
+  withDeps: boolean = true,
 ): Promise<void> => {
   if (seen.has(fileId)) return;
   seen.add(fileId);
   await installMod(appid, workshopModId(appid, fileId), null);
   if (meta?.name) await setWorkshopMeta(appid, fileId, meta.name, meta.thumbnail ?? '', meta.description ?? '');
+  // withDeps=false ("skip dependencies") subscribes only this item, not its required items.
+  if (!withDeps) return;
   for (const req of await getWorkshopRequiredItems(appid, fileId)) {
     await installWorkshopTree(appid, req.id, { name: req.name, thumbnail: req.preview_url, description: req.description }, seen);
   }

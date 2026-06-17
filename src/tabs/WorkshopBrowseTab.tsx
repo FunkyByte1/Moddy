@@ -4,10 +4,11 @@ import { FC, useState, useEffect, useMemo, useRef } from 'react';
 
 import {
   GameStatus, WorkshopCatalogItem,
-  getWorkshopCatalog, installWorkshopTree, uninstallMod, toggleMod,
+  getWorkshopCatalog, getWorkshopRequiredItems, installWorkshopTree, uninstallMod, toggleMod,
   workshopModId, fileIdForMod,
 } from '../types';
 import DependentsModal from '../components/modals/DependentsModal';
+import DependencyInstallModal from '../components/modals/DependencyInstallModal';
 import { showOrphanCleanup } from '../orphanCleanup';
 import { CatalogSourceLabel } from '../components/CatalogSource';
 import { centerInView } from '../components/centerInView';
@@ -143,14 +144,40 @@ const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }
   const isInstalled = (it: WorkshopCatalogItem) => installedFileIds.has(it.id);
   const selected = items[Math.min(selectedIndex, items.length - 1)] ?? null;
 
-  const handleInstall = async (it: WorkshopCatalogItem) => {
+  const runInstall = async (it: WorkshopCatalogItem, withDeps = true) => {
     setInstalling(it.id);
     try {
-      // Installs the item plus its declared required items (deps), each with its real name.
-      await installWorkshopTree(game.appid, it.id, { name: it.name, thumbnail: it.preview_url, description: it.description });
+      // Installs the item, plus its declared required items (deps) unless withDeps is false.
+      await installWorkshopTree(game.appid, it.id, { name: it.name, thumbnail: it.preview_url, description: it.description }, new Set(), withDeps);
       toaster.toast({ title: 'Moddy', body: `Installing ${it.name}…` });
       await onRefresh();
     } finally { setInstalling(null); }
+  };
+
+  const handleInstall = async (it: WorkshopCatalogItem) => {
+    // Steam doesn't cascade an item's required items, so installWorkshopTree resolves and
+    // subscribes them itself. Surface the not-yet-installed ones first as a confirmation
+    // gate (like the Installed tab's enable-deps prompt) before kicking off the install.
+    setInstalling(it.id);
+    let required: WorkshopCatalogItem[] = [];
+    try {
+      required = await getWorkshopRequiredItems(game.appid, it.id);
+    } catch { /* fall through and install without the prompt */ }
+    setInstalling(null);
+
+    const missing = required.filter(r => !installedFileIds.has(r.id));
+    if (missing.length > 0) {
+      showModal(
+        <DependencyInstallModal
+          modName={it.name}
+          dependencyNames={missing.map(r => r.name)}
+          onInstall={close => { close(); runInstall(it, true); }}
+          onSkip={close => { close(); runInstall(it, false); }}
+        />
+      );
+      return;
+    }
+    runInstall(it);
   };
 
   const handleUninstall = (it: WorkshopCatalogItem) => {

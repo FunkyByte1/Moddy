@@ -5,7 +5,7 @@ import { useState, useEffect, FC } from 'react';
 import {
   GameStatus, Profile, ProfileMod,
   getProfiles, renameProfile, deleteProfile,
-  installMod, toggleMod,
+  toggleMod,
 } from '../types';
 import ApplyProfileModal from '../components/modals/ApplyProfileModal';
 import RenameProfileModal from '../components/modals/RenameProfileModal';
@@ -23,14 +23,9 @@ const formatDate = (iso: string): string => {
 const ProfilesTab: FC<{
   game: GameStatus;
   onRefresh: () => Promise<void>;
-  installing: boolean;
-  progress: number;
-  setInstalling: (v: boolean) => void;
-  setProgress: (v: number) => void;
-  onCancel: () => void;
   onMenuButton: () => void;
   refreshKey: number;
-}> = ({ game, onRefresh, installing, progress, setInstalling, setProgress, onCancel, onMenuButton, refreshKey }) => {
+}> = ({ game, onRefresh, onMenuButton, refreshKey }) => {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -44,10 +39,10 @@ const ProfilesTab: FC<{
 
   const selected = profiles[Math.min(selectedIndex, profiles.length - 1)];
 
-  const modNameFor = (id: string): string =>
-    game.mods.find(m => m.id === id)?.name
-    ?? game.installed_mods.find(m => m.id === id)?.filename.replace('.dll', '')
-    ?? id;
+  const modNameFor = (id: string): string => {
+    const im = game.installed_mods.find(m => m.id === id);
+    return im?.meta?.name ?? im?.filename.replace('.dll', '') ?? id;
+  };
 
   const handleApply = (profile: Profile) => {
     const installedById = new Map(game.installed_mods.map(m => [m.id, m]));
@@ -64,42 +59,19 @@ const ProfilesTab: FC<{
       }
     }
 
-    const applyChanges = async (installMissing: boolean) => {
+    const applyChanges = async () => {
       setBusy(true);
-      const toInstall = [
-        ...(installMissing ? missing : []),
-        ...versionChange,
-      ];
-
-      // Track what will end up installed + enabled after the install pass.
-      // Freshly installed mods land enabled.
-      const enabledAfterInstall = new Map<string, boolean>(
+      // Mods that aren't currently installed can't be added during restore (mods are
+      // installed from the Browse tab); restore reconciles the enable/disable state of
+      // the mods that are installed, and disables anything not in the profile.
+      const enabledNow = new Map<string, boolean>(
         game.installed_mods.map(m => [m.id, m.enabled])
       );
 
-      for (const pm of toInstall) {
-        const modDef = game.mods.find(m => m.id === pm.id);
-        if (!modDef) continue;
-        setInstalling(true); setProgress(0);
-        const ok = await installMod(game.appid, pm.id, pm.version);
-        setInstalling(false);
-        if (ok === null) {
-          await onRefresh();
-          setBusy(false);
-          return;
-        }
-        if (ok) {
-          enabledAfterInstall.set(pm.id, true);
-        } else {
-          toaster.toast({ title: 'Moddy', body: `Failed to install ${modDef.name}` });
-        }
-      }
-
-      // Toggle phase: bring every mod to its target enabled state.
       let toggleCount = 0;
       for (const pm of profile.mods) {
-        if (!enabledAfterInstall.has(pm.id)) continue; // skipped missing
-        if (enabledAfterInstall.get(pm.id) !== pm.enabled) {
+        if (!enabledNow.has(pm.id)) continue; // not installed — skip
+        if (enabledNow.get(pm.id) !== pm.enabled) {
           await toggleMod(game.appid, pm.id, pm.enabled);
           toggleCount++;
         }
@@ -115,12 +87,12 @@ const ProfilesTab: FC<{
       setBusy(false);
       toaster.toast({
         title: 'Moddy',
-        body: `Applied "${profile.name}"`
-          + (toInstall.length ? `, ${toInstall.length} installed` : '')
-          + (toggleCount ? `, ${toggleCount} toggled` : ''),
+        body: `Applied "${profile.name}"` + (toggleCount ? `, ${toggleCount} toggled` : ''),
       });
     };
 
+    // Profile mods that aren't installed / are at a different version can't be reconciled
+    // by toggling alone; surface them so the user knows to (re)install from Browse first.
     if (missing.length > 0 || versionChange.length > 0) {
       showModal(
         <ApplyProfileModal
@@ -131,12 +103,12 @@ const ProfilesTab: FC<{
             from: installedById.get(m.id)?.version ?? null,
             to: m.version,
           }))}
-          onInstallAndApply={(close) => { close(); applyChanges(true); }}
-          onSkipAndApply={(close) => { close(); applyChanges(false); }}
+          onInstallAndApply={(close) => { close(); applyChanges(); }}
+          onSkipAndApply={(close) => { close(); applyChanges(); }}
         />
       );
     } else {
-      applyChanges(false);
+      applyChanges();
     }
   };
 
@@ -214,18 +186,6 @@ const ProfilesTab: FC<{
           onMenuButton={onMenuButton}
           onMenuActionDescription="Options"
         >
-          {installing && (
-            <div style={{ marginBottom: '12px' }}>
-              <div style={{ marginBottom: '4px', fontSize: '0.85em', color: 'var(--gpColorTextSecondary)' }}>
-                {`Installing... ${progress}%`}
-              </div>
-              <div style={{ width: '100%', height: '6px', background: 'var(--gpColorBgTertiary)', borderRadius: '3px', marginBottom: '6px' }}>
-                <div style={{ width: `${progress}%`, height: '100%', background: 'var(--gpSystemLightBlue)', borderRadius: '3px', transition: 'width 0.2s ease' }} />
-              </div>
-              <ButtonItem layout="below" onClick={onCancel}>Cancel</ButtonItem>
-            </div>
-          )}
-
           <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '4px' }}>{selected.name}</div>
           <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', marginBottom: '12px' }}>
             Saved {formatDate(selected.created_at)} · {selected.mods.length} mod{selected.mods.length === 1 ? '' : 's'}
@@ -252,17 +212,17 @@ const ProfilesTab: FC<{
 
           <PanelSection>
             <PanelSectionRow>
-              <ButtonItem layout="below" onClick={() => handleApply(selected)} disabled={busy || installing}>
+              <ButtonItem layout="below" onClick={() => handleApply(selected)} disabled={busy}>
                 Apply Profile
               </ButtonItem>
             </PanelSectionRow>
             <PanelSectionRow>
-              <ButtonItem layout="below" onClick={() => handleRename(selected)} disabled={busy || installing}>
+              <ButtonItem layout="below" onClick={() => handleRename(selected)} disabled={busy}>
                 Rename
               </ButtonItem>
             </PanelSectionRow>
             <PanelSectionRow>
-              <ButtonItem layout="below" onClick={() => handleDelete(selected)} disabled={busy || installing}>
+              <ButtonItem layout="below" onClick={() => handleDelete(selected)} disabled={busy}>
                 Delete
               </ButtonItem>
             </PanelSectionRow>

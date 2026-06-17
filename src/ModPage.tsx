@@ -3,7 +3,6 @@ import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, useRef, FC } from 'react';
 
 import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
-import ModsTab from './tabs/ModsTab';
 import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
 import ProfilesTab from './tabs/ProfilesTab';
@@ -15,7 +14,6 @@ import ResetGameModal from './components/modals/ResetGameModal';
 import SaveProfileModal from './components/modals/SaveProfileModal';
 import SaveProfilePickerModal from './components/modals/SaveProfilePickerModal';
 import OverwriteProfileModal from './components/modals/OverwriteProfileModal';
-import FilterModal, { ModFilter, defaultModFilter } from './components/modals/FilterModal';
 import InstalledFilterModal, { InstalledFilter, defaultInstalledFilter } from './components/modals/InstalledFilterModal';
 import BrowseFilterModal, { BrowseFilter, defaultBrowseFilter } from './components/modals/BrowseFilterModal';
 import NexusFilterModal, { NexusFilter, defaultNexusFilter } from './components/modals/NexusFilterModal';
@@ -28,7 +26,6 @@ const ModPage: FC = () => {
   const [modloaderReadyOverride, setModloaderReadyOverride] = useState(false);
   const [updates, setUpdates] = useState<ModUpdate[]>([]);
   const [selectedTab, setSelectedTab] = useState<string | null>(null);
-  const [filter, setFilter] = useState<ModFilter>(defaultModFilter);
   const [installedFilter, setInstalledFilter] = useState<InstalledFilter>(defaultInstalledFilter);
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>(defaultBrowseFilter);
   const [nexusFilter, setNexusFilter] = useState<NexusFilter>(defaultNexusFilter);
@@ -80,7 +77,7 @@ const ModPage: FC = () => {
   // strands gamepad focus in the hidden Mod Loader content — Steam only
   // re-focuses contents on tab changes it initiates itself, so the next R1
   // press routes input back to the stale tab.
-  const defaultManageTab = game?.catalog_type ? 'installed' : 'mods';
+  const defaultManageTab = 'installed';
   const activeTab = selectedTab ?? (modloaderReady ? defaultManageTab : 'modloader');
 
   // Still jump to Mods when the modloader becomes ready mid-session (e.g.
@@ -112,12 +109,6 @@ const ModPage: FC = () => {
     await cancelInstall();
     setInstalling(false);
     setProgress(0);
-  };
-
-  const handleFilterMenu = () => {
-    showModal(
-      <FilterModal filter={filter} onChange={setFilter} />
-    );
   };
 
   const handleInstalledFilterMenu = () => {
@@ -251,7 +242,7 @@ const ModPage: FC = () => {
           }
         }}
         onSaveProfile={handleSaveProfile}
-        onToggleSelectionMode={activeTab === 'mods' || activeTab === 'installed' ? (close) => { close(); setSelectionMode(m => !m); } : undefined}
+        onToggleSelectionMode={activeTab === 'installed' ? (close) => { close(); setSelectionMode(m => !m); } : undefined}
         selectionMode={selectionMode}
         onRefreshCatalog={(game.catalog_type === 'bmi' || game.catalog_type === 'thunderstore') ? async (close) => {
           close();
@@ -289,10 +280,9 @@ const ModPage: FC = () => {
       },
     }]),
     ...(modloaderReady ? [
-    // Catalog-backed games (Thunderstore or BMI) manage installed mods here and
-    // discover new ones in Browse; curated-only games keep the Mods tab as their
-    // only install path.
-    game.catalog_type ? {
+    // Every game manages its installed mods here; new ones are discovered in Browse
+    // (Thunderstore/BMI/Nexus/Workshop, depending on the game).
+    {
       id: 'installed',
       title: 'Installed',
       content: (
@@ -317,33 +307,6 @@ const ModPage: FC = () => {
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
         onSecondaryButton: handleInstalledFilterMenu,
-        onSecondaryActionDescription: 'Filter',
-      },
-    } : {
-      id: 'mods',
-      title: game.modloader === 'steamworkshop' ? 'Installed' : 'Mods',
-      content: (
-        <ModsTab
-          game={game}
-          onRefresh={refresh}
-          updates={updates}
-          setUpdates={setUpdates}
-          installing={installing}
-          progress={progress}
-          setInstalling={setInstalling}
-          setProgress={setProgress}
-          onCancel={handleCancelInstall}
-          onMenuButton={handleOptionsMenu}
-          onFilterButton={handleFilterMenu}
-          filter={filter}
-          selectionMode={selectionMode}
-          setSelectionMode={setSelectionMode}
-        />
-      ),
-      footer: {
-        onMenuButton: handleOptionsMenu,
-        onMenuActionDescription: 'Options',
-        onSecondaryButton: handleFilterMenu,
         onSecondaryActionDescription: 'Filter',
       },
     },
@@ -407,11 +370,6 @@ const ModPage: FC = () => {
         <ProfilesTab
           game={game}
           onRefresh={refresh}
-          installing={installing}
-          progress={progress}
-          setInstalling={setInstalling}
-          setProgress={setProgress}
-          onCancel={handleCancelInstall}
           onMenuButton={handleOptionsMenu}
           refreshKey={profilesRefreshKey}
         />

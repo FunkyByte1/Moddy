@@ -59,22 +59,15 @@ class GameProfile:
     mods_dir: str
     mods_dir_type: str = "game"          # "game" or "proton_appdata"
     mods_appdata_path: str = ""          # relative path within AppData/Roaming (for proton_appdata type)
-    thunderstore_community: str = ""     # Thunderstore community slug (e.g. "riskofrain2"); empty = curated-only
+    thunderstore_community: str = ""     # Thunderstore community slug (e.g. "riskofrain2"); empty = no Thunderstore catalog
     implicit_deps: list[str] = field(default_factory=list)  # Thunderstore full_names treated as deps of every browsed install
     catalog: dict = field(default_factory=dict)          # Browse catalog source, e.g. {"type": "bmi", "repo": "...", "branch": "main"}
     library_workshop_ids: list[str] = field(default_factory=list)  # Workshop file ids treated as libraries (Haste tags are unreliable)
     frameworks: dict = field(default_factory=dict)       # framework-mod defs keyed by requirement flag (e.g. "steamodded")
     modloaders: list[ModloaderInfo] = field(default_factory=list)
-    mods: list[ModInfo] = field(default_factory=list)
 
     def get_modloader(self, modloader_id: str) -> ModloaderInfo | None:
         return next((ml for ml in self.modloaders if ml.id == modloader_id), None)
-
-    def get_mod(self, mod_id: str) -> ModInfo | None:
-        return next((m for m in self.mods if m.id == mod_id), None)
-
-    def get_mod_by_filename(self, filename: str) -> ModInfo | None:
-        return next((m for m in self.mods if m.filename == filename), None)
 
     def uses_steam_workshop(self) -> bool:
         """True if this game's mods are delivered via Steam Workshop subscriptions
@@ -190,23 +183,6 @@ def _load_game(path: str, ml_catalog: dict[str, ModloaderInfo]) -> GameProfile |
                 )
             resolved_modloaders.append(ml)
 
-        mods = []
-        for i, m in enumerate(data.get("mods", [])):
-            mod_where = f"{where} mods[{i}]"
-            mods.append(ModInfo(
-                id=_require(m, "id", mod_where),
-                name=_require(m, "name", mod_where),
-                description=m.get("description", ""),
-                filename=_require(m, "filename", mod_where),
-                source=_parse_source(_require(m, "source", mod_where)),
-                author=m.get("author", ""),
-                homepage=m.get("homepage", ""),
-                thumbnail=m.get("thumbnail", ""),
-                modloader=m.get("modloader", ""),
-                dependencies=m.get("dependencies", []),
-                is_library=bool(m.get("is_library", False)),
-            ))
-
         return GameProfile(
             id=game_id,
             name=name,
@@ -220,7 +196,6 @@ def _load_game(path: str, ml_catalog: dict[str, ModloaderInfo]) -> GameProfile |
             library_workshop_ids=[str(x) for x in data.get("library_workshop_ids", [])],
             frameworks=dict(data.get("frameworks", {})),
             modloaders=resolved_modloaders,
-            mods=mods,
         )
     except Exception as e:
         decky.logger.error(f"Failed to load game from {where}: {e}")
@@ -281,7 +256,7 @@ _DEFAULT_LIBRARY_CATEGORIES = {
 def library_categories(game: GameProfile) -> list[str]:
     """The catalog categories that count as "library" for this game. Read from
     `catalog.library_categories` if set, else defaulted by catalog type. Empty list
-    means the game has no library concept (e.g. curated-only with no catalog)."""
+    means the game has no library concept (e.g. Steam Workshop, with no catalog)."""
     explicit = game.catalog.get("library_categories")
     if explicit is not None:
         return list(explicit)

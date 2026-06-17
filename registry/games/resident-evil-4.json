@@ -5,6 +5,5 @@
   "mods_dir": "",
   "mods_dir_type": "game",
   "modloader_ids": ["reframework"],
-  "catalog": { "type": "nexus", "nexus_domain": "residentevil42023", "install_type": "zip_natives" },
-  "mods": []
+  "catalog": { "type": "nexus", "nexus_domain": "residentevil42023", "install_type": "zip_natives" }
 }

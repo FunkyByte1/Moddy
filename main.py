@@ -91,8 +91,8 @@ class Plugin:
             )
             workshop = game.uses_steam_workshop()
             for im in installed_mods_list:
-                # Workshop mods carry is_library on their record (curated flag or the
-                # game's library_workshop_ids); don't clobber it with catalog logic.
+                # Workshop mods carry is_library on their record (from the game's
+                # library_workshop_ids); don't clobber it with catalog logic.
                 if workshop:
                     continue
                 idl = im["id"].lower()
@@ -109,7 +109,7 @@ class Plugin:
                 # Frameworks bundled with the loader (e.g. Steamodded) — shown on the Mod Loader tab.
                 "modloader_bundled": [fw.get("name", k) for k, fw in game.bundled_frameworks()],
                 "thunderstore_community": game.thunderstore_community,
-                # Which Browse catalog backs this game: "bmi", "thunderstore", or "" (curated-only).
+                # Which Browse catalog backs this game: "bmi", "thunderstore", "nexus", or "" (Steam Workshop).
                 "catalog_type": game.catalog.get("type") or ("thunderstore" if game.thunderstore_community else ""),
                 # Catalog categories the UI treats as "library" (hidden by default).
                 "library_categories": lib_cats,
@@ -119,31 +119,6 @@ class Plugin:
                 "modloader_enabled": modloader_enabled,
                 "modloader_ready": modloader_ready,
                 "installed_mods": installed_mods_list,
-                "mods": [
-                    {
-                        "id": m.id,
-                        "name": m.name,
-                        "description": m.description,
-                        "filename": m.filename,
-                        "author": m.author,
-                        "homepage": m.homepage,
-                        "thumbnail": m.thumbnail,
-                        "modloader": m.modloader,
-                        "dependencies": m.dependencies,
-                        "is_library": m.is_library,
-                        "source": {
-                            "type": m.source.type,
-                            "owner": m.source.owner,
-                            "repo": m.source.repo,
-                            "asset": m.source.asset,
-                            "install_type": m.source.install_type,
-                            "workshop_id": m.source.workshop_id,
-                            "nexus_domain": m.source.nexus_domain,
-                            "mod_id": m.source.mod_id,
-                        },
-                    }
-                    for m in game.mods
-                ],
             })
         return result
 
@@ -225,92 +200,23 @@ class Plugin:
         return await modloaders.disable_modloader(game, install_dir, game.modloaders[0].id)
 
     async def install_mod(self, appid: int, mod_id: str, version: str | None = None) -> bool | None:
-        """Install a mod. Returns True=success, False=failed, None=cancelled."""
+        """Record a Steam Workshop subscription (synthetic id workshop.<appid>.<fileid>);
+        the frontend has already subscribed via SteamClient.
+        Returns True=success, False=failed, None=cancelled."""
         game = registry.get_game_by_appid(appid)
         if not game:
             return False
-        install_dir = steam.find_game_install_dir(appid)
-        if not install_dir:
-            return False
-        mod = game.get_mod(mod_id)
-        if not mod:
-            # Non-curated Workshop sub (synthetic id workshop.<appid>.<fileid>): the
-            # frontend already subscribed via SteamClient; just record it.
-            parts = mod_id.split(".")
-            if game.uses_steam_workshop() and len(parts) == 3 and parts[0] == "workshop" and parts[2].isdigit():
-                return await mods.install_synthetic_workshop(game, mod_id, parts[2])
-            decky.logger.error(f"Unknown mod: {mod_id}")
-            return False
-
-        url = None
-        resolved_version = version
-
-        if mod.source.type == "github":
-            if version:
-                url = github.get_download_url_for_version(
-                    mod.source.owner, mod.source.repo, version, mod.source.asset
-                )
-                if not url:
-                    decky.logger.error(f"Could not find download URL for {mod_id} at {version}")
-                    return False
-            else:
-                result = github.get_latest_download_url(
-                    mod.source.owner, mod.source.repo, mod.source.asset
-                )
-                if result:
-                    resolved_version, url = result
-                else:
-                    decky.logger.error(f"Could not resolve latest release for {mod_id}")
-                    return False
-        elif mod.source.type == "thunderstore":
-            if version:
-                url = thunderstore.get_download_url(mod.source.owner, mod.source.repo, version)
-                resolved_version = version
-            else:
-                latest = thunderstore.get_latest(mod.source.owner, mod.source.repo)
-                if not latest:
-                    decky.logger.error(f"Could not resolve latest Thunderstore release for {mod_id}")
-                    return False
-                resolved_version = latest["version"]
-                url = latest["download_url"]
-        elif mod.source.type == "nexus":
-            try:
-                file_id = nexus.primary_file_id(mod.source.nexus_domain, mod.source.mod_id)
-                if not file_id:
-                    decky.logger.error(f"No downloadable file for Nexus mod {mod_id}")
-                    return False
-                url = nexus.get_download_url(mod.source.nexus_domain, mod.source.mod_id, file_id)
-            except nexus.PremiumRequired:
-                decky.logger.error(f"Nexus mod {mod_id} requires Premium to download")
-                return False
-            if not url:
-                decky.logger.error(f"Could not resolve Nexus download URL for {mod_id}")
-                return False
-        elif mod.source.type == "url":
-            url = mod.source.url
-        elif mod.source.type == "steamworkshop":
-            # No download/URL — install == subscribe via the running Steam client.
-            return await mods.install_workshop_mod(game, mod)
-        else:
-            decky.logger.error(f"Unsupported mod source type: {mod.source.type}")
-            return False
-
-        return await mods.install_mod(game, install_dir, mod, version=resolved_version, url=url)
+        parts = mod_id.split(".")
+        if game.uses_steam_workshop() and len(parts) == 3 and parts[0] == "workshop" and parts[2].isdigit():
+            return await mods.install_synthetic_workshop(game, mod_id, parts[2])
+        decky.logger.error(f"Unknown mod: {mod_id}")
+        return False
 
     async def get_mod_releases(self, appid: int, mod_id: str) -> list:
-        """Get available releases for a mod (curated or browsed)."""
+        """Get available releases for a browsed Thunderstore mod (by full_name)."""
         game = registry.get_game_by_appid(appid)
         if not game:
             return []
-        mod = game.get_mod(mod_id)
-        if mod:
-            if mod.source.type == "github":
-                releases = github.get_all_releases(mod.source.owner, mod.source.repo)
-                return [r for r in releases if mod.source.asset in r.get("download_urls", {})]
-            if mod.source.type == "thunderstore":
-                return thunderstore.get_all_versions(mod.source.owner, mod.source.repo)
-            return []  # github_source and others don't have versioned releases
-        # Browsed mod — look up by full_name in the community catalog
         if game.thunderstore_community:
             pkg = thunderstore.find_package(game.thunderstore_community, mod_id)
             if pkg:
@@ -318,8 +224,8 @@ class Plugin:
         return []
 
     async def check_mod_updates(self, appid: int) -> list:
-        """Check which installed mods have updates available. Walks installed.json
-        (not game.mods) so browsed Thunderstore mods get checked the same way."""
+        """Check which installed mods have updates available. Walks installed.json so
+        every browsed mod is checked from its persisted source record."""
         game = registry.get_game_by_appid(appid)
         if not game:
             return []
@@ -333,14 +239,9 @@ class Plugin:
             installed_version = entry.get("version")
             if not installed_version or installed_version == "latest":
                 continue
-            mod = game.get_mod(mod_id)
-            if mod:
-                source_type, owner, repo = mod.source.type, mod.source.owner, mod.source.repo
-                nexus_domain, nexus_mod_id = mod.source.nexus_domain, mod.source.mod_id
-            else:
-                source = (mods.get_installed_record(mod_id) or {}).get("source") or {}
-                source_type, owner, repo = source.get("type", ""), source.get("owner", ""), source.get("repo", "")
-                nexus_domain, nexus_mod_id = source.get("nexus_domain", ""), source.get("mod_id", "")
+            source = (mods.get_installed_record(mod_id) or {}).get("source") or {}
+            source_type, owner, repo = source.get("type", ""), source.get("owner", ""), source.get("repo", "")
+            nexus_domain, nexus_mod_id = source.get("nexus_domain", ""), source.get("mod_id", "")
             if source_type == "github":
                 if not owner or not repo:
                     continue
@@ -391,9 +292,9 @@ class Plugin:
         return steamworkshop_browse.get_required_items_detailed(str(fileid))
 
     async def set_workshop_meta(self, appid: int, fileid: str, name: str, thumbnail: str, description: str) -> bool:
-        """Stamp real metadata onto a just-installed non-curated Workshop record so it
-        shows its name immediately, rather than the 'Workshop item <id>' placeholder
-        until the next reconcile. No-op for curated mods (they already have a name)."""
+        """Stamp real metadata onto a just-installed Workshop record so it shows its name
+        immediately, rather than the 'Workshop item <id>' placeholder until the next
+        reconcile."""
         game = registry.get_game_by_appid(appid)
         if not game or not game.uses_steam_workshop():
             return False
@@ -743,11 +644,12 @@ class Plugin:
         return sorted(self._BROWSE_DENYLIST)
 
     async def install_thunderstore_mod(
-        self, appid: int, full_name: str, version: str | None = None
+        self, appid: int, full_name: str, version: str | None = None, with_deps: bool = True
     ) -> bool | None:
         """Install a Thunderstore mod by full_name (e.g. 'RiskofThunder-R2API_Core'),
         recursively installing any declared dependencies first. Already-installed
-        deps and denylisted modloader packages are skipped.
+        deps and denylisted modloader packages are skipped. Pass with_deps=False to install
+        only the named mod and leave its dependencies out (the UI's "skip dependencies").
         Returns True=success, False=failed, None=cancelled."""
         game = registry.get_game_by_appid(appid)
         if not game or not game.thunderstore_community:
@@ -756,7 +658,7 @@ class Plugin:
         if not install_dir:
             return False
         return await self._install_thunderstore_recursive(
-            game, install_dir, full_name, version, seen=set()
+            game, install_dir, full_name, version, seen=set(), with_deps=with_deps
         )
 
     async def _install_thunderstore_recursive(
@@ -766,6 +668,7 @@ class Plugin:
         full_name: str,
         version: str | None,
         seen: set,
+        with_deps: bool = True,
     ) -> bool | None:
         key = full_name.lower()
         if key in seen:
@@ -804,7 +707,9 @@ class Plugin:
                 decky.logger.warning(f"Could not parse dep string '{dep_str}' for {full_name}")
                 continue
             explicit_deps.append(parsed[0])
-        dep_full_names = list(game.implicit_deps) + explicit_deps
+        # with_deps=False ("skip dependencies") installs only this mod. The record below still
+        # carries its declared deps, so dependents tracking and a later re-install stay correct.
+        dep_full_names = list(game.implicit_deps) + explicit_deps if with_deps else []
         for dep_full_name in dep_full_names:
             dep_result = await self._install_thunderstore_recursive(
                 game, install_dir, dep_full_name, None, seen

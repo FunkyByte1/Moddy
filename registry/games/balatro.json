@@ -27,6 +27,5 @@
       "description": "Big-number / optimization framework for Balatro.",
       "source": { "type": "github_source", "owner": "MathIsFun0", "repo": "Talisman", "branch": "main" }
     }
-  },
-  "mods": []
+  }
 }

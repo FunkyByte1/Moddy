@@ -32,13 +32,13 @@ const OrphanedDependenciesModal: FC<{
           ))}
         </ul>
         <div style={{ marginBottom: '8px' }}>
-          <ButtonItem layout="below" onClick={() => onUninstall(close)}>
-            Uninstall them
+          <ButtonItem layout="below" onClick={() => onDisable(close)}>
+            Disable them
           </ButtonItem>
         </div>
         <div style={{ marginBottom: '8px' }}>
-          <ButtonItem layout="below" onClick={() => onDisable(close)}>
-            Disable them
+          <ButtonItem layout="below" onClick={() => onUninstall(close)}>
+            Uninstall them
           </ButtonItem>
         </div>
         <div style={{ marginBottom: '8px' }}>

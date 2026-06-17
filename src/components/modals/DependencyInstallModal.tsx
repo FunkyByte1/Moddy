@@ -6,8 +6,12 @@ const DependencyInstallModal: FC<{
   dependencyNames: string[];
   actionLabel?: string;
   onInstall: (closeModal: () => void) => void;
+  // When provided, renders a middle "skip" button that installs the mod alone, leaving its
+  // dependencies out — mirroring the Ignore option on the dependents (uninstall/disable) modal.
+  onSkip?: (closeModal: () => void) => void;
+  skipLabel?: string;
   closeModal?: () => void;
-}> = ({ modName, dependencyNames, actionLabel = 'Install all & continue', onInstall, closeModal }) => {
+}> = ({ modName, dependencyNames, actionLabel = 'Install all & continue', onInstall, onSkip, skipLabel = 'Install without dependencies', closeModal }) => {
   const close = closeModal ?? (() => {});
 
   return (
@@ -29,6 +33,13 @@ const DependencyInstallModal: FC<{
             {actionLabel}
           </ButtonItem>
         </div>
+        {onSkip && (
+          <div style={{ marginBottom: '8px' }}>
+            <ButtonItem layout="below" onClick={() => onSkip(close)}>
+              {skipLabel}
+            </ButtonItem>
+          </div>
+        )}
         <div style={{ marginBottom: '8px' }}>
           <ButtonItem layout="below" onClick={() => close()}>
             Cancel

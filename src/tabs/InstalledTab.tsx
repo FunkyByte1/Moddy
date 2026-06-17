@@ -57,12 +57,24 @@ const InstalledTab: FC<{
   const installedLowerSet = new Set(game.installed_mods.map(m => m.id.toLowerCase()));
   const enabledLowerSet = new Set(game.installed_mods.filter(m => m.enabled).map(m => m.id.toLowerCase()));
 
-  // A mod's plugin dependencies: version-stripped, with modloader-provided
+  // Resolve a recorded dependency string to the (lowercase) mod id it refers to. A dep may
+  // already be a full Moddy id (a Workshop "workshop.<appid>.<fileid>" id) or a versioned
+  // Thunderstore full_name ("Owner-Mod-1.2.3"). Match an installed id directly first, then
+  // fall back to version-stripping — blindly stripping mangles hyphen-free ids (e.g. a
+  // Workshop id has no '-', so stripping would yield "").
+  const resolveDepId = (rawDep: string): string => {
+    const raw = rawDep.toLowerCase();
+    if (installedLowerSet.has(raw)) return raw;
+    const stripped = stripVersion(rawDep).toLowerCase();
+    return stripped || raw;
+  };
+
+  // A mod's plugin dependencies as resolved (lowercase) mod ids, with modloader-provided
   // (denylisted) packages removed.
   const modDeps = (im?: InstalledMod | null): string[] =>
     (im?.meta?.dependencies ?? [])
-      .map(stripVersion)
-      .filter(d => d && !denylist.has(d.toLowerCase()));
+      .map(resolveDepId)
+      .filter(d => !denylist.has(d));
 
   const metaName = (baseId: string): string =>
     game.installed_mods.find(m => m.id.toLowerCase() === baseId.toLowerCase())?.meta?.name ?? baseId;
@@ -95,16 +107,21 @@ const InstalledTab: FC<{
     return game.installed_mods.filter(m => {
       if (m.id.toLowerCase() === target) return false;
       if (requireEnabled && !m.enabled) return false;
-      return (m.meta?.dependencies ?? []).some(d => stripVersion(d).toLowerCase() === target);
+      return (m.meta?.dependencies ?? []).some(d => resolveDepId(d) === target);
     });
   };
 
-  // Curated mods install via install_mod; browsed Thunderstore mods (unknown to
-  // game.mods) must go through install_thunderstore_mod.
+  // Version changes / updates re-download through the Thunderstore install path
+  // (the only catalog with versioned releases surfaced here).
   const installVersion = (id: string, version: string | null) =>
-    game.mods.some(m => m.id === id)
-      ? installMod(game.appid, id, version)
-      : installThunderstoreMod(game.appid, id, version);
+    installThunderstoreMod(game.appid, id, version);
+
+  // Install a missing dependency through the right backend: Workshop deps subscribe via
+  // installMod (synthetic ids), Thunderstore deps download via installThunderstoreMod.
+  const installDep = (id: string) =>
+    /^workshop\.\d+\.\d+$/.test(id)
+      ? installMod(game.appid, id, null)
+      : installThunderstoreMod(game.appid, id, null);
 
   // After removing/disabling mods, offer to clean up library deps they orphaned.
   const cleanupOrphans = (removedIds: string[], mode: RemovalMode) =>
@@ -126,7 +143,7 @@ const InstalledTab: FC<{
             onInstall={async (close: () => void) => {
               close(); setBusy(true); setInstalling(true); setProgress(0);
               for (const dep of missingDeps) {
-                const ok = await installThunderstoreMod(game.appid, dep, null);
+                const ok = await installDep(dep);
                 if (ok === null) { setInstalling(false); setBusy(false); await onRefresh(); return; }
                 if (!ok) { toaster.toast({ title: 'Moddy', body: `Failed to install ${metaName(dep)}` }); setInstalling(false); setBusy(false); await onRefresh(); return; }
               }
@@ -297,7 +314,7 @@ const InstalledTab: FC<{
       setBusy(true);
       if (extraMissing.size > 0) { setInstalling(true); setProgress(0); }
       for (const dep of extraMissing) {
-        const ok = await installThunderstoreMod(game.appid, dep, null);
+        const ok = await installDep(dep);
         if (ok === null) { setInstalling(false); setBulkStep(null); setSelectionMode(false); await onRefresh(); setBusy(false); return; }
         if (!ok) { toaster.toast({ title: 'Moddy', body: `Failed to install ${metaName(dep)}` }); setInstalling(false); setBulkStep(null); setSelectionMode(false); await onRefresh(); setBusy(false); return; }
       }
@@ -339,7 +356,7 @@ const InstalledTab: FC<{
     const dependents = game.installed_mods.filter(m =>
       m.enabled &&
       !targetSet.has(m.id.toLowerCase()) &&
-      (m.meta?.dependencies ?? []).some(d => targetSet.has(stripVersion(d).toLowerCase()))
+      (m.meta?.dependencies ?? []).some(d => targetSet.has(resolveDepId(d)))
     );
 
     const disableTargets = async () => {
@@ -375,7 +392,7 @@ const InstalledTab: FC<{
     const targetSet = new Set(bulkUninstallTargets.map(i => i.toLowerCase()));
     const dependents = game.installed_mods.filter(m =>
       !targetSet.has(m.id.toLowerCase()) &&
-      (m.meta?.dependencies ?? []).some(d => targetSet.has(stripVersion(d).toLowerCase()))
+      (m.meta?.dependencies ?? []).some(d => targetSet.has(resolveDepId(d)))
     );
 
     const uninstallAll = async () => {

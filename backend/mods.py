@@ -81,8 +81,7 @@ def set_installed_record(
 ) -> None:
     """Persist an install record. If `mod` is provided, source/meta/install_type are
     extracted from the ModInfo so the record is self-describing — this is what lets
-    browsed Thunderstore mods (which aren't in the curated registry) be uninstalled,
-    toggled, and update-checked later without needing a curated lookup."""
+    mods be uninstalled, toggled, and update-checked later from the record alone."""
     store = _load_store()
     record: dict = {"version": version, "filename": filename}
     if paths:
@@ -179,17 +178,17 @@ def _clear_unsub_pending(fileid: str) -> None:
 
 def _workshop_record(
     fileid: str, appid: int, name: str, thumbnail: str, description: str,
-    filename: str, mod: "ModInfo | None" = None, is_library: bool = False,
+    filename: str, is_library: bool = False,
 ) -> dict:
-    """Build an installed.json record for a subscribed Workshop mod. `appid` scopes
-    the (globally-keyed) store to a game; metadata comes from the curated ModInfo
-    when known, else from what Steam reported for the subscription."""
+    """Build an installed.json record for a subscribed Workshop mod. `appid` scopes the
+    (globally-keyed) store to a game; metadata comes from what Steam reported for the
+    subscription."""
     return {
         "version": "subscribed",
         "filename": filename,
         "appid": appid,
         "install_type": "steamworkshop",
-        "is_library": bool(mod.is_library if mod else is_library),
+        "is_library": bool(is_library),
         "added_at": time.time(),
         "source": {
             "type": "steamworkshop", "owner": "", "repo": "", "asset": "",
@@ -197,12 +196,12 @@ def _workshop_record(
         },
         "meta": {
             "name": name,
-            "author": mod.author if mod else "",
+            "author": "",
             "description": description,
-            "homepage": mod.homepage if mod else f"https://steamcommunity.com/sharedfiles/filedetails/?id={fileid}",
+            "homepage": f"https://steamcommunity.com/sharedfiles/filedetails/?id={fileid}",
             "thumbnail": thumbnail,
             "modloader": "steamworkshop",
-            "dependencies": list(mod.dependencies) if mod else [],
+            "dependencies": [],
         },
     }
 
@@ -210,21 +209,16 @@ def _workshop_record(
 def reconcile_workshop(game: GameProfile, items: list[dict]) -> bool:
     """Sync installed.json with the game's ACTUAL Steam Workshop subscriptions,
     supplied by the frontend (GetSubscribedWorkshopItems). Adds a record for every
-    subscribed item — curated metadata when the item matches a curated mod, else the
-    Steam-provided title/preview as a synthetic `workshop.<appid>.<fileid>` entry —
-    and drops records for this game whose item is no longer subscribed. Existing
-    records (and their enabled flags) are preserved. Returns True if anything changed.
+    subscribed item — the Steam-provided title/preview as a synthetic
+    `workshop.<appid>.<fileid>` entry — and drops records for this game whose item is
+    no longer subscribed. Existing records (and their enabled flags) are preserved.
+    Returns True if anything changed.
 
     Each item is {id, name?, thumbnail?, description?}. An empty list is a valid
     "nothing subscribed" state and will clear this game's Workshop records; the
     frontend must pass None (skip) rather than [] when the query actually failed."""
     store = _load_store()
     subscribed = {str(it.get("id") or "").strip(): it for it in items if str(it.get("id") or "").strip()}
-    curated_by_wid = {
-        m.source.workshop_id: m for m in game.mods
-        if m.source.type == "steamworkshop" and m.source.workshop_id
-    }
-    curated_ids = {m.id for m in game.mods}
     lib_ids = set(game.library_workshop_ids)
     now = time.time()
     changed = False
@@ -246,53 +240,42 @@ def reconcile_workshop(game: GameProfile, items: list[dict]) -> bool:
     for fid, it in subscribed.items():
         if fid in pending:
             continue  # just unsubscribed; Steam hasn't dropped it yet
-        m = curated_by_wid.get(fid)
-        if m:
-            mod_id = m.id
-            want_lib = bool(m.is_library)
-            if mod_id not in store:
-                store[mod_id] = _workshop_record(fid, game.appid, m.name, m.thumbnail, m.description, m.filename, mod=m)
-                changed = True
+        mod_id = f"workshop.{game.appid}.{fid}"
+        want_lib = fid in lib_ids
+        name = it.get("name") or ""
+        thumb = it.get("thumbnail") or ""
+        desc = it.get("description") or ""
+        # Map the item's required-item file ids to synthetic Moddy mod ids so the UI's
+        # dependents logic works.
+        deps = [f"workshop.{game.appid}.{c}" for c in (it.get("dependencies") or [])]
+        if mod_id not in store:
+            rec = _workshop_record(
+                fid, game.appid, name or f"Workshop item {fid}", thumb, desc,
+                name or fid, is_library=want_lib,
+            )
+            rec["meta"]["dependencies"] = deps
+            store[mod_id] = rec
+            changed = True
         else:
-            mod_id = f"workshop.{game.appid}.{fid}"
-            want_lib = fid in lib_ids
-            name = it.get("name") or ""
-            thumb = it.get("thumbnail") or ""
-            desc = it.get("description") or ""
-            # Map the item's required-item file ids to Moddy mod ids so the UI's dependents
-            # logic works (curated dep -> curated id, otherwise the synthetic id).
-            deps = [
-                curated_by_wid[c].id if c in curated_by_wid else f"workshop.{game.appid}.{c}"
-                for c in (it.get("dependencies") or [])
-            ]
-            if mod_id not in store:
-                rec = _workshop_record(
-                    fid, game.appid, name or f"Workshop item {fid}", thumb, desc,
-                    name or fid, is_library=want_lib,
-                )
-                rec["meta"]["dependencies"] = deps
-                store[mod_id] = rec
+            # Refresh metadata on an existing record. A Browse install starts as a
+            # placeholder ("Workshop item <id>", no deps) until the Steam details
+            # arrive on a later reconcile — this is what fixes those names/deps.
+            rec = store[mod_id]
+            meta = rec.setdefault("meta", {})
+            if name and meta.get("name") != name:
+                meta["name"] = name
+                if rec.get("filename") in (None, "", fid):
+                    rec["filename"] = name
                 changed = True
-            else:
-                # Refresh metadata on an existing synthetic record. A Browse install starts
-                # as a placeholder ("Workshop item <id>", no deps) until the Steam details
-                # arrive on a later reconcile — this is what fixes those names/deps.
-                rec = store[mod_id]
-                meta = rec.setdefault("meta", {})
-                if name and meta.get("name") != name:
-                    meta["name"] = name
-                    if rec.get("filename") in (None, "", fid):
-                        rec["filename"] = name
-                    changed = True
-                if thumb and meta.get("thumbnail") != thumb:
-                    meta["thumbnail"] = thumb
-                    changed = True
-                if desc and meta.get("description") != desc:
-                    meta["description"] = desc
-                    changed = True
-                if deps and meta.get("dependencies") != deps:
-                    meta["dependencies"] = deps
-                    changed = True
+            if thumb and meta.get("thumbnail") != thumb:
+                meta["thumbnail"] = thumb
+                changed = True
+            if desc and meta.get("description") != desc:
+                meta["description"] = desc
+                changed = True
+            if deps and meta.get("dependencies") != deps:
+                meta["dependencies"] = deps
+                changed = True
         if store[mod_id].get("is_library") != want_lib:
             store[mod_id]["is_library"] = want_lib
             changed = True
@@ -303,7 +286,7 @@ def reconcile_workshop(game: GameProfile, items: list[dict]) -> bool:
         src = rec.get("source") or {}
         if src.get("type") != "steamworkshop":
             continue
-        if not (mod_id in curated_ids or rec.get("appid") == game.appid):
+        if rec.get("appid") != game.appid:
             continue  # belongs to a different game
         if src.get("workshop_id", "") not in subscribed:
             # Don't drop a just-installed record whose subscription hasn't shown up in
@@ -313,20 +296,20 @@ def reconcile_workshop(game: GameProfile, items: list[dict]) -> bool:
             del store[mod_id]
             changed = True
 
-    # 3) collapse duplicates: one record per subscribed item. A removed curated mod's old
-    #    record is superseded by the synthetic one created above — drop the orphan, carrying
-    #    over a disabled flag so a deliberately-disabled mod stays disabled.
+    # 3) collapse duplicates: one record per subscribed item. A legacy record under a
+    #    different id is superseded by the synthetic one created above — drop the orphan,
+    #    carrying over a disabled flag so a deliberately-disabled mod stays disabled.
     for mod_id in list(store.keys()):
         rec = store[mod_id]
         src = rec.get("source") or {}
         if src.get("type") != "steamworkshop":
             continue
-        if not (mod_id in curated_ids or rec.get("appid") == game.appid):
+        if rec.get("appid") != game.appid:
             continue
         wid = src.get("workshop_id", "")
         if not wid:
             continue
-        canonical = curated_by_wid[wid].id if wid in curated_by_wid else f"workshop.{game.appid}.{wid}"
+        canonical = f"workshop.{game.appid}.{wid}"
         if mod_id != canonical and canonical in store:
             if not rec.get("enabled", True):
                 store[canonical]["enabled"] = False
@@ -345,13 +328,6 @@ def clear_installed_record(mod_id: str) -> None:
         _save_store(store)
 
 
-def _mod_target_dirs(mod: ModInfo, mods_path: str, install_dir: str, paths: list[str] | None) -> list[str]:
-    """Resolve the directories that hold a zip_dir mod's DLLs on disk."""
-    if paths:
-        return [os.path.join(install_dir, p) for p in paths]
-    return [os.path.join(mods_path, mod.filename)]
-
-
 _LOVELYIGNORE = ".lovelyignore"
 
 
@@ -359,7 +335,9 @@ def _folder_mod_enabled(target_dirs: list[str], style: str = "dll") -> bool:
     """Whether a zip_dir folder mod is currently enabled.
 
     "dll"  (BepInEx): enabled iff at least one *.dll (not *.dll.disabled) exists in its
-           tracked dirs — BepInEx only loads files ending in .dll.
+           tracked dirs — BepInEx only loads files ending in .dll. A tracked path may also
+           be a bare *.dll file: some mods (e.g. Enforcer, the modular R2API libs) ship the
+           DLL directly under BepInEx/plugins/ with no mod subfolder.
     "lovelyignore" (Lovely/Steamodded): Lua mods have no DLLs; Lovely and Steamodded skip
            any mod folder containing a top-level `.lovelyignore` file. Enabled iff the mod
            folder exists and none of its tracked dirs carries that marker.
@@ -374,20 +352,50 @@ def _folder_mod_enabled(target_dirs: list[str], style: str = "dll") -> bool:
                 return False
         return exists
     for d in target_dirs:
-        if not os.path.isdir(d):
-            continue
-        for _root, _dirs, files in os.walk(d):
-            if any(f.endswith(".dll") for f in files):
-                return True
+        if os.path.isdir(d):
+            for _root, _dirs, files in os.walk(d):
+                if any(f.endswith(".dll") for f in files):
+                    return True
+        # Bare DLL tracked directly (no subfolder): present .dll == enabled
+        # (disabling renames it to *.dll.disabled).
+        elif d.endswith(".dll") and os.path.isfile(d):
+            return True
     return False
+
+
+def _tracked_present(path: str) -> bool:
+    """Whether a zip_dir mod's tracked path is on disk for this game — the dir/file exists,
+    or (for a bare DLL) its disabled form does. Scopes globally-keyed records to the game
+    whose files are actually installed."""
+    return os.path.exists(path) or (path.endswith(".dll") and os.path.isfile(path + ".disabled"))
+
+
+def _prune_empty_dirs(install_dir: str, rel_paths: list[str]) -> None:
+    """After a mod's tracked files are removed, delete any now-empty parent directories up to
+    (not including) the install dir. os.rmdir only removes empty directories, so a folder that
+    still holds another mod's files is never touched — this is what makes per-file ownership
+    safe for mods that share generic folders (e.g. BepInEx/plugins/Language)."""
+    root = os.path.normpath(install_dir)
+    candidates: set[str] = set()
+    for rel in rel_paths:
+        d = os.path.dirname(os.path.normpath(os.path.join(install_dir, rel)))
+        while d != root and d.startswith(root + os.sep):
+            candidates.add(d)
+            d = os.path.dirname(d)
+    # Deepest first, so a child is emptied before its parent is tried.
+    for d in sorted(candidates, key=lambda p: p.count(os.sep), reverse=True):
+        try:
+            os.rmdir(d)
+        except OSError:
+            pass  # non-empty (another mod's files) or already gone — leave it
 
 
 def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
     """
     Return installed mods with id, filename, enabled state, version, and meta.
     Source of truth: installed.json (covers multi-location mods like patchers that don't
-    live under BepInEx/plugins/, and browsed Thunderstore mods that aren't in the curated
-    registry at all). Also scans the filesystem for legacy / manually-placed entries.
+    live under BepInEx/plugins/, and every browsed mod). Also scans the filesystem for
+    legacy / manually-placed entries.
     """
     mods_path = resolve_mods_path(game, install_dir)
     toggle_style = game.mod_toggle_style()
@@ -396,10 +404,10 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
     hidden_ids = game.bundled_framework_ids()
     installed = []
     seen_ids: set[str] = set()
-    # Physical files/dirs already owned by a tracked record, so the filesystem scan (step 3)
-    # doesn't re-list them under a different id. This matters for flat (MelonLoader) mods: a
-    # browsed Nexus mod extracts e.g. Mods/SR2GyroAim.dll, whose filename also matches a curated
-    # mod — without this it would appear twice (once browsed, once as the curated match).
+    # Physical files/dirs already owned by a tracked record, so the filesystem scan
+    # doesn't re-list them under a different id. This matters for flat (MelonLoader) mods:
+    # a browsed Nexus mod extracts e.g. Mods/SR2GyroAim.dll, and without this its loose
+    # .dll would appear a second time as an untracked entry.
     claimed_paths: set[str] = set()
 
     def _claim(record: dict, filename: str | None) -> None:
@@ -409,41 +417,13 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
         elif filename:
             claimed_paths.add(os.path.join(mods_path, filename))
 
-    # 1) Tracked installs from installed.json — curated mods (have a game.mods entry)
+    # Tracked installs from installed.json.
     store = _load_store()
-    for mod in game.mods:
-        record = store.get(mod.id)
-        if not record:
-            continue
-        seen_ids.add(mod.id)
-        _claim(record, mod.filename)
-        paths = record.get("paths")
-        if mod.source.type == "steamworkshop":
-            # Workshop mods are present once subscribed; "enabled" is a local Steam flag
-            # tracked in the record (toggled via SetWorkshopItemsDisabledLocally), default
-            # enabled. Unsubscribe is the uninstall.
-            enabled = record.get("enabled", True)
-        elif mod.source.install_type == "zip_natives":
-            # RE4 loose/pak mod: per-file paths, enabled iff the active (non-disabled) form is present.
-            enabled = _natives_mod_enabled(_flat_target_paths(install_dir, paths))
-        elif mod.source.install_type == "zip_dir" or paths:
-            enabled = _folder_mod_enabled(_mod_target_dirs(mod, mods_path, install_dir, paths), toggle_style)
-        else:
-            target = os.path.join(mods_path, mod.filename)
-            enabled = os.path.isfile(target)
-        installed.append({
-            "id": mod.id,
-            "filename": mod.filename,
-            "enabled": enabled,
-            "version": record.get("version"),
-            "meta": record.get("meta"),
-            "is_library": record.get("is_library", False),
-        })
 
     # Workshop games have no on-disk mods folder Moddy manages — their state is the
-    # set of tracked subscriptions. Beyond the curated mods above, list any other
-    # subscribed Workshop items reconciled into the store for this game (synthetic
-    # `workshop.<appid>.<fileid>` records). Skip the filesystem scans entirely.
+    # set of tracked subscriptions. List every subscribed Workshop item reconciled into
+    # the store for this game (synthetic `workshop.<appid>.<fileid>` records). Skip the
+    # filesystem scans entirely.
     if game.uses_steam_workshop():
         for mod_id, record in store.items():
             if mod_id in seen_ids:
@@ -462,7 +442,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             })
         return installed
 
-    # 2) Tracked installs from installed.json — browsed mods (no curated game.mods entry).
+    # Tracked installs from installed.json — browsed mods.
     #    The store is keyed only by mod_id and shared across all games, so scope each
     #    browsed mod to THIS game by requiring its files to physically exist under this
     #    game's install dir (enabled or disabled form). Without this, mods installed for
@@ -489,7 +469,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             enabled = _natives_mod_enabled(target_paths)
         elif install_type == "zip_dir" or paths:
             target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
-            if not any(os.path.exists(d) for d in target_dirs):
+            if not any(_tracked_present(d) for d in target_dirs):
                 continue  # installed for a different game
             enabled = _folder_mod_enabled(target_dirs, toggle_style)
         else:
@@ -524,28 +504,12 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                 actual_filename = entry if enabled else entry[:-4]
                 if os.path.join(mods_path, actual_filename) in claimed_paths:
                     continue  # already listed by a tracked record (e.g. a browsed Nexus mod)
-                mod = game.get_mod_by_filename(actual_filename)
-                if mod and mod.id in seen_ids:
-                    continue
-                mod_id = mod.id if mod else actual_filename
+                # Untracked loose .dll (legacy/manual placement): list it under its filename.
                 installed.append({
-                    "id": mod_id,
+                    "id": actual_filename,
                     "filename": actual_filename,
                     "enabled": enabled,
-                    "version": get_installed_version(mod_id),
-                    "meta": None,
-                })
-            elif os.path.isdir(entry_path) and not entry.endswith(".bak"):
-                if entry_path in claimed_paths:
-                    continue  # already listed by a tracked record
-                mod = game.get_mod_by_filename(entry)
-                if not mod or mod.id in seen_ids:
-                    continue
-                installed.append({
-                    "id": mod.id,
-                    "filename": entry,
-                    "enabled": True,
-                    "version": get_installed_version(mod.id),
+                    "version": get_installed_version(actual_filename),
                     "meta": None,
                 })
 
@@ -583,27 +547,10 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
     return await _install_mod_file(game, mods_path, mod, version, url)
 
 
-async def install_workshop_mod(game: GameProfile, mod: ModInfo) -> bool | None:
-    """Record a Steam Workshop mod as installed. The actual subscribe happens in the
-    frontend via SteamClient.Apps.SubscribeWorkshopItem (an external SteamAPI_Init
-    process would register as "game running" and reset Game Mode); here we only
-    persist the install record so Moddy can list and manage the mod."""
-    if not mod.source.workshop_id:
-        decky.logger.error(f"Workshop mod {mod.id} has no workshop_id")
-        return False
-    _clear_unsub_pending(mod.source.workshop_id)
-    store = _load_store()
-    store[mod.id] = _workshop_record(
-        mod.source.workshop_id, game.appid, mod.name, mod.thumbnail, mod.description, mod.filename, mod=mod,
-    )
-    _save_store(store)
-    return True
-
-
 def set_workshop_meta(game: GameProfile, fileid: str, name: str, thumbnail: str, description: str) -> bool:
-    """Update a non-curated Workshop record's display metadata in place (used right after
-    a Browse install so the real name shows immediately). Only touches the synthetic
-    record for this file; curated mods keep their registry metadata."""
+    """Update a Workshop record's display metadata in place (used right after a Browse
+    install so the real name shows immediately). Only touches the synthetic record for
+    this file."""
     mod_id = f"workshop.{game.appid}.{fileid}"
     store = _load_store()
     rec = store.get(mod_id)
@@ -623,8 +570,8 @@ def set_workshop_meta(game: GameProfile, fileid: str, name: str, thumbnail: str,
 
 
 async def install_synthetic_workshop(game: GameProfile, mod_id: str, fileid: str) -> bool:
-    """Record a non-curated Workshop subscription by its synthetic id. The frontend has
-    already subscribed via SteamClient; reconcile enriches title/deps on the next refresh."""
+    """Record a Workshop subscription by its synthetic id. The frontend has already
+    subscribed via SteamClient; reconcile enriches title/deps on the next refresh."""
     _clear_unsub_pending(fileid)
     store = _load_store()
     if mod_id not in store:
@@ -724,17 +671,17 @@ def _extract_to_game_root(install_dir: str, mod: ModInfo, version: str | None, t
     game root clean.
     """
     import zipfile
-    extracted_dirs = set()
+    extracted_files = []
     with zipfile.ZipFile(tmp_zip, "r") as z:
         for member in z.namelist():
-            if not member.startswith("BepInEx/"):
+            if not member.startswith("BepInEx/") or member.endswith("/"):
                 continue
-            parts = member.rstrip("/").split("/")
-            # parts[0]=='BepInEx', parts[1] is the subdir (patchers/plugins/monomod), parts[2] is the mod-owned dir
-            if len(parts) >= 3:
-                extracted_dirs.add("/".join(parts[:3]))
             z.extract(member, install_dir)
-    set_installed_record(mod.id, version or "latest", mod.filename, paths=sorted(extracted_dirs), mod=mod)
+            extracted_files.append(member)  # install-dir-relative path
+    # Track each file individually (not the 2nd-level dir): mods that dump into shared folders
+    # like BepInEx/plugins/Language would otherwise "own" them, and uninstall would delete a
+    # co-located mod's files. Uninstall prunes the now-empty dirs. See docs/known-issues.md.
+    set_installed_record(mod.id, version or "latest", mod.filename, paths=sorted(extracted_files), mod=mod)
     decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — merged into BepInEx tree")
     return True
 
@@ -747,17 +694,18 @@ def _extract_bepinex_subdirs(install_dir: str, mod: ModInfo, version: str | None
     """
     import zipfile
     bepinex_root = os.path.join(install_dir, "BepInEx")
-    extracted_dirs = set()
+    extracted_files = []
     with zipfile.ZipFile(tmp_zip, "r") as z:
         for member in z.namelist():
             parts = member.split("/")
-            if not parts or parts[0] not in subdirs:
+            if not parts or parts[0] not in subdirs or member.endswith("/"):
                 continue
-            # Track ownership of <subdir>/<mod-dir>/ so uninstall can clean up.
-            if len(parts) >= 2 and parts[1]:
-                extracted_dirs.add(f"BepInEx/{parts[0]}/{parts[1]}")
             z.extract(member, bepinex_root)
-    set_installed_record(mod.id, version or "latest", mod.filename, paths=sorted(extracted_dirs), mod=mod)
+            extracted_files.append(f"BepInEx/{member}")  # install-dir-relative path
+    # Track each file individually (not the 2nd-level dir): mods that dump into shared folders
+    # like BepInEx/plugins/Language would otherwise "own" them, and uninstall would delete a
+    # co-located mod's files. Uninstall prunes the now-empty dirs. See docs/known-issues.md.
+    set_installed_record(mod.id, version or "latest", mod.filename, paths=sorted(extracted_files), mod=mod)
     decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — merged into BepInEx tree")
     return True
 
@@ -1238,13 +1186,14 @@ async def _install_mod_zip_into_game(game: GameProfile, install_dir: str, mod: M
 
 def get_backed_up_versions(game: GameProfile, install_dir: str, mod_id: str) -> list[str]:
     """Return a list of previously installed versions backed up on disk."""
-    mod = game.get_mod(mod_id)
-    if not mod:
+    record = get_installed_record(mod_id) or {}
+    filename = record.get("filename")
+    if not filename:
         return []
     mods_path = resolve_mods_path(game, install_dir)
     if not os.path.isdir(mods_path):
         return []
-    prefix = f"{mod.filename}.v"
+    prefix = f"{filename}.v"
     suffix = ".bak"
     versions = [
         f[len(prefix):-len(suffix)]
@@ -1256,20 +1205,21 @@ def get_backed_up_versions(game: GameProfile, install_dir: str, mod_id: str) -> 
 
 def delete_mod_version(game: GameProfile, install_dir: str, mod_id: str, version: str) -> bool:
     """Delete a specific backed-up version of a mod (.vX.Y.Z.bak file)."""
-    mod = game.get_mod(mod_id)
-    if not mod:
+    record = get_installed_record(mod_id) or {}
+    filename = record.get("filename")
+    if not filename:
         return False
     mods_path = resolve_mods_path(game, install_dir)
-    bak_path = os.path.join(mods_path, f"{mod.filename}.v{version}.bak")
+    bak_path = os.path.join(mods_path, f"{filename}.v{version}.bak")
     try:
         if os.path.isfile(bak_path):
             os.remove(bak_path)
-            decky.logger.info(f"Deleted backup {mod.filename} v{version}")
+            decky.logger.info(f"Deleted backup {filename} v{version}")
             return True
         decky.logger.warning(f"Backup not found: {bak_path}")
         return False
     except Exception as e:
-        decky.logger.error(f"Failed to delete backup {mod.filename} v{version}: {e}")
+        decky.logger.error(f"Failed to delete backup {filename} v{version}: {e}")
         return False
 
 
@@ -1277,11 +1227,10 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
     """
     Remove a mod from the mods directory.
     Handles file-based, folder-based, and multi-location (paths-tracked) mods.
-    Removes all versioned backups too. Browsed Thunderstore mods that aren't in the
-    curated registry are uninstalled using the persisted record in installed.json.
+    Removes all versioned backups too. Every mod is uninstalled using its persisted
+    record in installed.json.
     """
     import shutil
-    mod = game.get_mod(mod_id)
     mods_path = resolve_mods_path(game, install_dir)
     store = _load_store()
     record = store.get(mod_id, {})
@@ -1289,20 +1238,17 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
     # Steam Workshop mods: the frontend unsubscribes via SteamClient (which deletes
     # the files); the backend just drops the tracking record.
     rec_source = record.get("source") or {}
-    source_type = mod.source.type if mod else rec_source.get("type")
+    source_type = rec_source.get("type")
     if source_type == "steamworkshop":
-        fileid = (mod.source.workshop_id if mod else rec_source.get("workshop_id")) or ""
+        fileid = rec_source.get("workshop_id") or ""
         if fileid:
             _mark_unsub_pending(fileid)  # don't let reconcile re-add it mid-unsubscribe
         clear_installed_record(mod_id)
         return True
 
-    filename = mod.filename if mod else record.get("filename", mod_id)
+    filename = record.get("filename", mod_id)
     paths = record.get("paths")
-    install_type = (
-        mod.source.install_type if mod
-        else record.get("install_type") or (record.get("source") or {}).get("install_type")
-    )
+    install_type = record.get("install_type") or rec_source.get("install_type")
     is_dir_mod = install_type == "zip_dir"
     try:
         if paths:
@@ -1323,6 +1269,9 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
             if os.path.isdir(legacy):
                 shutil.rmtree(legacy)
                 decky.logger.info(f"Removed legacy {filename}/")
+            # Per-file records (BepInEx merge / RE4 natives) leave empty dirs behind — prune
+            # them, but only when empty so a shared folder another mod uses survives.
+            _prune_empty_dirs(install_dir, paths)
             clear_installed_record(mod_id)
             # If a .pak mod was removed, close the numbering gap so the remaining pak mods keep
             # loading (and keep their relative load-order/priority).
@@ -1397,9 +1346,8 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
       DLLs, so disabling drops a `.lovelyignore` marker in the mod folder (and enabling
       removes it). Both Lovely and Steamodded skip any folder containing that file.
     Takes effect on next game launch — modloaders scan once at startup.
-    Browsed mods (no curated ModInfo) use the persisted record.
+    Every mod uses its persisted record in installed.json.
     """
-    mod = game.get_mod(mod_id)
     mods_path = resolve_mods_path(game, install_dir)
     store = _load_store()
     record = store.get(mod_id, {})
@@ -1408,16 +1356,13 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
     # via SetWorkshopItemsDisabledLocally (keeps the files, no unsubscribe). Here we
     # just persist the resulting enabled state so Moddy lists and snapshots it correctly.
     rec_source = record.get("source") or {}
-    if (mod.source.type if mod else rec_source.get("type")) == "steamworkshop":
+    if rec_source.get("type") == "steamworkshop":
         set_mod_enabled(mod_id, enable)
         decky.logger.info(f"Workshop mod {mod_id} enabled={enable}")
         return True
 
-    install_type = (
-        mod.source.install_type if mod
-        else record.get("install_type") or (record.get("source") or {}).get("install_type")
-    )
-    filename = mod.filename if mod else record.get("filename", mod_id)
+    install_type = record.get("install_type") or rec_source.get("install_type")
+    filename = record.get("filename", mod_id)
 
     if install_type == "zip_flat":
         # Flat-loader mod (MelonLoader): toggle every tracked *.dll between active and
@@ -1476,10 +1421,7 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
 
     if install_type == "zip_dir":
         paths = record.get("paths")
-        if mod:
-            target_dirs = _mod_target_dirs(mod, mods_path, install_dir, paths)
-        else:
-            target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
+        target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
 
         if game.mod_toggle_style() == "lovelyignore":
             return _toggle_lovelyignore(target_dirs, mod_id, filename, enable)
@@ -1487,16 +1429,23 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
         renamed = 0
         try:
             for d in target_dirs:
-                if not os.path.isdir(d):
-                    continue
-                for root, _dirs, files in os.walk(d):
-                    for f in files:
-                        if enable and f.endswith(".dll.disabled"):
-                            os.rename(os.path.join(root, f), os.path.join(root, f[:-len(".disabled")]))
-                            renamed += 1
-                        elif not enable and f.endswith(".dll"):
-                            os.rename(os.path.join(root, f), os.path.join(root, f + ".disabled"))
-                            renamed += 1
+                if os.path.isdir(d):
+                    for root, _dirs, files in os.walk(d):
+                        for f in files:
+                            if enable and f.endswith(".dll.disabled"):
+                                os.rename(os.path.join(root, f), os.path.join(root, f[:-len(".disabled")]))
+                                renamed += 1
+                            elif not enable and f.endswith(".dll"):
+                                os.rename(os.path.join(root, f), os.path.join(root, f + ".disabled"))
+                                renamed += 1
+                elif d.endswith(".dll"):
+                    # Bare DLL tracked directly (no subfolder), e.g. Enforcer / modular R2API.
+                    if enable and os.path.isfile(d + ".disabled") and not os.path.isfile(d):
+                        os.rename(d + ".disabled", d)
+                        renamed += 1
+                    elif not enable and os.path.isfile(d):
+                        os.rename(d, d + ".disabled")
+                        renamed += 1
             if renamed == 0:
                 decky.logger.warning(f"No DLLs to {'enable' if enable else 'disable'} for {mod_id}")
                 return False

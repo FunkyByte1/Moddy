@@ -15,6 +15,7 @@ import {
   getBrowseDenylist,
 } from '../types';
 import DependentsModal from '../components/modals/DependentsModal';
+import DependencyInstallModal from '../components/modals/DependencyInstallModal';
 import { showOrphanCleanup } from '../orphanCleanup';
 import { CatalogSourceLabel } from '../components/CatalogSource';
 import { BrowseFilter } from '../components/modals/BrowseFilterModal';
@@ -324,12 +325,12 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     listRef.current?.scrollToItem(0);
   }, [query, filter]);
 
-  const handleInstall = async (pkg: ThunderstorePackage) => {
+  const runInstall = async (pkg: ThunderstorePackage, withDeps = true) => {
     setInstalling(pkg.full_name);
     try {
       const result = isBmi
         ? await installBmiMod(game.appid, pkg.full_name, null)
-        : await installThunderstoreMod(game.appid, pkg.full_name, null);
+        : await installThunderstoreMod(game.appid, pkg.full_name, null, withDeps);
       if (result === true) {
         toaster.toast({ title: 'Moddy', body: `Installed ${pkg.name}` });
         await onRefresh();
@@ -339,6 +340,33 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     } finally {
       setInstalling(null);
     }
+  };
+
+  const handleInstall = (pkg: ThunderstorePackage) => {
+    // Thunderstore deps are versioned strings ("Owner-Mod-1.2.3"); the install id is the
+    // un-versioned full_name. Only prompt for deps that aren't already installed — the
+    // backend cascades them on install, so this modal is a confirmation gate (like the
+    // Installed tab's enable-deps prompt), not a separate install path. (BMI items carry no
+    // deps, so this is effectively a no-op gate for them and they install directly.)
+    const missingDeps = pkg.latest.dependencies
+      .map(d => d.split('-').slice(0, -1).join('-'))
+      .filter(id => id && !installedIds.has(id.toLowerCase()));
+
+    if (missingDeps.length > 0) {
+      const depNames = missingDeps.map(id =>
+        catalog.find(p => p.full_name.toLowerCase() === id.toLowerCase())?.name ?? id
+      );
+      showModal(
+        <DependencyInstallModal
+          modName={pkg.name}
+          dependencyNames={depNames}
+          onInstall={close => { close(); runInstall(pkg, true); }}
+          onSkip={close => { close(); runInstall(pkg, false); }}
+        />
+      );
+      return;
+    }
+    runInstall(pkg);
   };
 
   const handleUninstall = (pkg: ThunderstorePackage) => {

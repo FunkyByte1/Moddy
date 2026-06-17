@@ -5,6 +5,5 @@
   "mods_dir": "Mods",
   "mods_dir_type": "game",
   "modloader_ids": ["melonloader"],
-  "catalog": { "type": "nexus", "nexus_domain": "slimerancher2", "install_type": "zip_flat" },
-  "mods": []
+  "catalog": { "type": "nexus", "nexus_domain": "slimerancher2", "install_type": "zip_flat" }
 }

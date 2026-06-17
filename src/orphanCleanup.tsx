@@ -10,15 +10,15 @@ export type RemovalMode = 'uninstall' | 'disable';
 const stripVersion = (dep: string) => dep.split('-').slice(0, -1).join('-');
 
 // Forward dependency edges among *installed* mods, keyed/valued by lowercase id.
-// Unions curated registry deps with installed meta deps, dropping edges to
-// modloader-provided (denylisted) packages and to anything not installed.
+// Built from installed mods' recorded meta deps, dropping edges to modloader-provided
+// (denylisted) packages and to anything not installed.
 function buildForwardDeps(game: GameStatus, denylist: Set<string>): Map<string, Set<string>> {
   const installed = new Set(game.installed_mods.map(m => m.id.toLowerCase()));
   const fwd = new Map<string, Set<string>>();
-  // A dep string may already be a full Moddy id (a curated id, or a Workshop
-  // "workshop.<appid>.<fileid>" id), or a versioned Thunderstore full_name
-  // ("Owner-Mod-1.2.3"). Match the installed id directly first, and only fall back
-  // to version-stripping — blindly stripping mangles ids with no version suffix.
+  // A dep string may already be a full Moddy id (a Workshop "workshop.<appid>.<fileid>"
+  // id), or a versioned Thunderstore full_name ("Owner-Mod-1.2.3"). Match the installed
+  // id directly first, and only fall back to version-stripping — blindly stripping
+  // mangles ids with no version suffix.
   const resolve = (rawDep: string): string | null => {
     const raw = rawDep.toLowerCase();
     if (installed.has(raw)) return raw;
@@ -32,10 +32,6 @@ function buildForwardDeps(game: GameStatus, denylist: Set<string>): Map<string, 
     if (!fwd.has(m)) fwd.set(m, new Set());
     fwd.get(m)!.add(d);
   };
-  for (const mod of game.mods) {
-    if (!installed.has(mod.id.toLowerCase())) continue;
-    for (const dep of mod.dependencies ?? []) link(mod.id, dep);
-  }
   for (const im of game.installed_mods) {
     for (const dep of im.meta?.dependencies ?? []) link(im.id, dep);
   }
