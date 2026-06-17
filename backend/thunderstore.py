@@ -69,6 +69,14 @@ def get_download_url(author: str, name: str, version: str) -> str:
 
 _CATALOG_CACHE_TTL_SECONDS = 86400
 
+# Process-lifetime cache of the parsed catalog, keyed by community → (mtime, packages).
+# get_supported_games() reloads this catalog on every frontend refresh (after each mod
+# toggle/install) to classify library mods, and the Browse tab + find_package() reload
+# it too — without this, each call re-reads and re-parses the multi-thousand-package
+# JSON from disk. Keyed by the cache file's mtime so a force-refresh (which rewrites the
+# file) self-invalidates; no manual cache-busting needed.
+_mem_catalog: dict[str, tuple[float, list[dict]]] = {}
+
 
 def _catalog_cache_path(community: str) -> str:
     return os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"thunderstore-catalog-{community}.json")
@@ -111,11 +119,21 @@ def get_community_catalog(community: str, force: bool = False) -> list[dict]:
 
     if not force:
         try:
-            if os.path.isfile(cache_path):
-                with open(cache_path, "r") as f:
-                    cached = json.load(f)
-                if now - cached.get("fetched_at", 0) < _CATALOG_CACHE_TTL_SECONDS:
-                    return cached.get("packages", [])
+            mtime = os.path.getmtime(cache_path)
+            mem = _mem_catalog.get(community)
+            if mem and mem[0] == mtime and now - mtime < _CATALOG_CACHE_TTL_SECONDS:
+                # Parsed copy still matches the (still-fresh) on-disk file — skip the
+                # read+parse. Past the TTL we fall through so the disk/network path can
+                # refresh as before.
+                return mem[1]
+            with open(cache_path, "r") as f:
+                cached = json.load(f)
+            if now - cached.get("fetched_at", 0) < _CATALOG_CACHE_TTL_SECONDS:
+                packages = cached.get("packages", [])
+                _mem_catalog[community] = (mtime, packages)
+                return packages
+        except FileNotFoundError:
+            pass
         except Exception as e:
             decky.logger.warning(f"Catalog cache read failed for {community}: {e}")
 
@@ -150,6 +168,7 @@ def get_community_catalog(community: str, force: bool = False) -> list[dict]:
         with open(tmp, "w") as f:
             json.dump({"fetched_at": now, "packages": trimmed}, f)
         os.replace(tmp, cache_path)
+        _mem_catalog[community] = (os.path.getmtime(cache_path), trimmed)
     except Exception as e:
         decky.logger.warning(f"Catalog cache write failed for {community}: {e}")
 
@@ -161,19 +180,21 @@ def refresh_community_catalog(community: str) -> bool:
     cache-freshness check. Used by the Options-menu manual refresh. The existing
     cached catalog is kept if the fresh fetch fails, so a failed refresh never
     leaves the user with an empty catalog. Returns True only if a fresh copy was
-    actually fetched (the cache timestamp advanced), False if it fell back."""
+    actually fetched (the cache file was rewritten), False if it fell back."""
     cache_path = _catalog_cache_path(community)
 
-    def fetched_at() -> float:
+    # A successful fetch rewrites the cache file (and only then); a failed fetch falls
+    # back to the existing one untouched. So a bumped mtime means a fresh copy landed —
+    # no need to parse the whole catalog just to read its timestamp.
+    def cache_mtime() -> float:
         try:
-            with open(cache_path, "r") as f:
-                return json.load(f).get("fetched_at", 0)
-        except Exception:
-            return 0
+            return os.path.getmtime(cache_path)
+        except OSError:
+            return 0.0
 
-    before = fetched_at()
+    before = cache_mtime()
     get_community_catalog(community, force=True)
-    return fetched_at() > before
+    return cache_mtime() > before
 
 
 def find_package(community: str, full_name: str) -> dict | None:

@@ -34,9 +34,11 @@ def get_proton_appdata_path(appid: int, relative_path: str) -> str:
     return os.path.join(base, relative_path)
 
 
-def find_game_install_dir(appid: int) -> str | None:
-    """Find the install directory for a game by its AppID."""
-    for steamapps in find_steam_libraries():
+def find_game_install_dir(appid: int, libraries: list[str] | None = None) -> str | None:
+    """Find the install directory for a game by its AppID. Pass `libraries` (the result
+    of find_steam_libraries()) to reuse an already-parsed library list instead of
+    re-reading libraryfolders.vdf — used when resolving many games in one pass."""
+    for steamapps in (libraries if libraries is not None else find_steam_libraries()):
         manifest_path = os.path.join(steamapps, f"appmanifest_{appid}.acf")
         if os.path.isfile(manifest_path):
             try:

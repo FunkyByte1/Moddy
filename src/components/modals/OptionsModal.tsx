@@ -8,10 +8,12 @@ const OptionsModal: FC<{
   onToggleSelectionMode?: (closeModal: () => void) => void;
   selectionMode?: boolean;
   onRefreshCatalog?: (closeModal: () => void) => void;
+  onManageModloader?: (closeModal: () => void) => void;
+  modloaderName?: string;
   onResetGame?: (closeModal: () => void) => void;
   canResetGame?: boolean;
   closeModal?: () => void;
-}> = ({ onCheckUpdates, onSaveProfile, canSaveProfile, onToggleSelectionMode, selectionMode, onRefreshCatalog, onResetGame, canResetGame, closeModal }) => {
+}> = ({ onCheckUpdates, onSaveProfile, canSaveProfile, onToggleSelectionMode, selectionMode, onRefreshCatalog, onManageModloader, modloaderName, onResetGame, canResetGame, closeModal }) => {
   const close = closeModal ?? (() => {});
   return (
     <ModalRoot closeModal={closeModal}>
@@ -45,6 +47,13 @@ const OptionsModal: FC<{
           <div style={{ marginBottom: '8px' }}>
             <ButtonItem layout="below" onClick={() => onRefreshCatalog(close)}>
               Refresh Mod Catalog
+            </ButtonItem>
+          </div>
+        )}
+        {onManageModloader && (
+          <div style={{ marginBottom: '8px' }}>
+            <ButtonItem layout="below" onClick={() => onManageModloader(close)}>
+              {modloaderName ? `Manage ${modloaderName}` : 'Manage Mod Loader'}
             </ButtonItem>
           </div>
         )}

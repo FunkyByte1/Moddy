@@ -28,6 +28,13 @@ import fetch
 
 _CATALOG_CACHE_TTL_SECONDS = 86400  # 1 day, mirroring the Thunderstore catalog
 
+# Process-lifetime cache of the parsed catalog, keyed by repo → (mtime, packages).
+# Mirrors thunderstore._mem_catalog: get_supported_games() and the Browse tab reload
+# this on every refresh to classify/list mods, so without it each call re-reads and
+# re-parses the catalog JSON. Keyed by the cache file's mtime so a force-refresh
+# (which rewrites the file) self-invalidates.
+_mem_catalog: dict[str, tuple[float, list[dict]]] = {}
+
 
 def _catalog_cache_path(repo: str) -> str:
     slug = repo.replace("/", "_")
@@ -120,11 +127,20 @@ def get_bmi_catalog(repo: str, branch: str = "main", force: bool = False) -> lis
 
     if not force:
         try:
-            if os.path.isfile(cache_path):
-                with open(cache_path, "r") as f:
-                    cached = json.load(f)
-                if now - cached.get("fetched_at", 0) < _CATALOG_CACHE_TTL_SECONDS:
-                    return cached.get("packages", [])
+            mtime = os.path.getmtime(cache_path)
+            mem = _mem_catalog.get(repo)
+            if mem and mem[0] == mtime and now - mtime < _CATALOG_CACHE_TTL_SECONDS:
+                # Parsed copy still matches the (still-fresh) on-disk file — skip the
+                # read+parse. Past the TTL we fall through to refresh as before.
+                return mem[1]
+            with open(cache_path, "r") as f:
+                cached = json.load(f)
+            if now - cached.get("fetched_at", 0) < _CATALOG_CACHE_TTL_SECONDS:
+                packages = cached.get("packages", [])
+                _mem_catalog[repo] = (mtime, packages)
+                return packages
+        except FileNotFoundError:
+            pass
         except Exception as e:
             decky.logger.warning(f"BMI catalog cache read failed for {repo}: {e}")
 
@@ -158,6 +174,7 @@ def get_bmi_catalog(repo: str, branch: str = "main", force: bool = False) -> lis
         with open(tmp, "w") as f:
             json.dump({"fetched_at": now, "packages": items}, f)
         os.replace(tmp, cache_path)
+        _mem_catalog[repo] = (os.path.getmtime(cache_path), items)
     except Exception as e:
         decky.logger.warning(f"BMI catalog cache write failed for {repo}: {e}")
 
@@ -175,16 +192,18 @@ def find_bmi_package(repo: str, full_name: str, branch: str = "main") -> dict | 
 
 def refresh_bmi_catalog(repo: str, branch: str = "main") -> bool:
     """Force a fresh pull, keeping the existing cache if the fetch fails. Returns True
-    only if a fresh copy was actually fetched (the cache timestamp advanced)."""
+    only if a fresh copy was actually fetched (the cache file was rewritten)."""
     cache_path = _catalog_cache_path(repo)
 
-    def fetched_at() -> float:
+    # A successful fetch rewrites the cache file (and only then); a failed fetch falls
+    # back to the existing one untouched. So a bumped mtime means a fresh copy landed —
+    # no need to parse the whole catalog just to read its timestamp.
+    def cache_mtime() -> float:
         try:
-            with open(cache_path, "r") as f:
-                return json.load(f).get("fetched_at", 0)
-        except Exception:
-            return 0
+            return os.path.getmtime(cache_path)
+        except OSError:
+            return 0.0
 
-    before = fetched_at()
+    before = cache_mtime()
     get_bmi_catalog(repo, branch, force=True)
-    return fetched_at() > before
+    return cache_mtime() > before

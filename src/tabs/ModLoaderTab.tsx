@@ -57,7 +57,14 @@ const ModLoaderTab: FC<{
   onRefresh: () => Promise<void>;
   onModloaderReady: () => void;
   setInstalling: (v: boolean) => void;
-}> = ({ game, onRefresh, onModloaderReady, setInstalling }) => {
+  // When rendered inside the "Manage {loader}" modal rather than as a full tab, the
+  // root container drops the tab's full-height/scroll-padding layout.
+  variant?: 'tab' | 'modal';
+  // Called after the loader is fully uninstalled so the host can drop the session
+  // "ready" latch (and close the modal, in the modal variant).
+  onLoaderRemoved?: () => void;
+  onClose?: () => void;
+}> = ({ game, onRefresh, onModloaderReady, setInstalling, variant = 'tab', onLoaderRemoved, onClose }) => {
   const [busy, setBusy] = useState(false);
   const [localInstalling, setLocalInstalling] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -133,6 +140,12 @@ const ModLoaderTab: FC<{
           }
           await onRefresh();
           setBusy(false);
+          // The loader is gone — let the host fall back to the setup tab and, when
+          // we're in the modal variant, close it (its title now names a missing loader).
+          if (ok) {
+            onLoaderRemoved?.();
+            onClose?.();
+          }
         }}
       />
     );
@@ -181,8 +194,10 @@ const ModLoaderTab: FC<{
 
   return (
     <Focusable
-      style={{ padding: '16px', paddingBottom: '60px', overflowY: 'auto', height: '100%' }}
-      onMenuActionDescription="Options"
+      style={variant === 'modal'
+        ? { paddingBottom: '4px' }
+        : { padding: '16px', paddingBottom: '60px', overflowY: 'auto', height: '100%' }}
+      onMenuActionDescription={variant === 'modal' ? undefined : 'Options'}
     >
 
       {/* Progress bar */}
@@ -225,8 +240,11 @@ const ModLoaderTab: FC<{
       ) : (
         // ── Installed (ready or not) ───────────────────────────────────────────
         <>
-          {/* First launch warning — shown as a section when not yet ready */}
-          {!game.modloader_ready && (
+          {/* First launch warning — only for a genuinely pre-first-launch loader, i.e.
+              installed and enabled but not yet ready. A merely disabled loader is also
+              "not ready" (its ready_indicator can vanish when files are renamed), but
+              that's not a first-launch situation, so don't nag about it. */}
+          {!game.modloader_ready && game.modloader_enabled && (
             <PanelSection title="⚠️ First Launch Required">
               <PanelSectionRow>
                 <div style={{ color: 'var(--gpColorTextSecondary)', lineHeight: '1.5', marginBottom: '8px', fontSize: '0.9em' }}>

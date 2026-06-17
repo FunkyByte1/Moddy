@@ -47,6 +47,75 @@ def _library_full_names(game: "registry.GameProfile", lib_cats: list[str]) -> se
     return names
 
 
+def _build_game_status(game: "registry.GameProfile", libraries: "list[str] | None" = None) -> dict:
+    """Build the install/mod-status dict for one supported game. Pass `libraries` (a
+    pre-parsed Steam library list) when building many games at once so libraryfolders.vdf
+    is read once for the whole batch rather than once per game."""
+    install_dir = steam.find_game_install_dir(game.appid, libraries)
+
+    # Use the first modloader defined for the game
+    ml = game.modloaders[0] if game.modloaders else None
+    ml_id = ml.id if ml else None
+
+    modloader_installed = bool(
+        install_dir and ml_id and
+        modloaders.is_modloader_installed(game, install_dir, ml_id)
+    )
+    modloader_enabled = bool(
+        install_dir and ml_id and
+        modloaders.is_modloader_enabled(game, install_dir, ml_id)
+    )
+    modloader_ready = bool(
+        install_dir and ml_id and
+        modloaders.is_modloader_ready(game, install_dir, ml_id)
+    )
+    installed_mods_list = mods.get_installed_mods(game, install_dir) if install_dir else []
+
+    # Flag library mods so the UI can hide them from the mod lists by default.
+    # A mod is a library if its catalog entry carries a library category
+    # ("Libraries" on Thunderstore, "API" on BMI) or it's a declared framework
+    # (Steamodded, Talisman) — both are infrastructure for other mods, not things
+    # users browse for directly. The catalog lookup is skipped when there are no
+    # installed mods to classify, so it never runs for unmodded games.
+    lib_cats = registry.library_categories(game)
+    framework_ids = {fw.get("id", k).lower() for k, fw in game.frameworks.items()}
+    lib_names = (
+        _library_full_names(game, lib_cats)
+        if (installed_mods_list and lib_cats) else set()
+    )
+    workshop = game.uses_steam_workshop()
+    for im in installed_mods_list:
+        # Workshop mods carry is_library on their record (from the game's
+        # library_workshop_ids); don't clobber it with catalog logic.
+        if workshop:
+            continue
+        idl = im["id"].lower()
+        im["is_library"] = idl in lib_names or idl in framework_ids
+
+    return {
+        "id": game.id,
+        "name": game.name,
+        "appid": game.appid,
+        "modloader": ml_id or "",
+        "modloader_name": ml.name if ml else "",
+        "modloader_launch_options": ml.launch_options if ml else "",
+        "modloader_needs_first_launch": bool(ml and ml.ready_indicator),
+        # Frameworks bundled with the loader (e.g. Steamodded) — shown on the Mod Loader tab.
+        "modloader_bundled": [fw.get("name", k) for k, fw in game.bundled_frameworks()],
+        "thunderstore_community": game.thunderstore_community,
+        # Which Browse catalog backs this game: "bmi", "thunderstore", "nexus", or "" (Steam Workshop).
+        "catalog_type": game.catalog.get("type") or ("thunderstore" if game.thunderstore_community else ""),
+        # Catalog categories the UI treats as "library" (hidden by default).
+        "library_categories": lib_cats,
+        "installed": install_dir is not None,
+        "install_dir": install_dir or "",
+        "modloader_installed": modloader_installed,
+        "modloader_enabled": modloader_enabled,
+        "modloader_ready": modloader_ready,
+        "installed_mods": installed_mods_list,
+    }
+
+
 class Plugin:
 
     async def get_supported_appids(self) -> list[int]:
@@ -55,72 +124,20 @@ class Plugin:
 
     async def get_supported_games(self) -> list:
         """Return all supported games with current install and mod status."""
-        result = []
-        for game in registry.SUPPORTED_GAMES:
-            install_dir = steam.find_game_install_dir(game.appid)
+        # Parse the Steam library list once for the whole batch instead of per game.
+        libraries = steam.find_steam_libraries()
+        return [_build_game_status(game, libraries) for game in registry.SUPPORTED_GAMES]
 
-            # Use the first modloader defined for the game
-            ml = game.modloaders[0] if game.modloaders else None
-            ml_id = ml.id if ml else None
-
-            modloader_installed = bool(
-                install_dir and ml_id and
-                modloaders.is_modloader_installed(game, install_dir, ml_id)
-            )
-            modloader_enabled = bool(
-                install_dir and ml_id and
-                modloaders.is_modloader_enabled(game, install_dir, ml_id)
-            )
-            modloader_ready = bool(
-                install_dir and ml_id and
-                modloaders.is_modloader_ready(game, install_dir, ml_id)
-            )
-            installed_mods_list = mods.get_installed_mods(game, install_dir) if install_dir else []
-
-            # Flag library mods so the UI can hide them from the mod lists by default.
-            # A mod is a library if its catalog entry carries a library category
-            # ("Libraries" on Thunderstore, "API" on BMI) or it's a declared framework
-            # (Steamodded, Talisman) — both are infrastructure for other mods, not things
-            # users browse for directly. The catalog lookup is skipped when there are no
-            # installed mods to classify, so it never runs for unmodded games.
-            lib_cats = registry.library_categories(game)
-            framework_ids = {fw.get("id", k).lower() for k, fw in game.frameworks.items()}
-            lib_names = (
-                _library_full_names(game, lib_cats)
-                if (installed_mods_list and lib_cats) else set()
-            )
-            workshop = game.uses_steam_workshop()
-            for im in installed_mods_list:
-                # Workshop mods carry is_library on their record (from the game's
-                # library_workshop_ids); don't clobber it with catalog logic.
-                if workshop:
-                    continue
-                idl = im["id"].lower()
-                im["is_library"] = idl in lib_names or idl in framework_ids
-
-            result.append({
-                "id": game.id,
-                "name": game.name,
-                "appid": game.appid,
-                "modloader": ml_id or "",
-                "modloader_name": ml.name if ml else "",
-                "modloader_launch_options": ml.launch_options if ml else "",
-                "modloader_needs_first_launch": bool(ml and ml.ready_indicator),
-                # Frameworks bundled with the loader (e.g. Steamodded) — shown on the Mod Loader tab.
-                "modloader_bundled": [fw.get("name", k) for k, fw in game.bundled_frameworks()],
-                "thunderstore_community": game.thunderstore_community,
-                # Which Browse catalog backs this game: "bmi", "thunderstore", "nexus", or "" (Steam Workshop).
-                "catalog_type": game.catalog.get("type") or ("thunderstore" if game.thunderstore_community else ""),
-                # Catalog categories the UI treats as "library" (hidden by default).
-                "library_categories": lib_cats,
-                "installed": install_dir is not None,
-                "install_dir": install_dir or "",
-                "modloader_installed": modloader_installed,
-                "modloader_enabled": modloader_enabled,
-                "modloader_ready": modloader_ready,
-                "installed_mods": installed_mods_list,
-            })
-        return result
+    async def get_game_status(self, appid: int) -> dict | None:
+        """Return install/mod status for a single supported game (or None if unsupported).
+        The per-mod-action refresh only needs the game being configured, so this avoids
+        recomputing status (install-dir resolution + a full installed-mods scan) for every
+        other supported game on every toggle/install. Behaviourally identical to picking
+        this appid out of get_supported_games()."""
+        game = registry.get_game_by_appid(appid)
+        if not game:
+            return None
+        return _build_game_status(game)
 
     async def install_modloader(self, appid: int, version: str | None = None) -> bool:
         game = registry.get_game_by_appid(appid)

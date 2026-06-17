@@ -2,7 +2,7 @@ import { Tabs, showModal } from '@decky/ui';
 import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, useRef, FC } from 'react';
 
-import { GameStatus, ModUpdate, getSupportedGames, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
+import { GameStatus, ModUpdate, getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
 import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
 import ProfilesTab from './tabs/ProfilesTab';
@@ -10,6 +10,7 @@ import BrowseTab from './tabs/BrowseTab';
 import WorkshopBrowseTab from './tabs/WorkshopBrowseTab';
 import NexusBrowseTab from './tabs/NexusBrowseTab';
 import OptionsModal from './components/modals/OptionsModal';
+import ModLoaderModal from './components/modals/ModLoaderModal';
 import ResetGameModal from './components/modals/ResetGameModal';
 import SaveProfileModal from './components/modals/SaveProfileModal';
 import SaveProfilePickerModal from './components/modals/SaveProfilePickerModal';
@@ -38,8 +39,7 @@ const ModPage: FC = () => {
   const [selectionMode, setSelectionMode] = useState(false);
 
   const refresh = async () => {
-    const games = await getSupportedGames();
-    const found = games.find(g => g.appid === appid);
+    const found = await getGameStatus(appid);
     if (found) setGame(found);
   };
 
@@ -72,21 +72,25 @@ const ModPage: FC = () => {
 
   const modloaderReady = !!game && (game.modloader_ready || modloaderReadyOverride);
 
-  // Default tab is derived, not set post-mount: Tabs must mount already on the
-  // right tab. Mounting on 'modloader' and switching to 'mods' a frame later
-  // strands gamepad focus in the hidden Mod Loader content — Steam only
-  // re-focuses contents on tab changes it initiates itself, so the next R1
-  // press routes input back to the stale tab.
-  const defaultManageTab = 'installed';
-  const activeTab = selectedTab ?? (modloaderReady ? defaultManageTab : 'modloader');
+  // Tab selection is derived, never set post-mount: Tabs must mount already on the
+  // right tab, because Steam only re-focuses contents on tab changes it initiates
+  // itself — a post-mount switch would strand gamepad focus on the previous tab. When
+  // the loader isn't ready the only tab is the Mod Loader setup tab; once ready that
+  // tab is gone (its controls move to the Options menu) and Installed is the natural
+  // first tab. A stale 'modloader' selection — e.g. left over from installing the
+  // loader mid-session — falls back to Installed rather than pointing at a removed tab.
+  const activeTab = modloaderReady
+    ? (selectedTab && selectedTab !== 'modloader' ? selectedTab : 'installed')
+    : (selectedTab ?? 'modloader');
 
-  // Still jump to Mods when the modloader becomes ready mid-session (e.g.
-  // right after installing it from the Mod Loader tab).
-  const prevReadyRef = useRef(modloaderReady);
+  // Latch "ready" for the session once observed. The Mod Loader tab is replaced by a
+  // "Manage {loader}" entry in the Options menu once ready, so the management tabs must
+  // not vanish if a backend refresh briefly reports not-ready — e.g. disabling
+  // MelonLoader hides its ready_indicator (inside the renamed MelonLoader dir). The
+  // latch is cleared on uninstall/reset so the setup tab correctly comes back.
   useEffect(() => {
-    if (modloaderReady && !prevReadyRef.current) setSelectedTab(defaultManageTab);
-    prevReadyRef.current = modloaderReady;
-  }, [modloaderReady]);
+    if (game?.modloader_ready) setModloaderReadyOverride(true);
+  }, [game?.modloader_ready]);
 
   // Libraries are hidden by default everywhere except BMI: BMI exposes its libraries
   // ("API" mods) for direct install, so hiding them would be surprising, whereas
@@ -227,6 +231,27 @@ const ModPage: FC = () => {
     );
   };
 
+  // Opens the loader-management controls (formerly their own tab) in a modal stacked
+  // on top of the Options menu, so its back button returns there. We deliberately keep
+  // the Options modal open underneath rather than closing it first.
+  const handleManageModloader = (closeOptions: () => void) => {
+    showModal(
+      <ModLoaderModal
+        game={game}
+        onRefresh={refresh}
+        setInstalling={setInstalling}
+        onLoaderRemoved={() => {
+          // Uninstall: drop the session "ready" latch and any stale tab selection so the
+          // UI falls back to the Mod Loader setup tab (same cleanup as Reset Game), and
+          // dismiss the Options modal underneath too — it now names a missing loader.
+          setModloaderReadyOverride(false);
+          setSelectedTab(null);
+          closeOptions();
+        }}
+      />
+    );
+  };
+
   const handleOptionsMenu = () => {
     showModal(
       <OptionsModal
@@ -253,17 +278,21 @@ const ModPage: FC = () => {
           setCatalogRefreshKey(k => k + 1);
           toaster.toast({ title: 'Moddy', body: ok ? 'Mod catalog refreshed' : 'Failed to refresh catalog' });
         } : undefined}
+        onManageModloader={(modloaderReady && game.modloader !== 'steamworkshop') ? handleManageModloader : undefined}
+        modloaderName={game.modloader_name}
         onResetGame={handleResetGame}
         canResetGame={game.installed_mods.length > 0 || game.modloader_installed}
       />
     );
   };
 
-  // Build tab list — Mod Loader always first, Mods + Profiles only when ready
+  // Build tab list — Mod Loader is a setup-only tab (shown until the loader is ready),
+  // then it's replaced by the "Manage {loader}" entry in the Options menu. Mods +
+  // Profiles appear once ready.
   const tabs = [
-    // Steam Workshop is the platform's own loader — there's nothing to install, so
-    // these games skip the Mod Loader tab entirely.
-    ...(game.modloader === 'steamworkshop' ? [] : [{
+    // Steam Workshop is the platform's own loader (nothing to install), and once the
+    // loader is ready its controls live in the Options menu — either way, no tab here.
+    ...((game.modloader === 'steamworkshop' || modloaderReady) ? [] : [{
       id: 'modloader',
       title: 'Mod Loader',
       content: (

@@ -273,6 +273,21 @@ export const getSupportedGames = async (): Promise<GameStatus[]> => {
   }
   return games;
 };
+
+const _getGameStatus = callable<[appid: number], GameStatus | null>('get_game_status');
+// Single-game status for the per-mod-action refresh (only the configured game is on
+// screen), avoiding a full all-games rebuild on every toggle. Mirrors the Workshop
+// reconciliation in getSupportedGames, but scoped to just this game.
+export const getGameStatus = async (appid: number): Promise<GameStatus | null> => {
+  let game = await _getGameStatus(appid);
+  if (game && game.modloader === 'steamworkshop') {
+    const items = await getSubscribedWorkshopItems(appid);
+    if (items !== null && await reconcileWorkshopSubscriptions(appid, items)) {
+      game = await _getGameStatus(appid);
+    }
+  }
+  return game;
+};
 export const installModloader = callable<[appid: number, version: string | null], boolean>('install_modloader');
 export const uninstallModloader = callable<[appid: number], boolean>('uninstall_modloader');
 export const enableModloader = callable<[appid: number], boolean>('enable_modloader');
