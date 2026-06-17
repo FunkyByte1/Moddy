@@ -1,21 +1,26 @@
 import { ToggleField, Focusable } from '@decky/ui';
-import { FC } from 'react';
+import { FC, memo } from 'react';
 
 import { ModEntry } from './ModEntry';
 import { centerInView } from './centerInView';
 
+// memo() so a focus move (which only changes `selected`/`isChecked` on the two affected
+// rows) re-renders just those rows instead of the whole list. Effective only because the
+// parent passes referentially-stable callbacks and a memoized `entry`. `index` is passed
+// so onFocus can report which row gained focus without a per-row closure.
 const ModListItem: FC<{
   entry: ModEntry;
+  index: number;
   selected: boolean;
   selectionMode?: boolean;
   isChecked?: boolean;
   showThumbnail?: boolean;
   onToggle: (id: string, enable: boolean) => void;
   onSelectToggle?: (id: string) => void;
-  onFocus: () => void;
-}> = ({ entry, selected, selectionMode, isChecked, showThumbnail, onToggle, onSelectToggle, onFocus }) => (
+  onFocus: (index: number) => void;
+}> = ({ entry, index, selected, selectionMode, isChecked, showThumbnail, onToggle, onSelectToggle, onFocus }) => (
   <Focusable
-    onFocus={(e) => { onFocus(); centerInView(e.currentTarget); }}
+    onFocus={(e) => { onFocus(index); centerInView(e.currentTarget); }}
     onActivate={() => {
       if (selectionMode) {
         onSelectToggle?.(entry.id);
@@ -73,4 +78,4 @@ const ModListItem: FC<{
   </Focusable>
 );
 
-export default ModListItem;
+export default memo(ModListItem);

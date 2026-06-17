@@ -1,6 +1,6 @@
 import { showModal, Focusable, ButtonItem, PanelSection, PanelSectionRow } from '@decky/ui';
 import { toaster } from '@decky/api';
-import { useState, useEffect, FC } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, FC } from 'react';
 
 import {
   GameStatus, ModInfo, ModUpdate, InstalledMod,
@@ -54,32 +54,79 @@ const InstalledTab: FC<{
     getBrowseDenylist().then(d => setDenylist(new Set(d.map(x => x.toLowerCase())))).catch(() => {});
   }, []);
 
-  const installedLowerSet = new Set(game.installed_mods.map(m => m.id.toLowerCase()));
-  const enabledLowerSet = new Set(game.installed_mods.filter(m => m.enabled).map(m => m.id.toLowerCase()));
+  // Lookup structures rebuilt only when the installed-mods list changes, so renders
+  // driven by focus/selection state (frequent, especially with large lists) don't
+  // re-scan the array. modByLowerId replaces the repeated O(n) `.find()` lookups
+  // scattered through the handlers below.
+  const modByLowerId = useMemo(
+    () => new Map(game.installed_mods.map(m => [m.id.toLowerCase(), m])),
+    [game.installed_mods],
+  );
+  const installedLowerSet = useMemo(
+    () => new Set(game.installed_mods.map(m => m.id.toLowerCase())),
+    [game.installed_mods],
+  );
+  const enabledLowerSet = useMemo(
+    () => new Set(game.installed_mods.filter(m => m.enabled).map(m => m.id.toLowerCase())),
+    [game.installed_mods],
+  );
+  const updatesById = useMemo(() => new Map(updates.map(u => [u.id, u])), [updates]);
 
   // Resolve a recorded dependency string to the (lowercase) mod id it refers to. A dep may
   // already be a full Moddy id (a Workshop "workshop.<appid>.<fileid>" id) or a versioned
   // Thunderstore full_name ("Owner-Mod-1.2.3"). Match an installed id directly first, then
   // fall back to version-stripping — blindly stripping mangles hyphen-free ids (e.g. a
   // Workshop id has no '-', so stripping would yield "").
-  const resolveDepId = (rawDep: string): string => {
+  const resolveDepId = useCallback((rawDep: string): string => {
     const raw = rawDep.toLowerCase();
     if (installedLowerSet.has(raw)) return raw;
     const stripped = stripVersion(rawDep).toLowerCase();
     return stripped || raw;
-  };
+  }, [installedLowerSet]);
 
   // A mod's plugin dependencies as resolved (lowercase) mod ids, with modloader-provided
   // (denylisted) packages removed.
-  const modDeps = (im?: InstalledMod | null): string[] =>
+  const modDeps = useCallback((im?: InstalledMod | null): string[] =>
     (im?.meta?.dependencies ?? [])
       .map(resolveDepId)
-      .filter(d => !denylist.has(d));
+      .filter(d => !denylist.has(d)),
+    [resolveDepId, denylist]);
 
-  const metaName = (baseId: string): string =>
-    game.installed_mods.find(m => m.id.toLowerCase() === baseId.toLowerCase())?.meta?.name ?? baseId;
+  const metaName = useCallback((baseId: string): string =>
+    modByLowerId.get(baseId.toLowerCase())?.meta?.name ?? baseId,
+    [modByLowerId]);
 
-  const allEntries: ModEntry[] = game.installed_mods.map(im => {
+  // The transitive set of dependencies that need action before `rootIds` can be enabled.
+  // Walks the dependency graph (cycle-guarded) over installed mods, splitting deps into
+  // `missing` (not installed → install) and `disabled` (installed but off → enable).
+  // Direct-only collection missed deps-of-deps — e.g. A→B→C left C disabled. A missing
+  // dep's own sub-deps aren't visible here (it's not in installed_mods); the backend
+  // resolves those when it's installed.
+  const collectEnableDeps = (rootIds: string[]): { missing: string[]; disabled: string[] } => {
+    const missing: string[] = [];
+    const disabled: string[] = [];
+    const seen = new Set<string>();
+    const stack = rootIds.map(i => i.toLowerCase());
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      for (const dep of modDeps(modByLowerId.get(cur))) {
+        const dl = dep.toLowerCase();
+        if (seen.has(dl)) continue;
+        seen.add(dl);
+        if (enabledLowerSet.has(dl)) {
+          stack.push(dl);          // already enabled, but a sub-dep might be off
+        } else if (installedLowerSet.has(dl)) {
+          disabled.push(dep);
+          stack.push(dl);          // recurse into the disabled dep's own deps
+        } else {
+          missing.push(dep);       // not installed; backend resolves its sub-deps
+        }
+      }
+    }
+    return { missing, disabled };
+  };
+
+  const allEntries: ModEntry[] = useMemo(() => game.installed_mods.map(im => {
     const meta = im.meta ?? null;
     const baseDeps = modDeps(im);
     const dependenciesMet = !im.enabled || baseDeps.every(d => enabledLowerSet.has(d.toLowerCase()));
@@ -87,7 +134,7 @@ const InstalledTab: FC<{
     return {
       id: im.id, name,
       installed: true, enabled: im.enabled, version: im.version,
-      hasUpdate: !!updates.find(u => u.id === im.id),
+      hasUpdate: updatesById.has(im.id),
       dependenciesMet,
       isLibrary: !!im.is_library,
       info: {
@@ -96,9 +143,12 @@ const InstalledTab: FC<{
         author: meta?.author, thumbnail: meta?.thumbnail, dependencies: baseDeps,
       },
     };
-  });
+  }), [game.installed_mods, modDeps, enabledLowerSet, updatesById]);
 
-  const modEntries = allEntries.filter(e => installedMatchesFilter(e, filter));
+  const modEntries = useMemo(
+    () => allEntries.filter(e => installedMatchesFilter(e, filter)),
+    [allEntries, filter],
+  );
   const selectedEntry = modEntries[Math.min(selectedIndex, modEntries.length - 1)];
 
   // Installed mods (enabled or not) that declare `id` as a dependency.
@@ -129,16 +179,13 @@ const InstalledTab: FC<{
 
   const handleToggleMod = async (id: string, enable: boolean) => {
     if (enable) {
-      const im = game.installed_mods.find(m => m.id === id);
-      const baseDeps = modDeps(im);
-      const notEnabled = baseDeps.filter(d => !enabledLowerSet.has(d.toLowerCase()));
-      if (notEnabled.length > 0) {
-        const missingDeps = notEnabled.filter(d => !installedLowerSet.has(d.toLowerCase()));
-        const disabledDeps = notEnabled.filter(d => installedLowerSet.has(d.toLowerCase()));
+      const im = modByLowerId.get(id.toLowerCase());
+      const { missing: missingDeps, disabled: disabledDeps } = collectEnableDeps([id]);
+      if (missingDeps.length + disabledDeps.length > 0) {
         showModal(
           <DependencyInstallModal
             modName={im?.meta?.name ?? id}
-            dependencyNames={notEnabled.map(d => metaName(d))}
+            dependencyNames={[...missingDeps, ...disabledDeps].map(d => metaName(d))}
             actionLabel={missingDeps.length > 0 ? 'Install & Enable' : 'Enable dependencies'}
             onInstall={async (close: () => void) => {
               close(); setBusy(true); setInstalling(true); setProgress(0);
@@ -151,7 +198,7 @@ const InstalledTab: FC<{
               // Newly installed deps come in enabled; only the already-installed
               // disabled ones need an explicit toggle.
               for (const dep of disabledDeps) {
-                const depMod = game.installed_mods.find(m => m.id.toLowerCase() === dep.toLowerCase());
+                const depMod = modByLowerId.get(dep.toLowerCase());
                 if (depMod) await toggleMod(game.appid, depMod.id, true);
               }
               await toggleMod(game.appid, id, true);
@@ -184,7 +231,7 @@ const InstalledTab: FC<{
   };
 
   const handleDeleteMod = async (mod: ModInfo) => {
-    const currentVersion = game.installed_mods.find(m => m.id === mod.id)?.version ?? null;
+    const currentVersion = modByLowerId.get(mod.id.toLowerCase())?.version ?? null;
     const backedUp = await getBackedUpVersions(game.appid, mod.id);
     const dependents = dependentsOf(mod.id, false);
 
@@ -233,7 +280,7 @@ const InstalledTab: FC<{
   const handleChangeVersion = async (mod: ModInfo) => {
     const releases = await getModReleases(game.appid, mod.id);
     if (releases.length === 0) { toaster.toast({ title: 'Moddy', body: 'Could not fetch releases' }); return; }
-    const currentVersion = game.installed_mods.find(m => m.id === mod.id)?.version ?? null;
+    const currentVersion = modByLowerId.get(mod.id.toLowerCase())?.version ?? null;
     const backedUp = await getBackedUpVersions(game.appid, mod.id);
     showModal(
       <VersionPickerModal
@@ -243,15 +290,18 @@ const InstalledTab: FC<{
     );
   };
 
-  const toggleSelected = (id: string) => {
+  const toggleSelected = useCallback((id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
-  };
+  }, []);
 
-  const allFilteredSelected = modEntries.length > 0 && modEntries.every(e => selectedIds.has(e.id));
+  const allFilteredSelected = useMemo(
+    () => modEntries.length > 0 && modEntries.every(e => selectedIds.has(e.id)),
+    [modEntries, selectedIds],
+  );
   const toggleSelectAll = () => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -273,10 +323,10 @@ const InstalledTab: FC<{
       const lower = id.toLowerCase();
       if (visited.has(lower)) return;
       visited.add(lower);
-      const im = game.installed_mods.find(m => m.id.toLowerCase() === lower);
+      const im = modByLowerId.get(lower);
       for (const dep of modDeps(im)) {
         if (idSet.has(dep.toLowerCase())) {
-          const depMod = game.installed_mods.find(m => m.id.toLowerCase() === dep.toLowerCase());
+          const depMod = modByLowerId.get(dep.toLowerCase());
           if (depMod) visit(depMod.id);
         }
       }
@@ -286,29 +336,30 @@ const InstalledTab: FC<{
     return result;
   };
 
-  const bulkEnableTargets = [...selectedIds].filter(id => !enabledLowerSet.has(id.toLowerCase()));
-  const bulkDisableTargets = [...selectedIds].filter(id => enabledLowerSet.has(id.toLowerCase()));
-  const bulkUninstallTargets = [...selectedIds];
+  const bulkEnableTargets = useMemo(
+    () => [...selectedIds].filter(id => !enabledLowerSet.has(id.toLowerCase())),
+    [selectedIds, enabledLowerSet],
+  );
+  const bulkDisableTargets = useMemo(
+    () => [...selectedIds].filter(id => enabledLowerSet.has(id.toLowerCase())),
+    [selectedIds, enabledLowerSet],
+  );
+  const bulkUninstallTargets = useMemo(() => [...selectedIds], [selectedIds]);
 
-  const bulkStepName = (id: string) =>
-    game.installed_mods.find(m => m.id === id)?.meta?.name
-    ?? game.installed_mods.find(m => m.id === id)?.filename ?? id;
+  const bulkStepName = (id: string) => {
+    const m = modByLowerId.get(id.toLowerCase());
+    return m?.meta?.name ?? m?.filename ?? id;
+  };
 
   const runBulkEnable = async (ids: string[]) => {
     if (ids.length === 0) return;
     const idSetLower = new Set(ids.map(i => i.toLowerCase()));
-    // Deps of the selection that aren't already enabled and aren't themselves
-    // being enabled — split into already-installed-but-disabled vs not installed.
-    const extraDisabled = new Set<string>();
-    const extraMissing = new Set<string>();
-    for (const id of ids) {
-      const im = game.installed_mods.find(m => m.id === id);
-      for (const dep of modDeps(im)) {
-        const dl = dep.toLowerCase();
-        if (enabledLowerSet.has(dl) || idSetLower.has(dl)) continue;
-        if (installedLowerSet.has(dl)) extraDisabled.add(dep); else extraMissing.add(dep);
-      }
-    }
+    // Transitive deps of the selection, split into already-installed-but-disabled vs
+    // not installed. Deps that are themselves in the selection get enabled by the topo
+    // loop below, so they're excluded here.
+    const { missing, disabled } = collectEnableDeps(ids);
+    const extraMissing = new Set(missing.filter(d => !idSetLower.has(d.toLowerCase())));
+    const extraDisabled = new Set(disabled.filter(d => !idSetLower.has(d.toLowerCase())));
 
     const execute = async () => {
       setBusy(true);
@@ -320,7 +371,7 @@ const InstalledTab: FC<{
       }
       setInstalling(false);
       for (const dep of extraDisabled) {
-        const depMod = game.installed_mods.find(m => m.id.toLowerCase() === dep.toLowerCase());
+        const depMod = modByLowerId.get(dep.toLowerCase());
         if (depMod) await toggleMod(game.appid, depMod.id, true);
       }
       const ordered = topoEnableOrder(ids);
@@ -399,8 +450,8 @@ const InstalledTab: FC<{
       let failed = 0;
       for (let i = 0; i < bulkUninstallTargets.length; i++) {
         const id = bulkUninstallTargets[i];
-        const name = game.installed_mods.find(m => m.id === id)?.meta?.name
-          ?? game.installed_mods.find(m => m.id === id)?.filename ?? id;
+        const m = modByLowerId.get(id.toLowerCase());
+        const name = m?.meta?.name ?? m?.filename ?? id;
         setBulkStep({ action: 'uninstall', current: i + 1, total: bulkUninstallTargets.length, name });
         const ok = await uninstallMod(game.appid, id);
         if (!ok) failed++;
@@ -431,6 +482,14 @@ const InstalledTab: FC<{
     }
   };
 
+  // Stable identities so memo(ModListItem) skips rows whose props didn't change on a
+  // focus move. A ref keeps the toggle handler current without enumerating its many deps
+  // — a wrong useCallback dep list here could act on stale enabled/dependency state.
+  const handleToggleRef = useRef(handleToggleMod);
+  handleToggleRef.current = handleToggleMod;
+  const onItemToggle = useCallback((id: string, enable: boolean) => handleToggleRef.current(id, enable), []);
+  const onItemFocus = useCallback((index: number) => setSelectedIndex(index), []);
+
   return (
     <Focusable style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
       <Focusable
@@ -445,10 +504,10 @@ const InstalledTab: FC<{
             {allEntries.length === 0 ? 'No mods installed' : 'No mods match the current filter'}
           </div>
         ) : modEntries.map((entry, i) => (
-          <ModListItem key={entry.id} entry={entry} selected={i === selectedIndex}
+          <ModListItem key={entry.id} index={i} entry={entry} selected={i === selectedIndex}
             selectionMode={selectionMode} isChecked={selectedIds.has(entry.id)}
-            showThumbnail onToggle={handleToggleMod} onSelectToggle={toggleSelected}
-            onFocus={() => setSelectedIndex(i)} />
+            showThumbnail onToggle={onItemToggle} onSelectToggle={toggleSelected}
+            onFocus={onItemFocus} />
         ))}
       </Focusable>
 
