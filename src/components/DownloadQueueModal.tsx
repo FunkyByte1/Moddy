@@ -66,6 +66,7 @@ const DownloadQueueModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => 
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{j.name}</span>
                     <span style={{ fontSize: '0.85em', color: statusColor(j) }}>{jobStatusText(j)}</span>
+                    {j.warning && <span style={{ fontSize: '0.8em', color: '#f8a623' }}>⚠ {j.warning}</span>}
                     {j.status === 'downloading' && (
                       <div style={{ width: '100%', height: '5px', background: 'var(--gpColorBg)', borderRadius: '3px' }}>
                         <div style={{ width: `${j.percent}%`, height: '100%', background: 'var(--gpSystemLightBlue)', borderRadius: '3px', transition: 'width 0.2s ease' }} />

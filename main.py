@@ -449,7 +449,8 @@ class Plugin:
         # Adult mods are hidden by default; the Browse filter's NSFW toggle opts in per-fetch.
         if include_adult is None:
             include_adult = bool(settings.get_setting("nexus_include_adult", False))
-        return nexus.search(domain, query, page, bool(include_adult))
+        results = nexus.search(domain, query, page, bool(include_adult))
+        return [it for it in results if it.get("full_name", "").lower() not in self._NEXUS_DENYLIST]
 
     async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None,
                                 variant: str | None = None, installed: "list | None" = None):
@@ -512,6 +513,11 @@ class Plugin:
             return True
         seen.add(key)
 
+        # Tools/managers (e.g. Fluffy) are listed as requirements but aren't in-game mods — skip.
+        if key in self._NEXUS_DENYLIST:
+            decky.logger.info(f"Skipping denylisted Nexus mod {key}")
+            return True
+
         # Already installed (and no explicit version pin) — skip, like the Thunderstore cascade.
         if version is None and mods.get_installed_record(key) is not None:
             decky.logger.info(f"{key} already installed; skipping")
@@ -540,8 +546,13 @@ class Plugin:
             res = await self._install_nexus_recursive(game, install_dir, req["domain"], req["mod_id"], None, seen, installed=installed)
             if res == "premium_required":
                 return "premium_required"
-            if res in (False, None):
+            if res is None:
+                return None  # a cancelled requirement cancels the whole install
+            if res is False:
+                # Best-effort: a failed requirement doesn't abort, but we surface it so the user
+                # knows the mod may be incomplete (rather than silently swallowing it in the log).
                 decky.logger.warning(f"Requirement {req_id} did not install (continuing)")
+                await download_queue.note_warning(f"Couldn't install dependency: {req.get('name') or req_id}")
 
         try:
             file_id = nexus.primary_file_id(domain, mod_id)
@@ -680,6 +691,12 @@ class Plugin:
         "ebkr-r2modman",
         "kesomannen-galemodmanager",
         "thunderstore-lovely",  # Balatro injector — installed via the Mod Loader tab, not as a Mods/ plugin
+    }
+
+    # Nexus mods (by `nexus.<domain>.<mod_id>` install id, lowercase) that are tools/managers, not
+    # game content — never install them as a requirement, and hide them from Browse.
+    _NEXUS_DENYLIST = {
+        "nexus.residentevil42023.14",  # Fluffy Mod Manager (desktop app, not an in-game mod)
     }
 
     async def get_browse_denylist(self) -> list[str]:

@@ -73,7 +73,7 @@ const ModPage: FC = () => {
       if (j.status === 'done') {
         handledJobs.current.add(j.job_id);
         needRefresh = true;
-        toaster.toast({ title: 'Moddy', body: `Installed ${j.name}` });
+        toaster.toast({ title: 'Moddy', body: `Installed ${j.name}${j.warning ? ` — ${j.warning}` : ''}` });
       } else if (j.status === 'failed') {
         handledJobs.current.add(j.job_id);
         needRefresh = true; // a partial install may have rolled back — resync the list

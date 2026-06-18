@@ -368,6 +368,7 @@ export interface QueueJob {
   kind: QueueKind;
   status: QueueStatus;
   error: string;
+  warning: string;    // non-fatal note, e.g. a best-effort dependency that didn't install
   percent: number;
   sub_label: string;   // package currently downloading within this job (a dep, or the mod itself)
   items_done: number;  // "N" — packages started in this job's cascade

@@ -90,6 +90,7 @@ function DownloadsSection() {
               </div>
             </div>
             <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em' }}>{jobStatusText(j)}</div>
+            {j.warning && <div style={{ color: '#f8a623', fontSize: '0.75em' }}>⚠ {j.warning}</div>}
             {j.status === 'downloading' && (
               <div style={{ width: '100%', height: '4px', background: 'var(--gpColorBgTertiary)', borderRadius: '2px' }}>
                 <div style={{ width: `${j.percent}%`, height: '100%', background: 'var(--gpSystemLightBlue)', borderRadius: '2px', transition: 'width 0.2s ease' }} />

@@ -42,6 +42,7 @@ class Job:
         self.run = run  # async callable run(job) -> bool | None | dict | str
         self.status = STATUS_QUEUED
         self.error = ""
+        self.warning = ""  # non-fatal note, e.g. a best-effort dependency that didn't install
         self.percent = 0
         self.sub_label = ""  # package currently downloading within this job
         self.items_done = 0  # packages started so far in this job's cascade (1-based "N")
@@ -63,6 +64,7 @@ class Job:
             "kind": self.kind,
             "status": self.status,
             "error": self.error,
+            "warning": self.warning,
             "percent": self.percent,
             "sub_label": self.sub_label,
             "items_done": self.items_done,
@@ -223,6 +225,18 @@ async def note_total(total: int) -> None:
     await _emit_state()
 
 
+async def note_warning(text: str) -> None:
+    """Record a non-fatal note on the active job (e.g. a best-effort dependency that failed),
+    so the UI can surface it instead of it being swallowed in the log."""
+    if _active_id is None:
+        return
+    job = _jobs.get(_active_id)
+    if job is None or not text:
+        return
+    job.warning = f"{job.warning}; {text}" if job.warning else text
+    await _emit_state()
+
+
 async def note_item(name: str) -> None:
     """Advance to the next package in the active job's cascade: name it and bump the counter."""
     if _active_id is None:
@@ -249,6 +263,7 @@ async def _worker() -> None:
             continue
         _active_id = job_id
         job.status = STATUS_DOWNLOADING
+        job.warning = ""  # fresh per run, so a resumed job doesn't accumulate stale notes
         await _emit_state()
         try:
             # Result: None = cancelled mid-download, True = installed, False = failed. A dict with
