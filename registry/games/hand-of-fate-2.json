@@ -1,0 +1,9 @@
+{
+  "id": "hand-of-fate-2",
+  "name": "Hand of Fate 2",
+  "appid": 456670,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": ["steamworkshop"],
+  "library_workshop_ids": []
+}

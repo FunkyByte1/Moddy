@@ -29,6 +29,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 ### Currently Supported:
 
 - Haste
+- Hand of Fate 2
 - Risk of Rain 2
 - PEAK
 - Balatro
