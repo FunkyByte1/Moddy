@@ -370,6 +370,31 @@ def _tracked_present(path: str) -> bool:
     return os.path.exists(path) or (path.endswith(".dll") and os.path.isfile(path + ".disabled"))
 
 
+def mod_files_present(game: GameProfile, install_dir: str, record: dict) -> bool:
+    """Whether a tracked mod's files are physically on disk for this game (enabled or disabled
+    form). A record can outlive its files — uninstalling the BepInEx modloader rmtree's BepInEx/,
+    deleting every plugin while their records remain — so "is it installed?" must check the disk,
+    not just whether a record exists. Mirrors the per-install-type presence checks the installed
+    tab's scan uses; an orphaned record (record present, files gone) returns False so a reinstall
+    actually re-places the files instead of being skipped as a no-op."""
+    source_type = (record.get("source") or {}).get("type")
+    if source_type == "steamworkshop":
+        return True  # Steam-managed subscription — files aren't under install_dir
+    install_type = record.get("install_type") or (record.get("source") or {}).get("install_type") or "file"
+    paths = record.get("paths")
+    if install_type in ("zip_flat", "zip_natives"):
+        return _flat_mod_present(_flat_target_paths(install_dir, paths))
+    if install_type == "zip_dir" or paths:
+        mods_path = resolve_mods_path(game, install_dir)
+        filename = record.get("filename") or ""
+        target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
+        return any(_tracked_present(d) for d in target_dirs)
+    mods_path = resolve_mods_path(game, install_dir)
+    filename = record.get("filename") or ""
+    target = os.path.join(mods_path, filename)
+    return os.path.isfile(target) or os.path.isfile(target + ".bak")
+
+
 def _prune_empty_dirs(install_dir: str, rel_paths: list[str]) -> None:
     """After a mod's tracked files are removed, delete any now-empty parent directories up to
     (not including) the install dir. os.rmdir only removes empty directories, so a folder that

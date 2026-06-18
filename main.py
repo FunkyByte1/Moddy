@@ -518,12 +518,17 @@ class Plugin:
             decky.logger.info(f"Skipping denylisted Nexus mod {key}")
             return True
 
-        # Already installed (and no explicit version pin) — skip, like the Thunderstore cascade.
-        if version is None and mods.get_installed_record(key) is not None:
+        # Already installed (and no version pin) — skip, like the Thunderstore cascade. Requires the
+        # files on disk, not just a record: a modloader uninstall can orphan records whose files are
+        # gone, and a stale record must not make a reinstall a no-op.
+        existing = mods.get_installed_record(key)
+        present = existing is not None and mods.mod_files_present(game, install_dir, existing)
+        if present and version is None:
             decky.logger.info(f"{key} already installed; skipping")
             return True
-        # A fresh install is rollback-eligible; an update of an already-present mod is not.
-        was_fresh = mods.get_installed_record(key) is None
+        # Fresh installs are rollback-eligible; an update of a present mod is not. An orphaned
+        # record (files gone) counts as fresh — the reinstall is re-placing it.
+        was_fresh = not present
 
         info = nexus.get_mod(domain, mod_id)
         if not info:
@@ -742,7 +747,7 @@ class Plugin:
         # Size the cascade up front (mod + deps that aren't already installed) so the UI can show
         # "N of M". Cheap — resolves against the in-memory catalog, no downloads.
         plan: list[str] = []
-        self._resolve_thunderstore_plan(game, full_name, version, with_deps, set(), plan, [])
+        self._resolve_thunderstore_plan(game, full_name, version, with_deps, set(), plan, [], install_dir)
         await download_queue.note_total(len(plan))
         # Atomic cancel: track the packages this run freshly installs so a cancel mid-cascade can
         # undo them, leaving the system as if the install never started. Updates of already-present
@@ -760,7 +765,7 @@ class Plugin:
 
     def _resolve_thunderstore_plan(
         self, game: "registry.GameProfile", full_name: str, version: str | None,
-        with_deps: bool, seen: set, plan: list, unresolved: list,
+        with_deps: bool, seen: set, plan: list, unresolved: list, install_dir: str | None = None,
     ) -> None:
         """Walk the dependency tree, mirroring _install_thunderstore_recursive's skip logic, into:
         `plan` — depth-first packages an install will actually download (used to size "N of M"); and
@@ -775,7 +780,11 @@ class Plugin:
                 if k.lower() == key:
                     existing = mods.get_installed_record(k)
                     break
-        if existing and version is None:
+        # Mirror the install skip: a mod only counts as installed (and drops out of the plan) when
+        # its files are actually present. When install_dir is given (the size pre-pass), check the
+        # disk so an orphaned record is still counted; without it (unresolved-deps probe) the
+        # record alone is enough.
+        if existing and version is None and (install_dir is None or mods.mod_files_present(game, install_dir, existing)):
             return
         pkg = thunderstore.find_package(game.thunderstore_community, full_name)
         if not pkg:
@@ -788,7 +797,7 @@ class Plugin:
                 if parsed:
                     explicit.append(parsed[0])
             for dep_full_name in list(game.implicit_deps) + explicit:
-                self._resolve_thunderstore_plan(game, dep_full_name, None, True, seen, plan, unresolved)
+                self._resolve_thunderstore_plan(game, dep_full_name, None, True, seen, plan, unresolved, install_dir)
         plan.append(full_name)
 
     async def _rollback_installs(self, game: "registry.GameProfile", install_dir: str, ids: list) -> None:
@@ -831,12 +840,17 @@ class Plugin:
                 if k.lower() == key:
                     existing = mods.get_installed_record(k)
                     break
-        if existing and version is None:
+        # "Already installed" must mean the files are actually on disk, not merely that a record
+        # exists: uninstalling the BepInEx modloader rmtree's BepInEx/, deleting plugins while
+        # their records remain, and a stale record must not turn a reinstall into a silent no-op.
+        present = existing is not None and mods.mod_files_present(game, install_dir, existing)
+        if present and version is None:
             decky.logger.info(f"{full_name} already installed; skipping")
             return True
-        # A fresh install is rollback-eligible; an update of an already-present mod is not (a
-        # cancelled download leaves the prior version in place, so there's nothing to undo).
-        was_fresh = existing is None
+        # A fresh install is rollback-eligible; an update of a present mod is not (a cancelled
+        # download leaves the prior version in place, so there's nothing to undo). An orphaned
+        # record whose files are gone counts as fresh — the reinstall is re-placing it.
+        was_fresh = not present
         pkg = thunderstore.find_package(game.thunderstore_community, full_name)
         if not pkg:
             # A dependency we can't find: skip it under "install anyway", else fail the cascade.
