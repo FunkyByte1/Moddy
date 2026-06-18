@@ -789,26 +789,61 @@ async def _install_mod_zip_dir(game: GameProfile, install_dir: str, mods_path: s
             os.remove(tmp_zip)
 
 
+def _merge_zip_into_tree(install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str, select) -> bool:
+    """Merge selected zip members into the live install_dir tree atomically.
+
+    `select(member)` maps a zip member to its install-dir-relative destination, or returns None to
+    skip it (metadata, unwanted top-level entries). Members are first extracted to a staging dir
+    OUTSIDE the live tree, then committed in one _StagedInstall transaction — so the game dir is
+    never touched until the whole payload is on disk, and any failure (bad zip, disk full) rolls
+    back to the prior state instead of leaving a half-merged mod the manager can't even see.
+
+    Each placed file is tracked individually as `paths` (not the 2nd-level dir): mods that dump
+    into shared folders like BepInEx/plugins/Language would otherwise "own" them, and uninstall
+    would delete a co-located mod's files. Uninstall prunes the now-empty dirs. See
+    docs/known-issues.md.
+    """
+    import zipfile, shutil
+    staging = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_merge_staging")
+    if os.path.exists(staging):
+        shutil.rmtree(staging)
+    placements: list[tuple[str, str]] = []  # (staged absolute path, install-dir-relative dest)
+    try:
+        with zipfile.ZipFile(tmp_zip, "r") as z:
+            for member in z.namelist():
+                if member.endswith("/"):
+                    continue
+                rel = select(member)
+                if rel is None:
+                    continue
+                staged_abs = os.path.join(staging, rel)
+                os.makedirs(os.path.dirname(staged_abs), exist_ok=True)
+                with z.open(member) as src, open(staged_abs, "wb") as out:
+                    shutil.copyfileobj(src, out)
+                placements.append((staged_abs, rel))
+
+        with _StagedInstall(install_dir) as txn:
+            for staged_abs, rel in placements:
+                txn.place(staged_abs, rel)
+
+        set_installed_record(mod.id, version or "latest", mod.filename,
+                             paths=sorted(rel for _src, rel in placements), mod=mod)
+        decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — merged into BepInEx tree")
+        return True
+    finally:
+        if os.path.exists(staging):
+            shutil.rmtree(staging)
+
+
 def _extract_to_game_root(install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
     """Extract only the BepInEx/* members of the zip into the game's install dir.
-    Records which 2nd-level dirs under BepInEx/ this mod owns, so uninstall can clean up.
-    Other top-level zip entries (manifest.json, icon.png, README.md) are skipped to keep the
-    game root clean.
+    Records which files under BepInEx/ this mod owns, so uninstall can clean up. Other top-level
+    zip entries (manifest.json, icon.png, README.md) are skipped to keep the game root clean.
     """
-    import zipfile
-    extracted_files = []
-    with zipfile.ZipFile(tmp_zip, "r") as z:
-        for member in z.namelist():
-            if not member.startswith("BepInEx/") or member.endswith("/"):
-                continue
-            z.extract(member, install_dir)
-            extracted_files.append(member)  # install-dir-relative path
-    # Track each file individually (not the 2nd-level dir): mods that dump into shared folders
-    # like BepInEx/plugins/Language would otherwise "own" them, and uninstall would delete a
-    # co-located mod's files. Uninstall prunes the now-empty dirs. See docs/known-issues.md.
-    set_installed_record(mod.id, version or "latest", mod.filename, paths=sorted(extracted_files), mod=mod)
-    decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — merged into BepInEx tree")
-    return True
+    return _merge_zip_into_tree(
+        install_dir, mod, version, tmp_zip,
+        select=lambda m: m if m.startswith("BepInEx/") else None,
+    )
 
 
 def _extract_bepinex_subdirs(install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str, subdirs: set) -> bool:
@@ -817,22 +852,10 @@ def _extract_bepinex_subdirs(install_dir: str, mod: ModInfo, version: str | None
     tree so files land at e.g. BepInEx/plugins/<modname>/<dll>. Stray top-level files
     (manifest.json, icon.png, README.md) are skipped to keep BepInEx clean.
     """
-    import zipfile
-    bepinex_root = os.path.join(install_dir, "BepInEx")
-    extracted_files = []
-    with zipfile.ZipFile(tmp_zip, "r") as z:
-        for member in z.namelist():
-            parts = member.split("/")
-            if not parts or parts[0] not in subdirs or member.endswith("/"):
-                continue
-            z.extract(member, bepinex_root)
-            extracted_files.append(f"BepInEx/{member}")  # install-dir-relative path
-    # Track each file individually (not the 2nd-level dir): mods that dump into shared folders
-    # like BepInEx/plugins/Language would otherwise "own" them, and uninstall would delete a
-    # co-located mod's files. Uninstall prunes the now-empty dirs. See docs/known-issues.md.
-    set_installed_record(mod.id, version or "latest", mod.filename, paths=sorted(extracted_files), mod=mod)
-    decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — merged into BepInEx tree")
-    return True
+    return _merge_zip_into_tree(
+        install_dir, mod, version, tmp_zip,
+        select=lambda m: f"BepInEx/{m}" if m.split("/")[0] in subdirs else None,
+    )
 
 
 _THUNDERSTORE_METADATA_FILES = {"manifest.json", "icon.png", "readme.md", "changelog.md", "license", "license.md", "license.txt"}
