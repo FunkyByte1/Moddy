@@ -30,3 +30,6 @@ from _harness import mods, utils, registry, make_mod, make_game, build_zip, rese
 - `test_merge_atomicity.py` — the zip_dir BepInEx merge installers roll back cleanly on failure.
 - `test_flat_atomicity.py` — the zip_flat (MelonLoader) installer: failed/mid-commit upgrades
   restore the prior install (incl. retired directories); successful upgrades fully replace it.
+- `test_toggle_characterization.py` — locks the on-disk effect of enable/disable for each install
+  shape. Toggle is rename-only (no record write) so it isn't part of the staging work, but it's
+  core behavior worth pinning while mods.py is under refactor.
