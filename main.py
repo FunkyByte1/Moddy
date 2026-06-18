@@ -1103,6 +1103,17 @@ class Plugin:
 
     async def _main(self):
         decky.logger.info("Decky Mod Manager loaded")
+        # Startup-only crumb sweep: resolve any install artifacts a hard crash stranded mid-commit
+        # (restore set-aside backups whose file is gone, drop stale ones and scratch). Safe here
+        # because nothing is installing yet; never run while a job is in flight.
+        try:
+            mods.sweep_runtime_scratch()
+            for game in registry.SUPPORTED_GAMES:
+                install_dir = steam.find_game_install_dir(game.appid)
+                if install_dir:
+                    mods.sweep_install_crumbs(game, install_dir)
+        except Exception as e:
+            decky.logger.warning(f"Install-crumb sweep failed: {e}")
 
     async def _unload(self):
         download_queue.shutdown()

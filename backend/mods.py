@@ -430,6 +430,79 @@ def mods_under_modloader(game: GameProfile, install_dir: str, removed_dirs: list
     return out
 
 
+# In-flight install artifacts a hard crash (reboot/power-loss/kill-9) can strand mid-commit. In
+# normal operation the transaction and finally blocks always clean these up; the startup sweep
+# below handles the crash case. Run ONLY at startup, when no install is in flight — a live install
+# legitimately holds .moddy-bak files mid-commit, and sweeping then would corrupt it.
+_RUNTIME_SCRATCH_SUFFIXES = ("_staging", "_extract", "_tmp.zip", "_tmp.archive")
+_MODDY_NEW_SUFFIX = ".moddy-new"
+_MODDY_OLD_SUFFIX = ".moddy-old"
+
+
+def sweep_runtime_scratch() -> None:
+    """Delete extraction/download scratch left in the plugin runtime dir by a crash mid-install.
+    Pure scratch — always safe to remove, and it reclaims disk (extracted archives can be large)."""
+    runtime = decky.DECKY_PLUGIN_RUNTIME_DIR
+    try:
+        entries = os.listdir(runtime)
+    except OSError:
+        return
+    for name in entries:
+        if name.endswith(_RUNTIME_SCRATCH_SUFFIXES):
+            _discard(os.path.join(runtime, name))
+
+
+def _restore_or_discard(d: str, name: str, suffix: str, present: set) -> None:
+    """For a set-aside backup `name` (ending in `suffix`) in dir `d`: if its primary is on disk the
+    commit moved past it and the backup is stale → discard; if the primary is missing the crash
+    left it only in the backup → restore (rename back)."""
+    primary = name[: -len(suffix)]
+    full = os.path.join(d, name)
+    if primary in present:
+        _discard(full)
+    else:
+        try:
+            os.replace(full, os.path.join(d, primary))
+        except OSError:
+            pass
+
+
+def _sweep_crumbs_in_dir(d: str) -> None:
+    """Resolve transaction crumbs sitting directly in `d` (non-recursive). .moddy-bak/.moddy-old
+    are restored if their primary is gone, else discarded; .moddy-new is discardable staging."""
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return
+    present = set(names)
+    for name in names:
+        if name.endswith(_STAGED_BAK_SUFFIX):
+            _restore_or_discard(d, name, _STAGED_BAK_SUFFIX, present)
+        elif name.endswith(_MODDY_OLD_SUFFIX):
+            _restore_or_discard(d, name, _MODDY_OLD_SUFFIX, present)
+        elif name.endswith(_MODDY_NEW_SUFFIX):
+            _discard(os.path.join(d, name))
+
+
+def sweep_install_crumbs(game: GameProfile, install_dir: str) -> None:
+    """Resolve in-flight install crumbs left in a game's mod directories by a crash mid-commit.
+    Scoped to the bounded set of dirs Moddy writes to — the install-dir top level, mods_path, and
+    each tracked record's path dirs — never a recursive walk of the whole game dir. Safe only at
+    startup, when no install is in flight."""
+    dirs = {install_dir}
+    try:
+        dirs.add(resolve_mods_path(game, install_dir))
+    except Exception:
+        pass
+    for rec in (_load_store() or {}).values():
+        for rel in _record_target_relpaths(game, install_dir, rec):
+            parent = os.path.dirname(os.path.join(install_dir, rel))
+            if parent:
+                dirs.add(parent)
+    for d in dirs:
+        _sweep_crumbs_in_dir(d)
+
+
 def _prune_empty_dirs(install_dir: str, rel_paths: list[str]) -> None:
     """After a mod's tracked files are removed, delete any now-empty parent directories up to
     (not including) the install dir. os.rmdir only removes empty directories, so a folder that

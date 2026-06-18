@@ -43,6 +43,10 @@ from _harness import mods, utils, registry, make_mod, make_game, build_zip, rese
   merges (preserving the user's BepInEx/plugins/), a MelonLoader update cleanly replaces its own
   dir while leaving Mods/ untouched, and both roll back on a failed update.
 
+- `test_crumb_sweep.py` — the startup crumb sweep: restores a set-aside backup whose primary file
+  is gone, discards stale backups, drops `.moddy-new` staging, and clears runtime scratch. Models
+  the artifacts a hard crash mid-commit can strand.
+
 The atomic file-placement primitive (`_StagedInstall`, `_discard`) lives in `backend/install_txn.py`
 and is shared by both `mods.py` and `modloaders.py`; `mods._StagedInstall` re-exports it.
 - `test_toggle_characterization.py` — locks the on-disk effect of enable/disable for each install
