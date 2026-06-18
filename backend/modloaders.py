@@ -6,6 +6,7 @@ import decky
 import github
 import thunderstore
 import utils
+from install_txn import _StagedInstall
 from registry import GameProfile, ModloaderInfo
 
 # Version store — stored inside installed.json under "modloaders" key
@@ -198,22 +199,6 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
         return False
 
 
-def _rollback(install_dir: str, backed_up: dict) -> None:
-    try:
-        for original, bak in backed_up.items():
-            if os.path.isfile(bak):
-                if os.path.isfile(original):
-                    os.remove(original)
-                shutil.copy2(bak, original)
-                os.remove(bak)
-            elif os.path.isdir(bak):
-                if os.path.isdir(original):
-                    shutil.rmtree(original)
-                shutil.move(bak, original)
-    except Exception as e:
-        decky.logger.error(f"Rollback failed: {e}")
-
-
 async def install_modloader(game: GameProfile, install_dir: str, modloader_id: str, version: str | None = None) -> bool:
     """Install a modloader for a game. Returns True on success."""
     ml = game.get_modloader(modloader_id)
@@ -312,15 +297,15 @@ async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, m
                     inner_path = root
                     break
 
-        for item in os.listdir(inner_path):
-            src = os.path.join(inner_path, item)
-            dst = os.path.join(install_dir, item)
-            if os.path.isdir(src):
-                if os.path.isdir(dst):
-                    shutil.rmtree(dst)
-                shutil.copytree(src, dst)
-            else:
-                shutil.copy2(src, dst)
+        # Place every file under inner_path into the game dir in one transaction. This MERGES rather
+        # than replacing whole dirs, so updating BepInEx overwrites only its own files and leaves a
+        # user's BepInEx/plugins/ intact (the old rmtree+copytree wiped them). Any failure rolls the
+        # game dir back to its prior state.
+        with _StagedInstall(install_dir) as txn:
+            for root, _dirs, files in os.walk(inner_path):
+                for fn in files:
+                    full = os.path.join(root, fn)
+                    txn.place(full, os.path.relpath(full, inner_path))
 
         set_modloader_version(ml.id, resolved_version)
         decky.logger.info(f"{ml.name} {resolved_version} installed successfully")
@@ -356,7 +341,6 @@ async def _install_github_modloader(game: GameProfile, install_dir: str, ml: Mod
 
     tmp_zip = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_tmp.zip")
     tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_extract")
-    backed_up = {}
 
     try:
         decky.logger.info(f"Downloading {ml.name} {resolved_version} from {url}")
@@ -377,53 +361,31 @@ async def _install_github_modloader(game: GameProfile, install_dir: str, ml: Mod
             if not os.path.isdir(os.path.join(tmp_dir, d)):
                 raise Exception(f"Expected directory missing from zip: {d}")
 
-        # Back up existing files
-        for f in ml.files:
-            dst = os.path.join(install_dir, f)
-            if os.path.isfile(dst):
-                bak = dst + ".deckhand_bak"
-                shutil.copy2(dst, bak)
-                backed_up[dst] = bak
-        for d in ml.dirs:
-            dst = os.path.join(install_dir, d)
-            if os.path.isdir(dst):
-                bak = dst + ".deckhand_bak"
-                shutil.copytree(dst, bak)
-                backed_up[dst] = bak
-
-        # Move into game directory
-        for f in ml.files:
-            src = os.path.join(tmp_dir, f)
-            dst = os.path.join(install_dir, f)
-            if os.path.isfile(dst):
-                os.remove(dst)
-            shutil.move(src, dst)
-        for d in ml.dirs:
-            src = os.path.join(tmp_dir, d)
-            dst = os.path.join(install_dir, d)
-            if os.path.isdir(dst):
-                shutil.rmtree(dst)
-            shutil.move(src, dst)
+        # Place the loader's files and dirs into the game dir in one transaction. Its dirs (e.g.
+        # MelonLoader/) are loader-owned, so retire them first for a clean replacement (no stale
+        # files from an old version); a failure rolls the game dir back to its prior state. This
+        # replaces the old bespoke .deckhand_bak backup/rollback dance.
+        with _StagedInstall(install_dir) as txn:
+            for d in ml.dirs:
+                txn.retire(d)
+            for f in ml.files:
+                txn.place(os.path.join(tmp_dir, f), f)
+            for d in ml.dirs:
+                dsrc = os.path.join(tmp_dir, d)
+                for root, _dirs, files in os.walk(dsrc):
+                    for fn in files:
+                        full = os.path.join(root, fn)
+                        txn.place(full, os.path.relpath(full, tmp_dir))
 
         set_modloader_version(ml.id, resolved_version)
-
-        # Clean up backups on success
-        for bak in backed_up.values():
-            if os.path.isfile(bak):
-                os.remove(bak)
-            elif os.path.isdir(bak):
-                shutil.rmtree(bak)
-
         decky.logger.info(f"{ml.name} {resolved_version} installed successfully")
         return True
 
     except utils.InstallCancelledError:
         decky.logger.info(f"{ml.name} installation was cancelled")
-        _rollback(install_dir, backed_up)
         return False
     except Exception as e:
         decky.logger.error(f"{ml.name} installation failed: {e}")
-        _rollback(install_dir, backed_up)
         return False
     finally:
         if os.path.exists(tmp_zip):
