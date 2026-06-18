@@ -1193,15 +1193,10 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
     tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_tmp.archive")
     tmp_extract = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_extract")
 
-    # Clear a previous install's tracked files (active or disabled) so an upgrade leaves no orphans.
+    # Previous install's tracked files (active or disabled). Retired inside the commit transaction
+    # below — NOT here — so a dead download, or a parked-then-cancelled variant pick, can't destroy
+    # the old install before the new one is ready.
     old_paths = (_load_store().get(mod.id) or {}).get("paths") or []
-    for p in _flat_target_paths(install_dir, old_paths):
-        for cand in (p, p + ".disabled"):
-            try:
-                if os.path.isfile(cand):
-                    os.remove(cand)
-            except Exception:
-                pass
 
     # When the queue parks this install to ask which variant to use, we keep the extracted archive
     # so the resume can install the choice without downloading again. `park` tells the finally not
@@ -1233,9 +1228,11 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
         else:
             search_root = tmp_extract
 
-        paths: list[str] = []
-
-        # 1. Loose-file payload: merge the shallowest natives/ tree into the game root.
+        # Build the placement plan from the staging tree — read-only, the live game dir is untouched
+        # until the commit transaction below.
+        # 1. Loose-file payload: the shallowest natives/ tree, merged into the game root (lowercased,
+        #    since RE4 requests lowercase paths and the Deck FS is case-sensitive).
+        natives_placements: list[tuple[str, str]] = []  # (staged src, install-dir-relative dest)
         natives_dirs = []
         for root, dirs, _files in os.walk(search_root):
             for d in dirs:
@@ -1248,14 +1245,9 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
             for root, _dirs, files in os.walk(nat):
                 for fn in files:
                     full = os.path.join(root, fn)
-                    rel = os.path.relpath(full, base).lower()  # "natives/...", lowercased
-                    dst = os.path.join(install_dir, rel)
-                    os.makedirs(os.path.dirname(dst), exist_ok=True)
-                    shutil.copy2(full, dst)
-                    paths.append(rel)
+                    natives_placements.append((full, os.path.relpath(full, base).lower()))
 
-        # 2. .pak content mods: slot each above the highest existing patch. Skip any .pak that
-        #    lives inside a natives/ tree (those are game assets, already copied above).
+        # 2. .pak content mods. Skip any .pak inside a natives/ tree (those are assets, copied above).
         pak_srcs = []
         for root, _dirs, files in os.walk(search_root):
             if (os.sep + "natives" + os.sep) in (root + os.sep).lower():
@@ -1263,14 +1255,27 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
             for fn in files:
                 if fn.lower().endswith(".pak"):
                     pak_srcs.append(os.path.join(root, fn))
-        for src in sorted(pak_srcs):
-            rel = f"re_chunk_000.pak.patch_{_next_pak_slot(install_dir):03d}.pak"
-            shutil.copy2(src, os.path.join(install_dir, rel))
-            paths.append(rel)
+        pak_srcs.sort()
 
-        if not paths:
+        if not natives_placements and not pak_srcs:
             decky.logger.error(f"{mod.name}: archive has no natives/ folder or .pak file — nothing to install")
             return False
+
+        # Commit: retire the previous install and place the new payload all-or-nothing. Pak slots are
+        # assigned HERE, not during prepare, so each reads the live dir as paks land — and a retired
+        # old pak (renamed to *.moddy-bak) drops out of the slot scan, so an upgrade reclaims its slot
+        # instead of stacking a new number on top.
+        paths: list[str] = []
+        with _StagedInstall(install_dir) as txn:
+            for p in old_paths:
+                txn.retire(p)
+            for full, rel in natives_placements:
+                txn.place(full, rel)
+                paths.append(rel)
+            for src in pak_srcs:
+                rel = f"re_chunk_000.pak.patch_{_next_pak_slot(install_dir):03d}.pak"
+                txn.place(src, rel)
+                paths.append(rel)
 
         paths.sort()
         set_installed_record(mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
