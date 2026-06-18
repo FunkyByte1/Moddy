@@ -718,6 +718,7 @@ class Plugin:
     _BROWSE_DENYLIST = {
         "bbepis-bepinexpack",
         "riskofthunder-bepinexpack",
+        "bepinex-bepinexpack_peak",  # PEAK modloader — installed via the Mod Loader tab, not as a plugin
         "ebkr-r2modman",
         "kesomannen-galemodmanager",
         "thunderstore-lovely",  # Balatro injector — installed via the Mod Loader tab, not as a Mods/ plugin

@@ -407,9 +407,13 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     // backend cascades them on install, so this modal is a confirmation gate (like the
     // Installed tab's enable-deps prompt), not a separate install path. (BMI items carry no
     // deps, so this is effectively a no-op gate for them and they install directly.)
+    // Drop denylisted packages (modloaders / mod-manager apps): a mod's declared dependency on
+    // e.g. BepInExPack is satisfied by the Mod Loader tab, not by installing it as a plugin — so
+    // it must never appear in the install-deps prompt (matching the Browse panel's dep list).
     const missingDeps = pkg.latest.dependencies
       .map(d => d.split('-').slice(0, -1).join('-'))
-      .filter(id => id && !installedIds.has(id.toLowerCase()) && !pendingDepIds.has(id.toLowerCase()));
+      .filter(id => id && !denylist.has(id.toLowerCase())
+        && !installedIds.has(id.toLowerCase()) && !pendingDepIds.has(id.toLowerCase()));
 
     if (missingDeps.length > 0) {
       const depNames = missingDeps.map(id =>

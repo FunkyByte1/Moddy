@@ -1,0 +1,9 @@
+{
+  "id": "peak",
+  "name": "PEAK",
+  "appid": 3527290,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "peak",
+  "modloader_ids": ["bepinex-peak"]
+}

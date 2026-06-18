@@ -30,6 +30,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 
 - Haste
 - Risk of Rain 2
+- PEAK
 - Balatro
 - Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 - Slime Rancher 2 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
