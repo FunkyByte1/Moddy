@@ -27,6 +27,11 @@ import NexusFilterModal, { NexusFilter, defaultNexusFilter } from './components/
 // page unmounts/remounts (job ids are monotonic, never reused). Prevents duplicate stacked pickers.
 const autoPromptedVariants = new Set<number>();
 
+// Likewise module-level: a job's outcome toast fires once per job, ever. Finished jobs linger in
+// the shared queue until cleared, so a mount-local set would re-toast every "Installed …" each
+// time Configure Mods is reopened. Job ids are monotonic and never reused.
+const handledJobs = new Set<number>();
+
 const ModPage: FC = () => {
   const appid = parseInt(window.location.pathname.split('/').pop() ?? '0');
   const [game, setGame] = useState<GameStatus | null>(null);
@@ -56,7 +61,6 @@ const ModPage: FC = () => {
   // installed list on success and toasting the outcome (the work the old inline install path
   // used to do right after its await).
   const queue = useDownloadQueue();
-  const handledJobs = useRef<Set<number>>(new Set());
   useEffect(() => {
     let needRefresh = false;
     for (const j of queue) {
@@ -69,18 +73,18 @@ const ModPage: FC = () => {
         refresh();
         continue;
       }
-      if (handledJobs.current.has(j.job_id)) continue;
+      if (handledJobs.has(j.job_id)) continue;
       if (j.status === 'done') {
-        handledJobs.current.add(j.job_id);
+        handledJobs.add(j.job_id);
         needRefresh = true;
         toaster.toast({ title: 'Moddy', body: `Installed ${j.name}${j.warning ? ` — ${j.warning}` : ''}` });
       } else if (j.status === 'failed') {
-        handledJobs.current.add(j.job_id);
+        handledJobs.add(j.job_id);
         needRefresh = true; // a partial install may have rolled back — resync the list
         const detail = j.error && j.error !== 'Install failed' ? ` — ${j.error}` : '';
         toaster.toast({ title: 'Moddy', body: `Failed to install ${j.name}${detail}` });
       } else if (j.status === 'cancelled') {
-        handledJobs.current.add(j.job_id);
+        handledJobs.add(j.job_id);
         needRefresh = true; // cancel rolls back what it installed — resync the list
       }
     }
