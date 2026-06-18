@@ -719,6 +719,44 @@ class _StagedInstall:
                 decky.logger.warning(f"staged-install rollback: could not restore {orig}: {e}")
 
 
+def _backup_version_dir(dst_dir: str, mod_id: str) -> None:
+    """Copy the currently-installed folder to <dir>.v<old>.bak for the version-history feature,
+    when a versioned install is present. Best-effort and independent of atomicity — it preserves a
+    snapshot of the version being replaced (see get_backed_up_versions / delete_mod_version)."""
+    import shutil
+    if not os.path.isdir(dst_dir):
+        return
+    old_version = get_installed_version(mod_id)
+    if old_version and old_version != "latest":
+        bak = dst_dir + f".v{old_version}.bak"
+        if os.path.exists(bak):
+            _discard(bak)
+        shutil.copytree(dst_dir, bak)
+
+
+def _atomic_dir_swap(dst_dir: str, staged_dir: str) -> None:
+    """Replace dst_dir with the fully-built staged_dir as atomically as the filesystem allows, for
+    a mod that wholly owns its folder. The existing dst_dir is renamed aside first and restored if
+    the move fails, so dst_dir is never left missing or half-populated. staged_dir must be on the
+    same filesystem as dst_dir (a sibling), so the move is a rename rather than a copy."""
+    import shutil
+    os.makedirs(os.path.dirname(dst_dir), exist_ok=True)
+    aside = dst_dir + ".moddy-old"
+    if os.path.lexists(aside):
+        _discard(aside)  # stale crumb from an earlier crashed run
+    had_old = os.path.lexists(dst_dir)
+    if had_old:
+        os.rename(dst_dir, aside)
+    try:
+        shutil.move(staged_dir, dst_dir)
+    except Exception:
+        if had_old and not os.path.lexists(dst_dir):
+            os.rename(aside, dst_dir)  # put the old install back
+        raise
+    if had_old:
+        _discard(aside)
+
+
 async def _install_mod_file(game: GameProfile, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
     """Install a single-file mod (DLL), backing up the previous version."""
     dst = os.path.join(mods_path, mod.filename)
@@ -877,33 +915,33 @@ def _extract_bare_dll(mods_path: str, mod: ModInfo, version: str | None, tmp_zip
     (plus possibly sidecar asset folders) extracted into BepInEx/plugins/<mod.filename>/.
     Thunderstore metadata files (manifest.json, icon.png, README.md, CHANGELOG.md, LICENSE)
     are skipped to keep the plugin folder clean."""
-    import zipfile, shutil
+    import zipfile
     dst_dir = os.path.join(mods_path, mod.filename)
+    staged = dst_dir + ".moddy-new"  # sibling: same filesystem, so the swap is a rename
+    if os.path.exists(staged):
+        _discard(staged)
+    try:
+        os.makedirs(staged)
+        extracted = 0
+        with zipfile.ZipFile(tmp_zip, "r") as z:
+            for member in z.namelist():
+                if member.endswith("/"):
+                    continue
+                parts = member.split("/")
+                # Skip Thunderstore metadata at the zip root
+                if len(parts) == 1 and parts[0].lower() in _THUNDERSTORE_METADATA_FILES:
+                    continue
+                z.extract(member, staged)
+                extracted += 1
 
-    if os.path.isdir(dst_dir):
-        old_version = get_installed_version(mod.id)
-        if old_version and old_version != "latest":
-            bak = dst_dir + f".v{old_version}.bak"
-            shutil.copytree(dst_dir, bak)
-        shutil.rmtree(dst_dir)
-    os.makedirs(dst_dir)
-
-    extracted = 0
-    with zipfile.ZipFile(tmp_zip, "r") as z:
-        for member in z.namelist():
-            if member.endswith("/"):
-                continue
-            parts = member.split("/")
-            top = parts[0]
-            # Skip Thunderstore metadata at the zip root
-            if len(parts) == 1 and top.lower() in _THUNDERSTORE_METADATA_FILES:
-                continue
-            z.extract(member, dst_dir)
-            extracted += 1
-
-    set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
-    decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {extracted} files in bare-DLL layout")
-    return True
+        _backup_version_dir(dst_dir, mod.id)  # version-history snapshot of the install being replaced
+        _atomic_dir_swap(dst_dir, staged)
+        set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
+        decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {extracted} files in bare-DLL layout")
+        return True
+    finally:
+        if os.path.exists(staged):
+            _discard(staged)
 
 
 def _extract_to_mods_folder(mods_path: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
@@ -912,30 +950,31 @@ def _extract_to_mods_folder(mods_path: str, mod: ModInfo, version: str | None, t
     """
     import zipfile, shutil
     dst_dir = os.path.join(mods_path, mod.filename)
+    staged = dst_dir + ".moddy-new"      # sibling: same filesystem, so the swap is a rename
+    tmp_extract = dst_dir + "_extract"   # scratch for stripping a single wrapper folder
+    for p in (staged, tmp_extract):
+        if os.path.exists(p):
+            _discard(p)
+    try:
+        with zipfile.ZipFile(tmp_zip, "r") as z:
+            members = z.namelist()
+            top_dirs = {m.split("/")[0] for m in members if m.split("/")[0]}
+            if len(top_dirs) == 1:
+                z.extractall(tmp_extract)
+                shutil.move(os.path.join(tmp_extract, next(iter(top_dirs))), staged)
+            else:
+                os.makedirs(staged)
+                z.extractall(staged)
 
-    if os.path.isdir(dst_dir):
-        old_version = get_installed_version(mod.id)
-        if old_version and old_version != "latest":
-            bak = dst_dir + f".v{old_version}.bak"
-            shutil.copytree(dst_dir, bak)
-        shutil.rmtree(dst_dir)
-
-    with zipfile.ZipFile(tmp_zip, "r") as z:
-        members = z.namelist()
-        top_dirs = {m.split("/")[0] for m in members if m.split("/")[0]}
-        if len(top_dirs) == 1:
-            tmp_extract = dst_dir + "_extract"
-            z.extractall(tmp_extract)
-            extracted = os.path.join(tmp_extract, next(iter(top_dirs)))
-            shutil.move(extracted, dst_dir)
-            shutil.rmtree(tmp_extract)
-        else:
-            os.makedirs(dst_dir)
-            z.extractall(dst_dir)
-
-    set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
-    decky.logger.info(f"Installed {mod.name} ({version or 'latest'})")
-    return True
+        _backup_version_dir(dst_dir, mod.id)  # version-history snapshot of the install being replaced
+        _atomic_dir_swap(dst_dir, staged)
+        set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
+        decky.logger.info(f"Installed {mod.name} ({version or 'latest'})")
+        return True
+    finally:
+        for p in (staged, tmp_extract):
+            if os.path.exists(p):
+                _discard(p)
 
 
 def _flat_target_paths(install_dir: str, paths: list[str] | None) -> list[str]:

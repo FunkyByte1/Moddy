@@ -33,6 +33,9 @@ from _harness import mods, utils, registry, make_mod, make_game, build_zip, rese
 - `test_natives_atomicity.py` — the zip_natives (RE4) installer: natives-path lowercasing, pak
   slotting above the base game, mid-commit rollback, slot reclaim on upgrade, variant parking that
   leaves the old install intact, and variant resume committing the chosen payload.
+- `test_dirswap_atomicity.py` — the Shape-A folder-owning installers (bare_dll / to_mods_folder):
+  atomic directory swap, failed extraction leaves the prior version intact, version-history
+  backup preserved, single-wrapper and multi-dir layouts.
 - `test_toggle_characterization.py` — locks the on-disk effect of enable/disable for each install
   shape. Toggle is rename-only (no record write) so it isn't part of the staging work, but it's
   core behavior worth pinning while mods.py is under refactor.
