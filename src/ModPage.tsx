@@ -61,11 +61,12 @@ const ModPage: FC = () => {
     let needRefresh = false;
     for (const j of queue) {
       if (j.appid !== appid) continue;
-      // A job parked on a variant choice: pop the picker once. (Re-pickable from the queue modal
-      // or the Quick Access panel afterwards.)
+      // A job parked on a variant choice: pop the picker once (re-pickable from the queue modal /
+      // QAM afterwards), and refresh so any dependencies installed on the first pass show now.
       if (j.status === 'needs_input' && !autoPromptedVariants.has(j.job_id)) {
         autoPromptedVariants.add(j.job_id);
         promptVariant(j);
+        refresh();
         continue;
       }
       if (handledJobs.current.has(j.job_id)) continue;

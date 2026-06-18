@@ -475,11 +475,10 @@ class Plugin:
         domain, mod_id = parsed
         if installed is None:
             installed = []
-        # Size the cascade for "N of M" (best-effort — Nexus resolution makes API calls, but the
-        # requirement tree is shallow and get_mod is cached).
-        plan: list[str] = []
-        self._resolve_nexus_plan(domain, mod_id, version, set(), plan)
-        await download_queue.note_total(len(plan))
+        # No "N of M" pre-pass for Nexus: unlike Thunderstore's in-memory catalog, requirement
+        # resolution is an uncached GraphQL call, so a pre-pass would double those calls — and a
+        # rate-limited second call (the one that actually drives the cascade) could return nothing,
+        # silently skipping requirements. The per-package sub-label + percent still show.
         res = await self._install_nexus_recursive(
             game, install_dir, domain, mod_id, version, seen=set(), variant=variant, top=True,
             installed=installed,
@@ -490,24 +489,6 @@ class Plugin:
         if (res is None or res is False) and installed:
             await self._rollback_installs(game, install_dir, installed)
         return res
-
-    def _resolve_nexus_plan(
-        self, domain: str, mod_id: str, version: str | None, seen: set, plan: list,
-    ) -> None:
-        """Depth-first count of same-domain packages a Nexus install will download (mirrors
-        _install_nexus_recursive's skip logic), to size "N of M". Makes API calls (cached)."""
-        key = f"nexus.{domain}.{mod_id}"
-        if key in seen:
-            return
-        seen.add(key)
-        if version is None and mods.get_installed_record(key) is not None:
-            return
-        if not nexus.get_mod(domain, mod_id):
-            return
-        for req in nexus.get_requirements(domain, mod_id):
-            if req["domain"] == domain:
-                self._resolve_nexus_plan(req["domain"], req["mod_id"], None, seen, plan)
-        plan.append(key)
 
     async def _install_nexus_recursive(
         self,

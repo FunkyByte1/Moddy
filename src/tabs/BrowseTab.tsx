@@ -236,6 +236,9 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [installing, setInstalling] = useState<string | null>(null);
+  // Optimistic "just clicked install" set, so the button shows busy instantly instead of waiting
+  // for the enqueue round-trip + queue_state event — otherwise a quick double-press enqueues twice.
+  const [pending, setPending] = useState<Set<string>>(new Set());
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<FixedSizeList | null>(null);
 
@@ -278,6 +281,16 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     () => new Set(queue.filter(j => isActiveStatus(j.status)).map(j => j.ref.toLowerCase())),
     [queue]
   );
+  // Hand off the optimistic mark once the real job shows up in the queue (no busy-state flicker).
+  useEffect(() => {
+    setPending(p => {
+      if (p.size === 0) return p;
+      let changed = false;
+      const next = new Set(p);
+      for (const fn of p) if (queuedRefs.has(fn.toLowerCase())) { next.delete(fn); changed = true; }
+      return changed ? next : p;
+    });
+  }, [queuedRefs]);
   const pendingDepIds = useMemo(() => {
     const ids = new Set<string>();
     for (const j of queue) {
@@ -362,8 +375,14 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
   // the queue's completion is what refreshes the installed list + toasts (see ModPage), so
   // this just enqueues and returns. Uninstall stays inline (handleUninstall, below).
   const runInstall = (pkg: ThunderstorePackage, withDeps = true, allowMissing = false) => {
-    if (isBmi) enqueueBmi(game.appid, pkg.full_name, pkg.name, null);
-    else enqueueThunderstore(game.appid, pkg.full_name, pkg.name, null, withDeps, allowMissing);
+    setPending(p => new Set(p).add(pkg.full_name));
+    const done = isBmi
+      ? enqueueBmi(game.appid, pkg.full_name, pkg.name, null)
+      : enqueueThunderstore(game.appid, pkg.full_name, pkg.name, null, withDeps, allowMissing);
+    done.catch(() => {
+      setPending(p => { const n = new Set(p); n.delete(pkg.full_name); return n; });
+      toaster.toast({ title: 'Moddy', body: `Failed to queue ${pkg.name}` });
+    });
   };
 
   const handleInstall = async (pkg: ThunderstorePackage) => {
@@ -472,7 +491,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
   // A mod whose job is queued/downloading reads as "busy" on its detail button, same as the
   // old inline install. `installing` (local) still covers the inline uninstall path.
   const selectedBusy = !!installing && installing === selectedPkg?.full_name
-    || (!!selectedPkg && queuedRefs.has(selectedPkg.full_name.toLowerCase()));
+    || (!!selectedPkg && (pending.has(selectedPkg.full_name) || queuedRefs.has(selectedPkg.full_name.toLowerCase())));
 
   // Always render the Focusable layout, even during loading. If the loading
   // branch returns a bare div with no focusable children, Steam's autoFocus

@@ -256,6 +256,14 @@ async def _worker() -> None:
             # a string is a handled error (e.g. "premium_required"). (A cancel that arrived too late
             # to stop a download that then succeeded is honestly a success — the mod is installed.)
             result = await job.run(job)
+            # Honor a cancel the install couldn't observe: a resume installs from the cached archive
+            # with no download to interrupt, so the cancel flag is never seen and the install
+            # completes. If the user asked to cancel, tear down what was installed. (install_*_mod
+            # already rolls back on None/False; this covers a True/parked result that slipped past a
+            # late cancel. Only jobs with a rollback hook — Nexus — can undo here.)
+            if job.cancel_requested and job.rollback is not None and (result is True or isinstance(result, dict)):
+                await _discard_parked(job)
+                result = None
             if isinstance(result, dict) and result.get("needs_variant"):
                 job.variants = result.get("variants") or []
                 job.status = STATUS_NEEDS_INPUT  # parked; worker moves on (does NOT block)

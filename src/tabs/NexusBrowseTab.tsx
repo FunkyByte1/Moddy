@@ -69,6 +69,9 @@ const NexusBrowseTab: FC<{
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [installing, setInstalling] = useState<string | null>(null);
+  // Optimistic "just clicked install" set, so the button shows busy instantly instead of waiting
+  // for the enqueue round-trip + queue_state event — otherwise a quick double-press enqueues twice.
+  const [pending, setPending] = useState<Set<string>>(new Set());
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
@@ -173,14 +176,28 @@ const NexusBrowseTab: FC<{
     () => new Set(queue.filter(j => isActiveStatus(j.status)).map(j => j.ref.toLowerCase())),
     [queue]
   );
+  // Hand off the optimistic mark once the real job shows up in the queue (no busy-state flicker).
+  useEffect(() => {
+    setPending(p => {
+      if (p.size === 0) return p;
+      let changed = false;
+      const next = new Set(p);
+      for (const fn of p) if (queuedRefs.has(fn.toLowerCase())) { next.delete(fn); changed = true; }
+      return changed ? next : p;
+    });
+  }, [queuedRefs]);
   const isBusy = (it: ThunderstorePackage) =>
-    installing === it.full_name || queuedRefs.has(it.full_name.toLowerCase());
+    installing === it.full_name || pending.has(it.full_name) || queuedRefs.has(it.full_name.toLowerCase());
 
   // Hand the install to the background queue. Variant selection and any failure are surfaced via
   // the queue (the variant prompt pops from ModPage when the job parks); ModPage refreshes + toasts
   // on completion. Uninstall stays inline below.
   const handleInstall = (it: ThunderstorePackage) => {
-    enqueueNexus(game.appid, it.full_name, it.name, null);
+    setPending(p => new Set(p).add(it.full_name));
+    enqueueNexus(game.appid, it.full_name, it.name, null).catch(() => {
+      setPending(p => { const n = new Set(p); n.delete(it.full_name); return n; });
+      toaster.toast({ title: 'Moddy', body: `Failed to queue ${it.name}` });
+    });
   };
 
   const handleUninstall = (it: ThunderstorePackage) => {
@@ -296,7 +313,9 @@ const NexusBrowseTab: FC<{
                   disabled={isBusy(selected)}
                   onClick={() => (isInstalled(selected) ? handleUninstall(selected) : handleInstall(selected))}
                 >
-                  {isBusy(selected) ? '…' : isInstalled(selected) ? 'Uninstall' : 'Install'}
+                  {isBusy(selected)
+                    ? (isInstalled(selected) ? 'Removing…' : 'Installing…')
+                    : isInstalled(selected) ? 'Uninstall' : 'Install'}
                 </ButtonItem>
               </PanelSectionRow>
             </PanelSection>
