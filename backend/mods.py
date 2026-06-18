@@ -395,6 +395,41 @@ def mod_files_present(game: GameProfile, install_dir: str, record: dict) -> bool
     return os.path.isfile(target) or os.path.isfile(target + ".bak")
 
 
+def _record_target_relpaths(game: GameProfile, install_dir: str, record: dict) -> list[str]:
+    """A mod's tracked on-disk locations, install-dir-relative. paths-based records list them
+    directly; folder/file records derive <mods_dir>/<filename>."""
+    paths = record.get("paths")
+    if paths:
+        return list(paths)
+    mods_path = resolve_mods_path(game, install_dir)
+    rel = os.path.relpath(os.path.join(mods_path, record.get("filename") or ""), install_dir)
+    return [rel]
+
+
+def mods_under_modloader(game: GameProfile, install_dir: str, removed_dirs: list[str], removed_files: list[str]) -> list[dict]:
+    """Installed mods for this game whose files live within a modloader's footprint — the dirs and
+    files its uninstall deletes — so removing the loader would take them with it. Returns
+    [{"id", "name"}] to warn the user before a loader uninstall. A MelonLoader-style loader (whose
+    own dir is separate from the Mods/ folder its mods live in) yields an empty list."""
+    rdirs = [d.replace("\\", "/").strip("/") for d in (removed_dirs or []) if d]
+    rfiles = {f.replace("\\", "/").strip("/") for f in (removed_files or [])}
+
+    def under_removed(rel: str) -> bool:
+        t = rel.replace("\\", "/").strip("/")
+        return t in rfiles or any(t == d or t.startswith(d + "/") for d in rdirs)
+
+    out = []
+    for mod_id, rec in (_load_store() or {}).items():
+        if (rec.get("source") or {}).get("type") == "steamworkshop":
+            continue
+        if not mod_files_present(game, install_dir, rec):
+            continue
+        if any(under_removed(t) for t in _record_target_relpaths(game, install_dir, rec)):
+            name = (rec.get("meta") or {}).get("name") or rec.get("filename") or mod_id
+            out.append({"id": mod_id, "name": name})
+    return out
+
+
 def _prune_empty_dirs(install_dir: str, rel_paths: list[str]) -> None:
     """After a mod's tracked files are removed, delete any now-empty parent directories up to
     (not including) the install dir. os.rmdir only removes empty directories, so a folder that

@@ -290,6 +290,7 @@ export const getGameStatus = async (appid: number): Promise<GameStatus | null> =
 };
 export const installModloader = callable<[appid: number, version: string | null], boolean>('install_modloader');
 export const uninstallModloader = callable<[appid: number], boolean>('uninstall_modloader');
+export const getModloaderUninstallImpact = callable<[appid: number], { id: string; name: string }[]>('get_modloader_uninstall_impact');
 export const enableModloader = callable<[appid: number], boolean>('enable_modloader');
 export const disableModloader = callable<[appid: number], boolean>('disable_modloader');
 export const getModloaderVersion = callable<[appid: number], string | null>('get_modloader_version');

@@ -186,6 +186,22 @@ class Plugin:
             return None
         return {"installed": installed, "latest": latest["version"]}
 
+    async def get_modloader_uninstall_impact(self, appid: int) -> list:
+        """Installed mods that uninstalling the loader would delete (its uninstall rmtree's the
+        loader's dirs, e.g. BepInEx/, taking the plugins under them). Returns [{id, name}] so the
+        UI can warn before removing. Empty for loaders whose mods live elsewhere (MelonLoader's
+        Mods/). Bundled frameworks are loader infrastructure, not user mods, so they're excluded."""
+        game = registry.get_game_by_appid(appid)
+        if not game or not game.modloaders:
+            return []
+        install_dir = steam.find_game_install_dir(appid)
+        if not install_dir:
+            return []
+        ml = game.modloaders[0]
+        fw_ids = set(game.bundled_framework_ids())
+        return [m for m in mods.mods_under_modloader(game, install_dir, ml.dirs, ml.files)
+                if m["id"] not in fw_ids]
+
     async def uninstall_modloader(self, appid: int) -> bool:
         game = registry.get_game_by_appid(appid)
         if not game or not game.modloaders:
@@ -193,11 +209,20 @@ class Plugin:
         install_dir = steam.find_game_install_dir(appid)
         if not install_dir:
             return False
+        ml = game.modloaders[0]
+        # Mods living under the loader's footprint lose their files when it's removed; capture them
+        # now (while present) so their now-dead records can be cleared afterward, keeping the store
+        # honest. The UI warns the user about this before calling.
+        orphaned = mods.mods_under_modloader(game, install_dir, ml.dirs, ml.files)
         # Remove bundled frameworks first — they're part of the loader, not content mods.
         for fw_id in game.bundled_framework_ids():
             if mods.get_installed_record(fw_id) is not None:
                 await mods.uninstall_mod(game, install_dir, fw_id)
-        return await modloaders.uninstall_modloader(game, install_dir, game.modloaders[0].id)
+        ok = await modloaders.uninstall_modloader(game, install_dir, ml.id)
+        if ok:
+            for m in orphaned:
+                mods.clear_installed_record(m["id"])
+        return ok
 
     async def enable_modloader(self, appid: int) -> bool:
         game = registry.get_game_by_appid(appid)

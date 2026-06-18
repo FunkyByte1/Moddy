@@ -13,7 +13,7 @@ import { useState, useEffect, FC } from 'react';
 
 import {
   GameStatus, ModRelease, ModloaderUpdate,
-  installModloader, uninstallModloader, enableModloader, disableModloader,
+  installModloader, uninstallModloader, getModloaderUninstallImpact, enableModloader, disableModloader,
   cancelInstall, getModloaderVersion, getModloaderReleases, checkModloaderUpdate,
   addModloaderLaunchOptions, removeModloaderLaunchOptions,
 } from '../types';
@@ -121,10 +121,31 @@ const ModLoaderTab: FC<{
   };
 
   const handleUninstall = async () => {
+    // Surface exactly which installed mods this will delete: the loader's uninstall rmtree's its
+    // dirs (e.g. BepInEx/), taking the plugins under them. Empty for loaders whose mods live
+    // elsewhere (MelonLoader's Mods/), where the generic warning is enough.
+    const affected = await getModloaderUninstallImpact(game.appid).catch(() => []);
+    const description = affected.length > 0 ? (
+      <div>
+        <div>
+          Uninstalling {game.modloader} will also remove the {affected.length} mod
+          {affected.length === 1 ? '' : 's'} installed under it:
+        </div>
+        <ul style={{ margin: '8px 0', paddingLeft: '1.5em' }}>
+          {affected.slice(0, 6).map((m) => (
+            <li key={m.id}>{m.name}</li>
+          ))}
+          {affected.length > 6 && <li>…and {affected.length - 6} more</li>}
+        </ul>
+        <div>You can reinstall them from Browse afterward.</div>
+      </div>
+    ) : (
+      'This will remove the mod loader. All mods will stop working until it is reinstalled.'
+    );
     showModal(
       <ConfirmModal
         strTitle={`Uninstall ${game.modloader}?`}
-        strDescription="This will remove the mod loader. All mods will stop working until it is reinstalled."
+        strDescription={description}
         strOKButtonText="Cancel"
         strCancelButtonText="Uninstall"
         onCancel={async () => {
