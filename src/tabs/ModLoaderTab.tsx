@@ -137,7 +137,6 @@ const ModLoaderTab: FC<{
           ))}
           {affected.length > 6 && <li>…and {affected.length - 6} more</li>}
         </ul>
-        <div>You can reinstall them from Browse afterward.</div>
       </div>
     ) : (
       'This will remove the mod loader. All mods will stop working until it is reinstalled.'
