@@ -145,9 +145,10 @@ const ModLoaderTab: FC<{
       <ConfirmModal
         strTitle={`Uninstall ${game.modloader}?`}
         strDescription={description}
-        strOKButtonText="Cancel"
-        strCancelButtonText="Uninstall"
-        onCancel={async () => {
+        strOKButtonText="Uninstall"
+        strCancelButtonText="Cancel"
+        bDestructiveWarning
+        onOK={async () => {
           setBusy(true);
           const ok = await uninstallModloader(game.appid);
           if (ok) {
@@ -276,9 +277,9 @@ const ModLoaderTab: FC<{
                   <ConfirmModal
                     strTitle="Skip first launch check?"
                     strDescription="Installing mods before the first launch may cause them to not work correctly. Only continue if you know what you are doing."
-                    strOKButtonText="Cancel"
-                    strCancelButtonText="Install anyway"
-                    onCancel={onModloaderReady}
+                    strOKButtonText="Install anyway"
+                    strCancelButtonText="Cancel"
+                    onOK={onModloaderReady}
                   />
                 )}>
                   Skip this check

@@ -28,9 +28,10 @@ const DeleteVersionModal: FC<{
               strDescription={SHOW_VERSION_OPTIONS
                 ? 'This will remove the mod and all cached versions from disk.'
                 : 'This will remove the mod from disk.'}
-              strOKButtonText="Cancel"
-              strCancelButtonText={SHOW_VERSION_OPTIONS ? 'Delete all' : 'Delete'}
-              onCancel={() => onDeleteAll(closeModal ?? (() => {}))}
+              strOKButtonText={SHOW_VERSION_OPTIONS ? 'Delete all' : 'Delete'}
+              strCancelButtonText="Cancel"
+              bDestructiveWarning
+              onOK={() => onDeleteAll(closeModal ?? (() => {}))}
             />
           )
         }>
@@ -46,9 +47,10 @@ const DeleteVersionModal: FC<{
               <ConfirmModal
                 strTitle={`Delete ${modName} ${currentVersion}?`}
                 strDescription="This will uninstall the currently active version."
-                strOKButtonText="Cancel"
-                strCancelButtonText="Delete"
-                onCancel={() => onDeleteVersion(currentVersion, closeModal ?? (() => {}))}
+                strOKButtonText="Delete"
+                strCancelButtonText="Cancel"
+                bDestructiveWarning
+                onOK={() => onDeleteVersion(currentVersion, closeModal ?? (() => {}))}
               />
             )
           }>
@@ -68,9 +70,10 @@ const DeleteVersionModal: FC<{
               <ConfirmModal
                 strTitle={`Delete cached ${modName} ${version}?`}
                 strDescription="This backup will be removed from disk."
-                strOKButtonText="Cancel"
-                strCancelButtonText="Delete"
-                onCancel={() => onDeleteVersion(version, closeModal ?? (() => {}))}
+                strOKButtonText="Delete"
+                strCancelButtonText="Cancel"
+                bDestructiveWarning
+                onOK={() => onDeleteVersion(version, closeModal ?? (() => {}))}
               />
             )
           }>

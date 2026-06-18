@@ -37,10 +37,10 @@ function NsfwToggle() {
           "This makes adult (18+) mods available in Browse filters. They'll stay hidden " +
           "until you also turn on \"Show NSFW\" in a game's filter."
         }
-        // Default-focused button is the safe "Cancel"; the opt-in is the secondary action.
-        strOKButtonText="Cancel"
-        strCancelButtonText="Allow"
-        onCancel={enable}
+        // Confirm (A) opts in; Cancel / B backs out without enabling.
+        strOKButtonText="Allow"
+        strCancelButtonText="Cancel"
+        onOK={enable}
       />
     );
   };
