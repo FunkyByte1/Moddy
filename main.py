@@ -700,8 +700,10 @@ class Plugin:
     }
 
     async def get_browse_denylist(self) -> list[str]:
-        """Lowercase full_names the Browse tab should hide and cascade-install should skip."""
-        return sorted(self._BROWSE_DENYLIST)
+        """Lowercase install ids the UI should treat as 'not a real dependency' — modloaders,
+        mod-manager apps (Thunderstore + Nexus) — so they're hidden from Browse and never flagged
+        as a missing dependency on installed mods."""
+        return sorted(self._BROWSE_DENYLIST | self._NEXUS_DENYLIST)
 
     async def get_unresolved_dependencies(self, appid: int, full_name: str, with_deps: bool = True) -> list:
         """Declared dependencies of `full_name` that aren't in the catalog (so they can't be

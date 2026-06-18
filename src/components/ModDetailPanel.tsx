@@ -25,8 +25,18 @@ const ModDetailPanel: FC<{
   onCancel: () => void;
   onMenuButton: () => void;
   onFilterButton: () => void;
-}> = ({ entry, game, busy, installing, progress, updates, onInstall, onDelete, onUpdate, onChangeVersion, onCancel, onMenuButton, onFilterButton }) => {
+  // Install ids (lowercase) that aren't real dependencies — modloaders / mod-manager apps like
+  // Fluffy — so they're not listed or flagged as a missing dependency.
+  denylist?: Set<string>;
+}> = ({ entry, game, busy, installing, progress, updates, onInstall, onDelete, onUpdate, onChangeVersion, onCancel, onMenuButton, onFilterButton, denylist }) => {
   const update = updates.find(u => u.id === entry.id);
+  // A dep id may be a versioned Thunderstore full_name ("Owner-Mod-1.2.3") or a base id
+  // ("nexus.<domain>.<id>"); test both forms against the denylist.
+  const isDenylisted = (depId: string): boolean => {
+    const lower = depId.toLowerCase();
+    return !!denylist && (denylist.has(lower) || denylist.has(lower.split('-').slice(0, -1).join('-')));
+  };
+  const shownDeps = (entry.info.dependencies ?? []).filter(d => !isDenylisted(d));
   const queueFooter = useQueueFooterProps();
 
   return (
@@ -79,10 +89,10 @@ const ModDetailPanel: FC<{
         </div>
       )}
 
-      {entry.info.dependencies && entry.info.dependencies.length > 0 && (
+      {shownDeps.length > 0 && (
         <div style={{ fontSize: '0.85em', marginBottom: '12px' }}>
           <div style={{ color: 'var(--gpColorTextSecondary)', marginBottom: '4px' }}>Dependencies:</div>
-          {entry.info.dependencies.map(depId => {
+          {shownDeps.map(depId => {
             const depInstalled = game.installed_mods.find(m => m.id.toLowerCase() === depId.toLowerCase());
             const depEnabled = depInstalled?.enabled ?? false;
             const depName = depInstalled?.meta?.name ?? depId;

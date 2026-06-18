@@ -590,6 +590,7 @@ const InstalledTab: FC<{
           updates={updates} onInstall={() => {}} onDelete={handleDeleteMod}
           onUpdate={handleUpdateMod} onChangeVersion={handleChangeVersion}
           onCancel={onCancel} onMenuButton={onMenuButton} onFilterButton={onFilterButton}
+          denylist={denylist}
         />
       )}
     </Focusable>
