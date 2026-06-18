@@ -218,7 +218,8 @@ const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }
     <Focusable style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
       <Focusable style={{ width: LEFT_PANEL_WIDTH, borderRight: '1px solid var(--gpColorSeparator)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: 8 }}>
-          <TextField label="Search Workshop" value={search} onChange={e => setSearch(e.target.value)} />
+          <TextField label="Search Workshop" value={search} onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
           <CatalogSourceLabel source="workshop" />
           <div style={{ marginTop: 6, minHeight: 16, fontSize: 11, color: 'var(--gpColorTextSecondary)' }}>
             {loading ? 'Loading…' : items.length > 0 ? `${items.length} mod${items.length === 1 ? '' : 's'}` : ''}

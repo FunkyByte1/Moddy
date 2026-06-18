@@ -551,6 +551,8 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
             label="Search"
             value={query}
             onChange={e => setQuery(e.target.value)}
+            // Enter (R2 on the on-screen keyboard) dismisses the keyboard by blurring the field.
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
           />
           <CatalogSourceLabel source={isBmi ? 'bmi' : 'thunderstore'} />
           <div style={{ marginTop: 4, fontSize: 11, color: 'var(--gpColorTextSecondary)' }}>

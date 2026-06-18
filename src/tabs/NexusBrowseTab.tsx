@@ -243,7 +243,8 @@ const NexusBrowseTab: FC<{
     >
       <Focusable style={{ width: LEFT_PANEL_WIDTH, borderRight: '1px solid var(--gpColorSeparator)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: 8 }}>
-          <TextField label="Search Nexus" value={search} onChange={e => setSearch(e.target.value)} />
+          <TextField label="Search Nexus" value={search} onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
           <CatalogSourceLabel source="nexus" />
           <div style={{ marginTop: 6, minHeight: 16, fontSize: 11, color: 'var(--gpColorTextSecondary)' }}>
             {loading ? 'Loading…' : visible.length > 0 ? `${visible.length} mod${visible.length === 1 ? '' : 's'}` : ''}
