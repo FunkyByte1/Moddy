@@ -19,10 +19,14 @@ from _harness import mods, utils, registry, make_mod, make_game, build_zip, rese
   archive or simulate a failed/cancelled download.
 - `tree_snapshot(root)` — `{relpath: bytes}` of a tree, for asserting a failed install left it
   byte-identical.
+- `failing_copy2(fail_on=N)` — context manager that makes `shutil.copy2` raise on its Nth call,
+  to inject a mid-commit failure (`place()` uses copy2; staging extraction uses copyfileobj).
+- `bak_crumbs(root)` — leftover `.moddy-bak` transaction artifacts (should be empty post-commit).
 
 ## Files
 
 - `test_staged_install.py` — unit tests for the `_StagedInstall` transaction primitive.
-- `test_install_characterization.py` — locks current installer success-path behavior. One
-  `expectedFailure` documents the destructive-upgrade gap that the staging refactor will close;
-  drop the decorator when `zip_flat` is converted.
+- `test_install_characterization.py` — locks current installer success-path behavior.
+- `test_merge_atomicity.py` — the zip_dir BepInEx merge installers roll back cleanly on failure.
+- `test_flat_atomicity.py` — the zip_flat (MelonLoader) installer: failed/mid-commit upgrades
+  restore the prior install (incl. retired directories); successful upgrades fully replace it.

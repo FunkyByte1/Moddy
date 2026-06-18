@@ -102,6 +102,39 @@ def tree_snapshot(root: str) -> dict:
     return out
 
 
+class failing_copy2:
+    """Context manager that replaces shutil.copy2 with one that delegates to the real call but
+    raises on the `fail_on`-th invocation. _StagedInstall.place() uses copy2 to land each file
+    while staging extraction uses copyfileobj, so this fails only the commit phase — the window
+    the transaction must protect."""
+
+    def __init__(self, fail_on: int):
+        import shutil
+        self._shutil = shutil
+        self.calls = 0
+        self.fail_on = fail_on
+        self._real = shutil.copy2
+
+    def __enter__(self):
+        self._shutil.copy2 = self
+        return self
+
+    def __exit__(self, *exc):
+        self._shutil.copy2 = self._real
+        return False
+
+    def __call__(self, src, dst, *a, **k):
+        self.calls += 1
+        if self.calls == self.fail_on:
+            raise OSError("simulated disk failure")
+        return self._real(src, dst, *a, **k)
+
+
+def bak_crumbs(root: str) -> list[str]:
+    """Every leftover .moddy-bak transaction artifact under `root` (should be empty post-commit)."""
+    return [os.path.join(d, f) for d, _, fs in os.walk(root) for f in fs if f.endswith(".moddy-bak")]
+
+
 def stub_download(*, writes: dict | None = None, raises: Exception | None = None):
     """Build a replacement for utils.download. If `raises`, it raises that (e.g. a generic
     Exception or utils.InstallCancelledError) after doing nothing. Otherwise it writes a zip

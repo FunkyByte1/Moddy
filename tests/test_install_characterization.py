@@ -122,11 +122,10 @@ class ZipFlatCharacterization(unittest.TestCase):
         rec = mods.get_installed_record(mod.id)
         self.assertEqual(rec["paths"], ["Mods/Cool.dll"])
 
-    @unittest.expectedFailure
     def test_zip_flat_failed_upgrade_keeps_old_install(self):
-        """TARGET behavior (currently fails): a v1 mod is installed, then a v2 upgrade is
-        attempted but the download dies. The old v1 files must survive — today they're deleted
-        before the download even starts (the destructive-pre-clear bug)."""
+        """A v1 mod is installed, then a v2 upgrade is attempted but the download dies. The old v1
+        files must survive — previously they were deleted before the download even started (the
+        destructive-pre-clear bug, fixed by downloading before any cleanup)."""
         utils.download = stub_download(writes={"Cool.dll": b"v1"})
         mod = make_mod(install_type="zip_flat", filename="Cool")
         run(mods._install_mod_zip_flat(self.game, self.install_dir, self.mods_path, mod, "1.0.0", "http://x"))

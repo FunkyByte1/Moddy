@@ -9,38 +9,10 @@ file, while the pre-commit extraction to staging uses copyfileobj — so this fa
 phase, exactly the window the transaction must protect.
 """
 import os
-import shutil
 import tempfile
 import unittest
 
-from _harness import mods, make_mod, build_zip, reset_store, tree_snapshot
-
-
-class _FailingCopy2:
-    """Drop-in for shutil.copy2 that delegates to the real one but raises on the `fail_on`-th call."""
-
-    def __init__(self, fail_on: int):
-        self.calls = 0
-        self.fail_on = fail_on
-        self._real = shutil.copy2
-
-    def __enter__(self):
-        shutil.copy2 = self
-        return self
-
-    def __exit__(self, *exc):
-        shutil.copy2 = self._real
-        return False
-
-    def __call__(self, src, dst, *a, **k):
-        self.calls += 1
-        if self.calls == self.fail_on:
-            raise OSError("simulated disk failure")
-        return self._real(src, dst, *a, **k)
-
-
-def _bak_crumbs(root: str) -> list[str]:
-    return [os.path.join(d, f) for d, _, fs in os.walk(root) for f in fs if f.endswith(".moddy-bak")]
+from _harness import mods, make_mod, build_zip, reset_store, tree_snapshot, failing_copy2, bak_crumbs
 
 
 class MergeAtomicityTest(unittest.TestCase):
@@ -67,12 +39,12 @@ class MergeAtomicityTest(unittest.TestCase):
         })
         mod = make_mod(install_type="zip_dir", filename="Cool")
 
-        with _FailingCopy2(fail_on=2):  # first file commits, second blows up
+        with failing_copy2(fail_on=2):  # first file commits, second blows up
             with self.assertRaises(OSError):
                 mods._extract_to_game_root(self.install_dir, mod, "1.0.0", tmp_zip)
 
         self.assertEqual(tree_snapshot(self.install_dir), before, "tree must be unchanged after a failed merge")
-        self.assertEqual(_bak_crumbs(self.install_dir), [], "no .moddy-bak crumbs left behind")
+        self.assertEqual(bak_crumbs(self.install_dir), [], "no .moddy-bak crumbs left behind")
         self.assertIsNone(mods.get_installed_record(mod.id), "no record written for a failed install")
         # Staging scratch is cleaned up regardless of outcome.
         self.assertFalse(os.path.exists(os.path.join(self.staging_parent, "Cool_merge_staging")))
@@ -91,7 +63,7 @@ class MergeAtomicityTest(unittest.TestCase):
         })
         mod = make_mod(install_type="zip_dir", filename="Cool")
 
-        with _FailingCopy2(fail_on=2):
+        with failing_copy2(fail_on=2):
             with self.assertRaises(OSError):
                 mods._extract_to_game_root(self.install_dir, mod, "1.0.0", tmp_zip)
 
@@ -103,7 +75,7 @@ class MergeAtomicityTest(unittest.TestCase):
         ok = mods._extract_to_game_root(self.install_dir, mod, "1.0.0", tmp_zip)
         self.assertTrue(ok)
         self.assertFalse(os.path.exists(os.path.join(self.staging_parent, "Cool_merge_staging")))
-        self.assertEqual(_bak_crumbs(self.install_dir), [])
+        self.assertEqual(bak_crumbs(self.install_dir), [])
 
 
 if __name__ == "__main__":

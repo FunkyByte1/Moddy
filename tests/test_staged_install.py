@@ -118,6 +118,30 @@ class StagedInstallTest(unittest.TestCase):
         self.assertNotIn("Mods/Old.dll", snap)
         self.assertEqual(snap.get("Mods/New.dll"), b"new")
 
+    # --- retiring a whole directory (zip_flat top-level dir entry) -------------
+
+    def test_retire_directory_then_fail_restores_it(self):
+        # The new install recreates the same directory path it retired, then fails — the original
+        # directory and its contents must come back (rollback prunes the recreated dir, then
+        # restores the backup into the now-free path).
+        write(os.path.join(self.root, "Mods/assets/old.bin"), b"old")
+        before = tree_snapshot(self.root)
+        with self.assertRaises(RuntimeError):
+            with mods._StagedInstall(self.root) as txn:
+                txn.retire("Mods/assets")
+                txn.place(self.staged("new.bin"), "Mods/assets/new.bin")  # recreates Mods/assets/
+                raise RuntimeError("boom after recreating the retired dir")
+        self.assertEqual(tree_snapshot(self.root), before)
+
+    def test_retire_directory_then_commit_removes_it(self):
+        write(os.path.join(self.root, "Mods/assets/old.bin"), b"old")
+        with mods._StagedInstall(self.root) as txn:
+            txn.retire("Mods/assets")
+            txn.place(self.staged("Cool.dll"), "Mods/Cool.dll")
+        snap = tree_snapshot(self.root)
+        self.assertNotIn("Mods/assets/old.bin", snap)
+        self.assertEqual(snap.get("Mods/Cool.dll"), b"new")
+
 
 if __name__ == "__main__":
     unittest.main()

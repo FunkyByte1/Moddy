@@ -590,6 +590,18 @@ async def install_synthetic_workshop(game: GameProfile, mod_id: str, fileid: str
 _STAGED_BAK_SUFFIX = ".moddy-bak"
 
 
+def _discard(path: str) -> None:
+    """Remove a file or a whole directory tree, best-effort (used to drop set-aside backups)."""
+    import shutil
+    try:
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path, ignore_errors=True)
+        elif os.path.lexists(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
 class _StagedInstall:
     """All-or-nothing placement of already-staged files into a live directory tree that may be
     shared with the base game and other mods (BepInEx/plugins, the RE4 game root, MelonLoader's
@@ -622,14 +634,14 @@ class _StagedInstall:
         self._made_dirs: list[str] = []               # abs dirs we created (to prune on rollback)
 
     def _set_aside(self, path: str) -> None:
-        """Move an existing file to its .moddy-bak so it can be restored on rollback."""
+        """Move an existing file or directory to its .moddy-bak so it can be restored on rollback."""
         if path in self._displaced_origins:
-            # Already set aside this transaction; the file now at `path` is one we wrote.
+            # Already set aside this transaction; whatever is at `path` now is something we wrote.
             return
         bak = path + _STAGED_BAK_SUFFIX
-        if os.path.exists(bak):
-            os.remove(bak)  # a stale crumb from an earlier crashed run; ours supersedes it
-        os.replace(path, bak)  # same-directory rename: atomic, never cross-device
+        if os.path.lexists(bak):
+            _discard(bak)  # a stale crumb (file or dir) from an earlier crashed run; ours supersedes it
+        os.replace(path, bak)  # same-directory rename: atomic for files and dirs, never cross-device
         self._displaced.append((path, bak))
         self._displaced_origins.add(path)
 
@@ -660,11 +672,12 @@ class _StagedInstall:
         self._created.append(dst)
 
     def retire(self, rel: str) -> None:
-        """Set aside a previous install's file (active and .disabled forms) as part of this
-        transaction, so an upgrade's old-file cleanup is undone if the new install fails."""
+        """Set aside a previous install's entry — a file or a whole directory, plus the .disabled
+        form of a file — as part of this transaction, so an upgrade's old-install cleanup is undone
+        if the new install fails. zip_flat records top-level entries that may be directories."""
         base = os.path.join(self.install_dir, rel)
         for cand in (base, base + ".disabled"):
-            if os.path.isfile(cand):
+            if os.path.lexists(cand):
                 self._set_aside(cand)
 
     def __enter__(self) -> "_StagedInstall":
@@ -679,33 +692,31 @@ class _StagedInstall:
 
     def _commit(self) -> None:
         for _orig, bak in self._displaced:
-            try:
-                os.remove(bak)
-            except OSError:
-                pass
+            _discard(bak)  # drop the set-aside original (file or retired directory)
 
     def _rollback(self) -> None:
-        # Remove the files we created (newest first).
+        # 1. Remove the files we created (newest first).
         for dst in reversed(self._created):
             try:
                 if os.path.isfile(dst):
                     os.remove(dst)
             except OSError as e:
                 decky.logger.warning(f"staged-install rollback: could not remove {dst}: {e}")
-        # Restore everything we moved aside.
-        for orig, bak in self._displaced:
-            try:
-                if os.path.exists(bak):
-                    os.replace(bak, orig)
-            except OSError as e:
-                decky.logger.warning(f"staged-install rollback: could not restore {orig}: {e}")
-        # Prune the directories we created, deepest first, only while empty.
+        # 2. Prune the directories we created, deepest first, while empty — BEFORE restoring, so a
+        #    retired directory whose path we recreated is free for its backup to be moved back.
         for d in sorted(set(self._made_dirs), key=len, reverse=True):
             try:
                 if os.path.isdir(d) and not os.listdir(d):
                     os.rmdir(d)
             except OSError:
                 pass
+        # 3. Restore everything we moved aside (files and retired directories).
+        for orig, bak in self._displaced:
+            try:
+                if os.path.lexists(bak):
+                    os.replace(bak, orig)
+            except OSError as e:
+                decky.logger.warning(f"staged-install rollback: could not restore {orig}: {e}")
 
 
 async def _install_mod_file(game: GameProfile, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
@@ -968,24 +979,21 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
     import shutil
 
     tmp_zip = os.path.join(mods_path, f"{mod.filename}_tmp.zip")
+    staging = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_flat_staging")
+    if os.path.exists(staging):
+        shutil.rmtree(staging)
 
-    # Clear a previous install's files so an upgrade doesn't leave orphans behind.
+    # Previous install's tracked top-level entries (files or dirs). Cleared as part of the commit
+    # transaction below — NOT before the download — so a dead link can't destroy the old install.
     old_paths = (_load_store().get(mod.id) or {}).get("paths") or []
-    for p in _flat_target_paths(install_dir, old_paths):
-        for cand in (p, p + ".disabled"):
-            try:
-                if os.path.isdir(cand):
-                    shutil.rmtree(cand)
-                elif os.path.isfile(cand):
-                    os.remove(cand)
-            except Exception:
-                pass
-
-    created_tops: set[str] = set()
     try:
         decky.logger.info(f"Downloading {mod.name} from {url}")
         await utils.download(url, tmp_zip, game.appid)
 
+        # Extract to staging (outside the live tree), computing each file's destination with a
+        # single redundant wrapper folder stripped and Thunderstore metadata skipped.
+        placements: list[tuple[str, str]] = []  # (staged absolute path, install-dir-relative dest)
+        created_tops: set[str] = set()
         with zipfile.ZipFile(tmp_zip, "r") as z:
             members = [m for m in z.namelist() if m and not m.endswith("/")]
             top_level = {m.split("/")[0] for m in members}
@@ -1001,11 +1009,20 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
                 rel = m[len(strip):] if strip and m.startswith(strip) else m
                 if not rel:
                     continue
-                dst = os.path.join(mods_path, rel)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                with z.open(m) as src, open(dst, "wb") as out:
+                staged_abs = os.path.join(staging, rel)
+                os.makedirs(os.path.dirname(staged_abs), exist_ok=True)
+                with z.open(m) as src, open(staged_abs, "wb") as out:
                     shutil.copyfileobj(src, out)
+                placements.append((staged_abs, os.path.relpath(os.path.join(mods_path, rel), install_dir)))
                 created_tops.add(rel.split("/")[0])
+
+        # Commit: retire the previous install and place the new files all-or-nothing. retire runs
+        # before place so a new file never displaces one this same transaction just wrote.
+        with _StagedInstall(install_dir) as txn:
+            for p in old_paths:
+                txn.retire(p)
+            for staged_abs, install_rel in placements:
+                txn.place(staged_abs, install_rel)
 
         paths = sorted(os.path.relpath(os.path.join(mods_path, t), install_dir) for t in created_tops)
         set_installed_record(mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
@@ -1020,6 +1037,8 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
     finally:
         if os.path.exists(tmp_zip):
             os.remove(tmp_zip)
+        if os.path.exists(staging):
+            shutil.rmtree(staging)
 
 
 def _extract_archive(archive_path: str, dest_dir: str) -> None:
