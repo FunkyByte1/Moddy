@@ -12,6 +12,7 @@ import DependencyInstallModal from '../components/modals/DependencyInstallModal'
 import { showOrphanCleanup } from '../orphanCleanup';
 import { CatalogSourceLabel } from '../components/CatalogSource';
 import { centerInView } from '../components/centerInView';
+import { modDisplayName } from '../modName';
 
 // Steam's gamepad-scrollable container (scrolls with the right stick). Falls back to a
 // plain Focusable if the internal lookup ever fails, so it never crashes.
@@ -203,7 +204,7 @@ const WorkshopBrowseTab: FC<{ game: GameStatus; onRefresh: () => Promise<void> }
     if (dependents.length > 0) {
       showModal(
         <DependentsModal
-          dependentNames={dependents.map(m => m.meta?.name ?? m.filename ?? m.id)}
+          dependentNames={dependents.map(m => modDisplayName(m))}
           onDisable={c => { c(); run('disable'); }}
           onIgnore={c => { c(); run('none'); }}
           onDelete={c => { c(); run('delete'); }}

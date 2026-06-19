@@ -24,6 +24,7 @@ import { showOrphanCleanup } from '../orphanCleanup';
 import { CatalogSourceLabel } from '../components/CatalogSource';
 import { BrowseFilter } from '../components/modals/BrowseFilterModal';
 import { centerInView } from '../components/centerInView';
+import { modDisplayName } from '../modName';
 
 interface Props {
   game: GameStatus;
@@ -471,7 +472,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     if (dependents.length > 0) {
       showModal(
         <DependentsModal
-          dependentNames={dependents.map(m => m.meta?.name ?? m.filename.replace(/\.dll$/, '') ?? m.id)}
+          dependentNames={dependents.map(m => modDisplayName(m))}
           onDisable={close => { close(); run('disable'); }}
           onIgnore={close => { close(); run('none'); }}
           onDelete={close => { close(); run('delete'); }}

@@ -11,6 +11,7 @@ import ApplyProfileModal from '../components/modals/ApplyProfileModal';
 import RenameProfileModal from '../components/modals/RenameProfileModal';
 import DeleteProfileModal from '../components/modals/DeleteProfileModal';
 import { useQueueFooterProps } from '../components/DownloadQueueModal';
+import { modDisplayName } from '../modName';
 
 const formatDate = (iso: string): string => {
   try {
@@ -40,10 +41,8 @@ const ProfilesTab: FC<{
 
   const selected = profiles[Math.min(selectedIndex, profiles.length - 1)];
 
-  const modNameFor = (id: string): string => {
-    const im = game.installed_mods.find(m => m.id === id);
-    return im?.meta?.name ?? im?.filename.replace('.dll', '') ?? id;
-  };
+  const modNameFor = (id: string): string =>
+    modDisplayName(game.installed_mods.find(m => m.id === id), id);
 
   const handleApply = (profile: Profile) => {
     const installedById = new Map(game.installed_mods.map(m => [m.id, m]));

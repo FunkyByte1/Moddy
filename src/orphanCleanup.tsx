@@ -1,6 +1,7 @@
 import { showModal } from '@decky/ui';
 
 import { GameStatus, InstalledMod, toggleMod, uninstallMod } from './types';
+import { modDisplayName } from './modName';
 import OrphanedDependenciesModal from './components/modals/OrphanedDependenciesModal';
 
 export type RemovalMode = 'uninstall' | 'disable';
@@ -93,7 +94,7 @@ export function findOrphanedLibraries(
   return orphans;
 }
 
-const nameOf = (im: InstalledMod) => im.meta?.name || im.filename.replace(/\.dll$/, '');
+const nameOf = (im: InstalledMod) => modDisplayName(im);
 
 /**
  * Compute the orphaned libraries left by removing `removedIds` and, if any, prompt
