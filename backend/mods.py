@@ -1377,55 +1377,49 @@ def discard_natives_cache(filename: str) -> None:
 
 
 async def _install_mod_zip_into_game(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
-    """
-    Install a zip mod by extracting a named inner folder's contents into install_dir.
-    Used for BepInExPack which has BepInExPack/<files> and we want <files> in the game root.
-    """
+    """Install a zip whose payload sits under one inner folder by merging that folder's contents
+    into the game root (e.g. BepInExPack/<files> → <files> at the game root).
+
+    The archive is downloaded and extracted to scratch OUTSIDE the live tree, then committed in a
+    single _StagedInstall transaction — so the game dir is never half-written and any failure (bad
+    zip, cancel, disk full) rolls the tree back to its prior state. Files are MERGED in one at a
+    time rather than replacing whole directories, so a (re)install overwrites only its own files and
+    leaves co-located files (a user's BepInEx/plugins/) intact. This mirrors
+    modloaders._install_thunderstore_modloader, which fixed the same atomicity/wipe gap — the old
+    code here copied straight into install_dir (rmtree-ing existing dirs first) with no transaction.
+    Scratch lives in the runtime dir under sweep-recognized suffixes, so a crash mid-install is
+    cleaned up at startup."""
     import zipfile, shutil
-    tmp_zip = os.path.join(install_dir, f"{mod.filename}_tmp.zip")
+    tmp_zip = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_into_game_tmp.zip")
+    tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_into_game_extract")
     try:
         decky.logger.info(f"Downloading {mod.name} from {url}")
         await utils.download(url, tmp_zip, game.appid)
 
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
+        os.makedirs(tmp_dir)
         with zipfile.ZipFile(tmp_zip, "r") as z:
-            members = z.namelist()
-            # Find the inner folder (e.g. "BepInExPack/")
-            top_dirs = set(m.split("/")[0] for m in members if "/" in m)
-            inner_folder = mod.filename + "/"  # e.g. "BepInExPack/"
-
-            # Find matching inner folder, fall back to first dir
-            target = inner_folder if any(m.startswith(inner_folder) for m in members) else (list(top_dirs)[0] + "/" if top_dirs else "")
-
-            tmp_dir = os.path.join(install_dir, f"{mod.filename}_extract")
-            if os.path.exists(tmp_dir):
-                shutil.rmtree(tmp_dir)
-            os.makedirs(tmp_dir)
             z.extractall(tmp_dir)
 
-            inner_path = os.path.join(tmp_dir, target.rstrip("/")) if target else tmp_dir
+        # The payload is usually nested under one inner folder (e.g. BepInExPack/). Prefer a folder
+        # named after the mod; else a single top-level directory; otherwise the zip root is the
+        # payload. (Matches the prior member-prefix detection, now resolved on the extracted tree.)
+        inner_path = tmp_dir
+        named = os.path.join(tmp_dir, mod.filename)
+        if os.path.isdir(named):
+            inner_path = named
+        else:
+            subdirs = sorted(e for e in os.listdir(tmp_dir) if os.path.isdir(os.path.join(tmp_dir, e)))
+            if subdirs:
+                inner_path = os.path.join(tmp_dir, subdirs[0])
 
-            # Copy contents of inner folder into install_dir
-            if os.path.isdir(inner_path):
-                for item in os.listdir(inner_path):
-                    src = os.path.join(inner_path, item)
-                    dst = os.path.join(install_dir, item)
-                    if os.path.isdir(src):
-                        if os.path.isdir(dst):
-                            shutil.rmtree(dst)
-                        shutil.copytree(src, dst)
-                    else:
-                        shutil.copy2(src, dst)
-            else:
-                # No inner folder, extract everything to install_dir
-                for item in os.listdir(tmp_dir):
-                    src = os.path.join(tmp_dir, item)
-                    dst = os.path.join(install_dir, item)
-                    if os.path.isdir(src):
-                        if os.path.isdir(dst):
-                            shutil.rmtree(dst)
-                        shutil.copytree(src, dst)
-                    else:
-                        shutil.copy2(src, dst)
+        # Place every file under inner_path into the game dir in one transaction.
+        with _StagedInstall(install_dir) as txn:
+            for root, _dirs, files in os.walk(inner_path):
+                for fn in files:
+                    full = os.path.join(root, fn)
+                    txn.place(full, os.path.relpath(full, inner_path))
 
         set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) into game dir")
@@ -1439,7 +1433,6 @@ async def _install_mod_zip_into_game(game: GameProfile, install_dir: str, mod: M
     finally:
         if os.path.exists(tmp_zip):
             os.remove(tmp_zip)
-        tmp_dir = os.path.join(install_dir, f"{mod.filename}_extract")
         if os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir)
 
