@@ -1,6 +1,6 @@
 import { ButtonItem, Focusable, PanelSection, PanelSectionRow, ScrollPanelGroup, Spinner, TextField, showModal } from '@decky/ui';
 import { toaster } from '@decky/api';
-import { FC, useState, useEffect, useMemo, useRef } from 'react';
+import { FC, useState, useEffect, useMemo } from 'react';
 
 import {
   GameStatus, ThunderstorePackage,
@@ -13,6 +13,7 @@ import DependentsModal from '../components/modals/DependentsModal';
 import { showOrphanCleanup } from '../orphanCleanup';
 import { CatalogSourceLabel } from '../components/CatalogSource';
 import { centerInView } from '../components/centerInView';
+import { useGamepadListFocus } from '../components/useGamepadListFocus';
 import { modDisplayName } from '../modName';
 
 // Steam's gamepad-scrollable container (scrolls with the right stick). Falls back to a
@@ -118,33 +119,13 @@ const NexusBrowseTab: FC<{
 
   // Load more via a button, but move focus back into the list (to the last mod) once
   // it's pressed — otherwise focus stays on the button and "up" jumps to the bottom.
-  const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
-  const [pendingFocus, setPendingFocus] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (pendingFocus == null) return;
-    const el = rowRefs.current.get(pendingFocus);
-    const focusable = (el?.querySelector('button, [tabindex]') as HTMLElement | null) ?? el;
-    focusable?.focus();
-    setSelectedIndex(pendingFocus);
-    setPendingFocus(null);
-  }, [items, pendingFocus]);
+  const { detailRef, registerRow, focusRowAfterLoad, focusDetail, focusSelectedRow } =
+    useGamepadListFocus({ items, selectedIndex, setSelectedIndex });
 
   const handleLoadMore = async () => {
-    const lastMod = Math.max(0, visible.length - 1);
+    const lastMod = visible.length - 1;
     await loadMore();
-    setPendingFocus(lastMod);
-  };
-
-  // Pressing A on a mod (or navigating right) jumps focus to the detail panel's action
-  // button; pressing B in the detail returns to the selected mod in the list.
-  const detailRef = useRef<HTMLDivElement>(null);
-  const focusDetail = () => {
-    (detailRef.current?.querySelector('button, [tabindex]') as HTMLElement | null)?.focus();
-  };
-  const focusSelectedRow = () => {
-    const el = rowRefs.current.get(selectedIndex);
-    ((el?.querySelector('button, [tabindex]') as HTMLElement | null) ?? el)?.focus();
+    focusRowAfterLoad(lastMod);
   };
 
   const installedIds = useMemo(
@@ -270,7 +251,7 @@ const NexusBrowseTab: FC<{
               {visible.map((it, i) => (
                 <Row key={it.full_name} item={it} selected={i === selectedIndex} installed={isInstalled(it)}
                   onSelect={() => setSelectedIndex(i)} onActivate={focusDetail}
-                  innerRef={el => { if (el) rowRefs.current.set(i, el); else rowRefs.current.delete(i); }} />
+                  innerRef={registerRow(i)} />
               ))}
               {hasMore && (
                 <div style={{ padding: '8px 0' }}>
