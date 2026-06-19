@@ -1,6 +1,6 @@
 import { ButtonItem, DialogButton, Focusable, PanelSection, PanelSectionRow, TextField, showModal } from '@decky/ui';
 import { toaster } from '@decky/api';
-import { FC, useState, useEffect, useMemo, useRef, CSSProperties } from 'react';
+import { FC, useState, useEffect, useMemo, useRef, useCallback, CSSProperties } from 'react';
 import { FixedSizeList } from 'react-window';
 
 import {
@@ -50,6 +50,8 @@ interface RowData {
   selectedIndex: number;
   installedIds: Set<string>;
   onSelect: (index: number) => void;
+  // Pressing A on a row jumps focus to the detail panel's install button.
+  onActivate: () => void;
 }
 
 // Each row is a DialogButton styled as a list item. Spike 3 proved DialogButtons
@@ -67,7 +69,7 @@ const Row: FC<{ index: number; style: CSSProperties; data: RowData }> = ({ index
       onFocusCapture={(e) => { data.onSelect(index); centerInView(e.currentTarget); }}
     >
       <DialogButton
-        onClick={() => data.onSelect(index)}
+        onClick={() => { data.onSelect(index); data.onActivate(); }}
         style={{
           width: '100%',
           height: '100%',
@@ -493,9 +495,17 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     run('none');
   };
 
+  // Pressing A on a left-list row jumps focus to the detail panel's install button (matching the
+  // Nexus/Workshop tabs), so you don't have to navigate right after selecting. Stable identity so
+  // it doesn't bust the itemData memo.
+  const detailRef = useRef<HTMLDivElement>(null);
+  const focusDetail = useCallback(() => {
+    (detailRef.current?.querySelector('button, [tabindex]') as HTMLElement | null)?.focus();
+  }, []);
+
   const itemData: RowData = useMemo(
-    () => ({ packages: filtered, selectedIndex, installedIds, onSelect: setSelectedIndex }),
-    [filtered, selectedIndex, installedIds]
+    () => ({ packages: filtered, selectedIndex, installedIds, onSelect: setSelectedIndex, onActivate: focusDetail }),
+    [filtered, selectedIndex, installedIds, focusDetail]
   );
 
   const selectedPkg = filtered[selectedIndex] ?? null;
@@ -580,7 +590,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
         </div>
         {listSlot}
       </Focusable>
-      <Focusable style={{ flex: 1, overflowY: 'auto', paddingBottom: 60 }}>
+      <Focusable ref={detailRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: 60 }}>
         <DetailPanel
           pkg={selectedPkg}
           installing={selectedBusy ? (selectedPkg?.full_name ?? null) : null}
