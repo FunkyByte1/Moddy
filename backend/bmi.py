@@ -24,16 +24,8 @@ import zipfile
 import decky
 
 import catalog
+import catalog_cache
 import fetch
-
-_CATALOG_CACHE_TTL_SECONDS = 86400  # 1 day, mirroring the Thunderstore catalog
-
-# Process-lifetime cache of the parsed catalog, keyed by repo → (mtime, packages).
-# Mirrors thunderstore._mem_catalog: get_supported_games() and the Browse tab reload
-# this on every refresh to classify/list mods, so without it each call re-reads and
-# re-parses the catalog JSON. Keyed by the cache file's mtime so a force-refresh
-# (which rewrites the file) self-invalidates.
-_mem_catalog: dict[str, tuple[float, list[dict]]] = {}
 
 
 def _catalog_cache_path(repo: str) -> str:
@@ -117,47 +109,14 @@ def _build_catalog_from_zip(repo: str, zip_bytes: bytes, branch: str) -> list[di
 
 
 
-def get_bmi_catalog(repo: str, branch: str = "main", force: bool = False) -> list[dict]:
-    """Fetch (or load from disk cache) the BMI catalog for a repo, in the trimmed-
-    Thunderstore item shape. Returns [] on failure with no cache available. When
-    force=True, skip the freshness shortcut but still fall back to the existing cache
-    if the network fetch fails."""
-    cache_path = _catalog_cache_path(repo)
-    now = time.time()
-
-    if not force:
-        try:
-            mtime = os.path.getmtime(cache_path)
-            mem = _mem_catalog.get(repo)
-            if mem and mem[0] == mtime and now - mtime < _CATALOG_CACHE_TTL_SECONDS:
-                # Parsed copy still matches the (still-fresh) on-disk file — skip the
-                # read+parse. Past the TTL we fall through to refresh as before.
-                return mem[1]
-            with open(cache_path, "r") as f:
-                cached = json.load(f)
-            if now - cached.get("fetched_at", 0) < _CATALOG_CACHE_TTL_SECONDS:
-                packages = cached.get("packages", [])
-                _mem_catalog[repo] = (mtime, packages)
-                return packages
-        except FileNotFoundError:
-            pass
-        except Exception as e:
-            decky.logger.warning(f"BMI catalog cache read failed for {repo}: {e}")
-
-    try:
-        req = fetch.request(_archive_url(repo, branch))
-        with urllib.request.urlopen(req, context=fetch.ssl_context(), timeout=60) as resp:
-            zip_bytes = resp.read()
-        items = _build_catalog_from_zip(repo, zip_bytes, branch)
-    except Exception as e:
-        decky.logger.error(f"Failed to fetch BMI index {repo}: {e}")
-        try:
-            if os.path.isfile(cache_path):
-                with open(cache_path, "r") as f:
-                    return json.load(f).get("packages", [])
-        except Exception:
-            pass
-        return []
+def _fetch_bmi_catalog(repo: str, branch: str) -> list[dict]:
+    """Download the BMI index archive and parse it into catalog items, ordered by
+    recency. Raises on network or parse failure so the caller can fall back to a
+    stale cache."""
+    req = fetch.request(_archive_url(repo, branch))
+    with urllib.request.urlopen(req, context=fetch.ssl_context(), timeout=60) as resp:
+        zip_bytes = resp.read()
+    items = _build_catalog_from_zip(repo, zip_bytes, branch)
 
     # The index carries no stars/downloads, and fetching either would mean a private
     # server or per-repo GitHub API calls (60 req/hr unauthenticated). So order by
@@ -167,18 +126,20 @@ def get_bmi_catalog(repo: str, branch: str = "main", force: bool = False) -> lis
     items.sort(key=lambda it: it["name"].lower())
     items.sort(key=lambda it: it.get("date_updated", ""), reverse=True)
     decky.logger.info(f"BMI index {repo}: {len(items)} mods loaded")
-
-    try:
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        tmp = cache_path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump({"fetched_at": now, "packages": items}, f)
-        os.replace(tmp, cache_path)
-        _mem_catalog[repo] = (os.path.getmtime(cache_path), items)
-    except Exception as e:
-        decky.logger.warning(f"BMI catalog cache write failed for {repo}: {e}")
-
     return items
+
+
+def get_bmi_catalog(repo: str, branch: str = "main", force: bool = False) -> list[dict]:
+    """Fetch (or load from disk cache) the BMI catalog for a repo, in the trimmed-
+    Thunderstore item shape. Returns [] on failure with no cache available. When
+    force=True, skip the freshness shortcut but still fall back to the existing cache
+    if the network fetch fails."""
+    return catalog_cache.get_or_fetch(
+        _catalog_cache_path(repo),
+        lambda: _fetch_bmi_catalog(repo, branch),
+        force=force,
+        label=f"BMI index {repo}",
+    )
 
 
 def find_bmi_package(repo: str, full_name: str, branch: str = "main") -> dict | None:
@@ -193,17 +154,8 @@ def find_bmi_package(repo: str, full_name: str, branch: str = "main") -> dict | 
 def refresh_bmi_catalog(repo: str, branch: str = "main") -> bool:
     """Force a fresh pull, keeping the existing cache if the fetch fails. Returns True
     only if a fresh copy was actually fetched (the cache file was rewritten)."""
-    cache_path = _catalog_cache_path(repo)
-
-    # A successful fetch rewrites the cache file (and only then); a failed fetch falls
-    # back to the existing one untouched. So a bumped mtime means a fresh copy landed —
-    # no need to parse the whole catalog just to read its timestamp.
-    def cache_mtime() -> float:
-        try:
-            return os.path.getmtime(cache_path)
-        except OSError:
-            return 0.0
-
-    before = cache_mtime()
-    get_bmi_catalog(repo, branch, force=True)
-    return cache_mtime() > before
+    return catalog_cache.refreshed(
+        _catalog_cache_path(repo),
+        lambda: _fetch_bmi_catalog(repo, branch),
+        label=f"BMI index {repo}",
+    )
