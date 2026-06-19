@@ -20,6 +20,7 @@ import app_settings as settings
 import utils
 import steamworkshop_browse
 import download_queue
+import install_cascade
 
 
 def _catalog_for_game(game: "registry.GameProfile") -> list[dict]:
@@ -528,106 +529,15 @@ class Plugin:
         top: bool = False,
         installed: "list | None" = None,
     ):
-        """Install one Nexus mod plus its requirements (depth-first). Requirements are
-        installed at latest (version=None); only the top-level mod honors an explicit version.
-        Mirrors the Thunderstore cascade: a dependency that's already installed or fails to
-        download is skipped (best-effort), but a Premium-gated download aborts and surfaces
-        "premium_required". Returns True/False/None/"premium_required"."""
-        key = f"nexus.{domain}.{mod_id}"
-        if key in seen:
-            return True
-        seen.add(key)
-
-        # Tools/managers (e.g. Fluffy) are listed as requirements but aren't in-game mods — skip.
-        if key in self._NEXUS_DENYLIST:
-            decky.logger.info(f"Skipping denylisted Nexus mod {key}")
-            return True
-
-        # Already installed (and no version pin) — skip, like the Thunderstore cascade. Requires the
-        # files on disk, not just a record: a modloader uninstall can orphan records whose files are
-        # gone, and a stale record must not make a reinstall a no-op.
-        present = mods.installed_files_present(game, install_dir, key)
-        if present and version is None:
-            decky.logger.info(f"{key} already installed; skipping")
-            return True
-        # Fresh installs are rollback-eligible; an update of a present mod is not. An orphaned
-        # record (files gone) counts as fresh — the reinstall is re-placing it.
-        was_fresh = not present
-
-        info = nexus.get_mod(domain, mod_id)
-        if not info:
-            decky.logger.error(f"Nexus mod not found: {key}")
-            return False
-
-        # Resolve + install requirements first. Only same-domain, non-external Nexus mods can
-        # be installed through this game's catalog; others are recorded as deps but left to the
-        # user (logged), since we can't fetch them in this game's context.
-        dep_ids: list[str] = []
-        for req in nexus.get_requirements(domain, mod_id):
-            req_id = f"nexus.{req['domain']}.{req['mod_id']}"
-            dep_ids.append(req_id)
-            # get_requirements only returns reqs with a resolvable Nexus mod id, so the only
-            # thing we can't handle is a different game domain (not in this game's catalog).
-            # The `external` flag doesn't matter — a manually-linked Nexus mod is still installable.
-            if req["domain"] != domain:
-                decky.logger.info(f"Skipping cross-domain requirement {req_id} ({req.get('name')})")
-                continue
-            res = await self._install_nexus_recursive(game, install_dir, req["domain"], req["mod_id"], None, seen, installed=installed)
-            if res == "premium_required":
-                return "premium_required"
-            if res is None:
-                return None  # a cancelled requirement cancels the whole install
-            if res is False:
-                # Best-effort: a failed requirement doesn't abort, but we surface it so the user
-                # knows the mod may be incomplete (rather than silently swallowing it in the log).
-                decky.logger.warning(f"Requirement {req_id} did not install (continuing)")
-                await download_queue.note_warning(f"Couldn't install dependency: {req.get('name') or req_id}")
-
-        try:
-            file_id = nexus.primary_file_id(domain, mod_id)
-            if not file_id:
-                decky.logger.error(f"No downloadable file for {key}")
-                return False
-            url = nexus.get_download_url(domain, mod_id, file_id)
-        except nexus.PremiumRequired:
-            decky.logger.info(f"Nexus mod {key} requires Premium")
-            return "premium_required"
-        if not url:
-            decky.logger.error(f"Could not resolve Nexus download URL for {key}")
-            return False
-
-        mod = registry.ModInfo(
-            id=key,
-            name=info.get("name") or key,
-            description=info.get("summary", "") or "",
-            # A safe, collision-free on-disk label; the real name lives in meta for display.
-            filename=f"nexus-{mod_id}",
-            source=registry.ModSource(
-                type="nexus",
-                install_type=game.catalog.get("install_type", "zip_flat"),
-                nexus_domain=domain,
-                mod_id=str(mod_id),
-            ),
-            author=info.get("author", "") or info.get("uploaded_by", "") or "",
-            homepage=f"https://www.nexusmods.com/{domain}/mods/{mod_id}",
-            thumbnail=info.get("picture_url", "") or "",
-            modloader=game.modloaders[0].id if game.modloaders else "",
-            dependencies=dep_ids,
+        """Install one Nexus mod plus its same-domain requirements (depth-first), via the shared
+        cascade. Requirements install at latest; only the top-level mod honors an explicit version
+        and variant. A failed requirement is best-effort (continue); a Premium-gated download aborts
+        and surfaces "premium_required". Returns True/False/None/"premium_required"/needs-variant."""
+        provider = install_cascade.NexusProvider(self._NEXUS_DENYLIST)
+        return await install_cascade.run_cascade(
+            provider, game, install_dir, (domain, mod_id), version,
+            seen=seen, installed=installed, top=top, variant=variant,
         )
-        target_version = version or str(info.get("version", "") or "") or "latest"
-        # Only the top-level mod honors a variant choice / can prompt for one. A dependency that
-        # turns out to bundle variants can't ask the user mid-cascade, so install its first by default.
-        await download_queue.note_item(mod.name)
-        res = await mods.install_mod(game, install_dir, mod, version=target_version, url=url, variant=variant if top else None)
-        if isinstance(res, dict) and res.get("needs_variant"):
-            if top:
-                return res  # park for the UI (requirements already recorded in `installed`)
-            first = (res.get("variants") or [{}])[0].get("id")
-            decky.logger.warning(f"{key} bundles variants; installing default {first!r} as a dependency")
-            res = await mods.install_mod(game, install_dir, mod, version=target_version, url=url, variant=first)
-        if res is True and was_fresh and installed is not None:
-            installed.append(key)
-        return res
 
     # ── Plugin settings (account-global; e.g. the Nexus API key) ───────────────
     async def get_setting(self, key: str):
@@ -792,33 +702,13 @@ class Plugin:
         self, game: "registry.GameProfile", full_name: str, version: str | None,
         with_deps: bool, seen: set, plan: list, unresolved: list, install_dir: str | None = None,
     ) -> None:
-        """Walk the dependency tree, mirroring _install_thunderstore_recursive's skip logic, into:
-        `plan` — depth-first packages an install will actually download (used to size "N of M"); and
-        `unresolved` — declared deps not found in the catalog. Downloads nothing."""
-        key = full_name.lower()
-        if key in seen or key in self._BROWSE_DENYLIST:
-            return
-        seen.add(key)
-        existing = mods.find_installed_record(full_name)
-        # Mirror the install skip: a mod only counts as installed (and drops out of the plan) when
-        # its files are actually present. When install_dir is given (the size pre-pass), check the
-        # disk so an orphaned record is still counted; without it (unresolved-deps probe) the
-        # record alone is enough.
-        if existing and version is None and (install_dir is None or mods.mod_files_present(game, install_dir, existing)):
-            return
-        pkg = thunderstore.find_package(game.thunderstore_community, full_name)
-        if not pkg:
-            unresolved.append(full_name)
-            return
-        if with_deps:
-            explicit: list[str] = []
-            for dep_str in pkg.get("latest", {}).get("dependencies", []):
-                parsed = thunderstore.parse_dep(dep_str)
-                if parsed:
-                    explicit.append(parsed[0])
-            for dep_full_name in list(game.implicit_deps) + explicit:
-                self._resolve_thunderstore_plan(game, dep_full_name, None, True, seen, plan, unresolved, install_dir)
-        plan.append(full_name)
+        """Size the Thunderstore cascade (depth-first packages it will download, into `plan`) and
+        collect declared deps not in the catalog (into `unresolved`), via the shared dry-run walk."""
+        provider = install_cascade.ThunderstoreProvider(self._BROWSE_DENYLIST)
+        install_cascade.collect_plan(
+            provider, game, full_name, version=version, with_deps=with_deps,
+            seen=seen, plan=plan, unresolved=unresolved, install_dir=install_dir,
+        )
 
     async def _rollback_installs(self, game: "registry.GameProfile", install_dir: str, ids: list) -> None:
         """Undo a cancelled install: uninstall the mods it freshly installed, newest first (so a
@@ -843,98 +733,15 @@ class Plugin:
         allow_missing: bool = False,
         is_dependency: bool = False,
     ) -> bool | None:
-        key = full_name.lower()
-        if key in seen:
-            return True
-        seen.add(key)
-        # Skip modloaders/mod-managers that shouldn't be installed as plugins
-        if key in self._BROWSE_DENYLIST:
-            decky.logger.info(f"Skipping denylisted package {full_name}")
-            return True
-        # Skip if already installed — "installed" must mean the files are actually on disk, not
-        # merely that a record exists: uninstalling the BepInEx modloader rmtree's BepInEx/, deleting
-        # plugins while their records remain, and a stale record must not turn a reinstall into a
-        # silent no-op. The lookup is case-insensitive against installed.json keys, since the catalog
-        # casing may differ from what was originally persisted.
-        present = mods.installed_files_present(game, install_dir, full_name)
-        if present and version is None:
-            decky.logger.info(f"{full_name} already installed; skipping")
-            return True
-        # A fresh install is rollback-eligible; an update of a present mod is not (a cancelled
-        # download leaves the prior version in place, so there's nothing to undo). An orphaned
-        # record whose files are gone counts as fresh — the reinstall is re-placing it.
-        was_fresh = not present
-        pkg = thunderstore.find_package(game.thunderstore_community, full_name)
-        if not pkg:
-            # A dependency we can't find: skip it under "install anyway", else fail the cascade.
-            # (The top-level mod always fails if missing — you can't install what isn't there.)
-            if is_dependency and allow_missing:
-                decky.logger.warning(f"Dependency {full_name} not in catalog; skipping (install anyway)")
-                return True
-            decky.logger.error(f"Thunderstore package not found in catalog: {full_name}")
-            return False
-        latest = pkg.get("latest", {})
-        # Install deps first (depth-first). Always use the catalog's latest version for deps —
-        # the version pinned in the dep string is just the minimum the parent was tested against.
-        # Implicit deps (declared per-game) cover cases where the Thunderstore manifest
-        # doesn't list a runtime requirement — e.g. RoR2 mods that need Newtonsoft.Json from
-        # RoR2BepInExPack but never list it as a manifest dep.
-        explicit_deps: list[str] = []
-        for dep_str in latest.get("dependencies", []):
-            parsed = thunderstore.parse_dep(dep_str)
-            if not parsed:
-                decky.logger.warning(f"Could not parse dep string '{dep_str}' for {full_name}")
-                continue
-            explicit_deps.append(parsed[0])
-        # with_deps=False ("skip dependencies") installs only this mod. The record below still
-        # carries its declared deps, so dependents tracking and a later re-install stay correct.
-        dep_full_names = list(game.implicit_deps) + explicit_deps if with_deps else []
-        for dep_full_name in dep_full_names:
-            dep_result = await self._install_thunderstore_recursive(
-                game, install_dir, dep_full_name, None, seen, installed_this_run=installed_this_run,
-                allow_missing=allow_missing, is_dependency=True,
-            )
-            if dep_result is None:
-                return None  # propagate cancellation (rollback happens at the top level)
-            if not dep_result:
-                # Atomic install: a dependency that fails aborts the whole cascade, so the
-                # top-level caller rolls back everything installed so far rather than leaving a
-                # mod whose requirements are only partly met.
-                decky.logger.error(
-                    f"Dependency {dep_full_name} of {full_name} failed to install; aborting"
-                )
-                return False
-        target_version = version or latest.get("version_number")
-        if version:
-            url = thunderstore.get_download_url(pkg["owner"], pkg["name"], version)
-        else:
-            url = latest.get("download_url")
-        if not url or not target_version:
-            decky.logger.error(f"Could not resolve download URL for {full_name}")
-            return False
-        ml_id = game.modloaders[0].id if game.modloaders else ""
-        mod = registry.ModInfo(
-            id=pkg["full_name"],
-            name=pkg["name"],
-            description=latest.get("description", ""),
-            filename=pkg["name"],
-            source=registry.ModSource(
-                type="thunderstore",
-                owner=pkg["owner"],
-                repo=pkg["name"],
-                install_type="zip_dir",
-            ),
-            author=pkg["owner"],
-            homepage=pkg.get("package_url", ""),
-            thumbnail=latest.get("icon", ""),
-            modloader=ml_id,
-            dependencies=list(latest.get("dependencies", [])),
+        """Install a Thunderstore mod plus its dependencies (depth-first), via the shared cascade.
+        Already-installed deps and denylisted packages are skipped; a failed/missing dependency
+        aborts (unless allow_missing skips a missing one). Returns True/False/None."""
+        provider = install_cascade.ThunderstoreProvider(self._BROWSE_DENYLIST)
+        return await install_cascade.run_cascade(
+            provider, game, install_dir, full_name, version,
+            seen=seen, installed=installed_this_run, with_deps=with_deps,
+            allow_missing=allow_missing, is_dependency=is_dependency,
         )
-        await download_queue.note_item(mod.name)
-        res = await mods.install_mod(game, install_dir, mod, version=target_version, url=url)
-        if res and was_fresh and installed_this_run is not None:
-            installed_this_run.append(mod.id)
-        return res
 
     async def reset_game(self, appid: int) -> dict:
         """Reset a game to its unmodded state: uninstall every tracked mod, then every
