@@ -690,8 +690,6 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
         return await _install_mod_zip_dir(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_flat":
         return await _install_mod_zip_flat(game, install_dir, mods_path, mod, version, url)
-    if mod.source.install_type == "zip_into_game":
-        return await _install_mod_zip_into_game(game, install_dir, mod, version, url)
     if mod.source.install_type == "zip_natives":
         return await _install_mod_zip_natives(game, install_dir, mod, version, url, variant)
     # Guard: only the single-file installer is a safe default. An unrecognized install_type
@@ -1374,67 +1372,6 @@ def discard_natives_cache(filename: str) -> None:
             shutil.rmtree(tmp_extract)
     except Exception as e:
         decky.logger.warning(f"Failed to discard natives cache {tmp_extract}: {e}")
-
-
-async def _install_mod_zip_into_game(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
-    """Install a zip whose payload sits under one inner folder by merging that folder's contents
-    into the game root (e.g. BepInExPack/<files> → <files> at the game root).
-
-    The archive is downloaded and extracted to scratch OUTSIDE the live tree, then committed in a
-    single _StagedInstall transaction — so the game dir is never half-written and any failure (bad
-    zip, cancel, disk full) rolls the tree back to its prior state. Files are MERGED in one at a
-    time rather than replacing whole directories, so a (re)install overwrites only its own files and
-    leaves co-located files (a user's BepInEx/plugins/) intact. This mirrors
-    modloaders._install_thunderstore_modloader, which fixed the same atomicity/wipe gap — the old
-    code here copied straight into install_dir (rmtree-ing existing dirs first) with no transaction.
-    Scratch lives in the runtime dir under sweep-recognized suffixes, so a crash mid-install is
-    cleaned up at startup."""
-    import zipfile, shutil
-    tmp_zip = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_into_game_tmp.zip")
-    tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_into_game_extract")
-    try:
-        decky.logger.info(f"Downloading {mod.name} from {url}")
-        await utils.download(url, tmp_zip, game.appid)
-
-        if os.path.exists(tmp_dir):
-            shutil.rmtree(tmp_dir)
-        os.makedirs(tmp_dir)
-        with zipfile.ZipFile(tmp_zip, "r") as z:
-            z.extractall(tmp_dir)
-
-        # The payload is usually nested under one inner folder (e.g. BepInExPack/). Prefer a folder
-        # named after the mod; else a single top-level directory; otherwise the zip root is the
-        # payload. (Matches the prior member-prefix detection, now resolved on the extracted tree.)
-        inner_path = tmp_dir
-        named = os.path.join(tmp_dir, mod.filename)
-        if os.path.isdir(named):
-            inner_path = named
-        else:
-            subdirs = sorted(e for e in os.listdir(tmp_dir) if os.path.isdir(os.path.join(tmp_dir, e)))
-            if subdirs:
-                inner_path = os.path.join(tmp_dir, subdirs[0])
-
-        # Place every file under inner_path into the game dir in one transaction.
-        with _StagedInstall(install_dir) as txn:
-            for root, _dirs, files in os.walk(inner_path):
-                for fn in files:
-                    full = os.path.join(root, fn)
-                    txn.place(full, os.path.relpath(full, inner_path))
-
-        set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
-        decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) into game dir")
-        return True
-    except utils.InstallCancelledError:
-        decky.logger.info(f"Install of {mod.name} was cancelled")
-        return None
-    except Exception as e:
-        decky.logger.error(f"Failed to install {mod.name}: {e}")
-        return False
-    finally:
-        if os.path.exists(tmp_zip):
-            os.remove(tmp_zip)
-        if os.path.exists(tmp_dir):
-            shutil.rmtree(tmp_dir)
 
 
 def get_backed_up_versions(game: GameProfile, install_dir: str, mod_id: str) -> list[str]:
