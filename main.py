@@ -546,8 +546,7 @@ class Plugin:
         # Already installed (and no version pin) — skip, like the Thunderstore cascade. Requires the
         # files on disk, not just a record: a modloader uninstall can orphan records whose files are
         # gone, and a stale record must not make a reinstall a no-op.
-        existing = mods.get_installed_record(key)
-        present = existing is not None and mods.mod_files_present(game, install_dir, existing)
+        present = mods.installed_files_present(game, install_dir, key)
         if present and version is None:
             decky.logger.info(f"{key} already installed; skipping")
             return True
@@ -800,12 +799,7 @@ class Plugin:
         if key in seen or key in self._BROWSE_DENYLIST:
             return
         seen.add(key)
-        existing = mods.get_installed_record(full_name)
-        if existing is None:
-            for k in (mods._load_store() or {}).keys():
-                if k.lower() == key:
-                    existing = mods.get_installed_record(k)
-                    break
+        existing = mods.find_installed_record(full_name)
         # Mirror the install skip: a mod only counts as installed (and drops out of the plan) when
         # its files are actually present. When install_dir is given (the size pre-pass), check the
         # disk so an orphaned record is still counted; without it (unresolved-deps probe) the
@@ -857,19 +851,12 @@ class Plugin:
         if key in self._BROWSE_DENYLIST:
             decky.logger.info(f"Skipping denylisted package {full_name}")
             return True
-        # Skip if already installed (lookup is case-insensitive against installed.json keys)
-        existing = mods.get_installed_record(full_name)
-        if existing is None:
-            # Fallback: scan store keys case-insensitively in case the catalog uses
-            # different casing than what was originally persisted
-            for k in (mods._load_store() or {}).keys():
-                if k.lower() == key:
-                    existing = mods.get_installed_record(k)
-                    break
-        # "Already installed" must mean the files are actually on disk, not merely that a record
-        # exists: uninstalling the BepInEx modloader rmtree's BepInEx/, deleting plugins while
-        # their records remain, and a stale record must not turn a reinstall into a silent no-op.
-        present = existing is not None and mods.mod_files_present(game, install_dir, existing)
+        # Skip if already installed — "installed" must mean the files are actually on disk, not
+        # merely that a record exists: uninstalling the BepInEx modloader rmtree's BepInEx/, deleting
+        # plugins while their records remain, and a stale record must not turn a reinstall into a
+        # silent no-op. The lookup is case-insensitive against installed.json keys, since the catalog
+        # casing may differ from what was originally persisted.
+        present = mods.installed_files_present(game, install_dir, full_name)
         if present and version is None:
             decky.logger.info(f"{full_name} already installed; skipping")
             return True

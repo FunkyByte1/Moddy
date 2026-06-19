@@ -116,6 +116,31 @@ def get_installed_record(mod_id: str) -> dict | None:
     return _load_store().get(mod_id)
 
 
+def find_installed_record(mod_id: str) -> dict | None:
+    """Like get_installed_record, but case-insensitive on the mod id. Install ids come
+    from catalogs whose casing may differ from what was originally persisted, so an
+    exact-key miss falls back to a case-insensitive scan of the store keys."""
+    store = _load_store()
+    record = store.get(mod_id)
+    if record is not None:
+        return record
+    target = mod_id.lower()
+    for k, v in store.items():
+        if k.lower() == target:
+            return v
+    return None
+
+
+def installed_files_present(game: GameProfile, install_dir: str, mod_id: str) -> bool:
+    """True if `mod_id` has an install record (matched case-insensitively) AND its tracked
+    files are actually on disk. The dependency cascades use this to decide whether a mod is
+    already installed: a record alone isn't enough, because uninstalling a modloader can
+    orphan records whose files are gone, and a stale record must not turn a reinstall into a
+    silent no-op."""
+    record = find_installed_record(mod_id)
+    return record is not None and mod_files_present(game, install_dir, record)
+
+
 def set_mod_enabled(mod_id: str, enabled: bool) -> None:
     """Persist a mod's enabled flag in its install record. Used by Workshop mods,
     whose enable/disable is a local Steam flag (SetWorkshopItemsDisabledLocally,
