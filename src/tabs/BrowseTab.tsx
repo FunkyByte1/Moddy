@@ -272,11 +272,11 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     [game.installed_mods]
   );
 
-  // Mods/deps already covered by an in-flight or queued install: each job's own mod (`ref`)
-  // plus the dependencies it declares (looked up in the catalog). The serial worker installs
-  // a shared dependency only once — its cascade skips deps that are already recorded — so this
-  // set lets the UI stop re-prompting for (and visually re-queuing) a dep that's about to exist
-  // because an earlier job is still downloading it.
+  // Mods/deps already covered by an in-flight or queued install: each in-flight mod plus its full
+  // (transitive) dependency tree, looked up in the catalog. The serial worker installs a shared
+  // dependency only once — its cascade skips deps that are already recorded — so this set lets the
+  // UI stop re-prompting for (and visually re-queuing) a dep that's about to exist because an
+  // earlier job is still downloading it.
   const queue = useDownloadQueue();
   const queuedRefs = useMemo(
     () => new Set(queue.filter(j => isActiveStatus(j.status)).map(j => j.ref.toLowerCase())),
@@ -293,17 +293,27 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     });
   }, [queuedRefs]);
   const pendingDepIds = useMemo(() => {
+    // Mods being installed right now: active queue jobs, plus just-clicked refs not yet in the queue
+    // (the optimistic `pending` set covers the brief enqueue round-trip).
+    const inFlight = new Set<string>();
+    for (const j of queue) if (isActiveStatus(j.status)) inFlight.add(j.ref.toLowerCase());
+    for (const fn of pending) inFlight.add(fn.toLowerCase());
+    // Each install pulls its FULL transitive dependency tree (the backend cascade is recursive), so
+    // walk that tree via the catalog rather than only the direct deps — otherwise a dependency an
+    // in-flight mod pulls in transitively (but a second mod declares directly) would still be
+    // re-prompted. Cycle-guarded by the result set; a Map keeps the recursive lookups O(1).
+    const byId = new Map(catalog.map(c => [c.full_name.toLowerCase(), c]));
     const ids = new Set<string>();
-    for (const j of queue) {
-      if (!isActiveStatus(j.status)) continue;
-      ids.add(j.ref.toLowerCase());
-      const p = catalog.find(c => c.full_name.toLowerCase() === j.ref.toLowerCase());
-      for (const d of p?.latest.dependencies ?? []) {
-        ids.add(d.split('-').slice(0, -1).join('-').toLowerCase());
+    const visit = (id: string) => {
+      if (ids.has(id)) return;
+      ids.add(id);
+      for (const d of byId.get(id)?.latest.dependencies ?? []) {
+        visit(d.split('-').slice(0, -1).join('-').toLowerCase());
       }
-    }
+    };
+    inFlight.forEach(visit);
     return ids;
-  }, [queue, catalog]);
+  }, [queue, pending, catalog]);
 
   // Library categories ("Libraries"/"API") are governed by the dedicated
   // "Show Libraries" toggle, so they're kept out of the generic category list to
