@@ -37,6 +37,8 @@ export interface PagedVenueAdapter {
   installModel: 'queue' | 'inline';    // queue → optimistic pending + queue footer; inline → local busy
   hasFilter: boolean;                  // Nexus: filter button + client installed-status filter
   emptyText: string;                   // "Catalog unavailable — …" when the first page is empty (no search)
+  installNotice?: string;              // Workshop: shown under the Install button (only when not installed)
+                                       // so the user knows the action subscribes them via their Steam account
 
   fetchPage(game: GameStatus, query: string, page: number, nsfw: boolean): Promise<BrowseItem[]>;
   installedIds(game: GameStatus): Set<string>;

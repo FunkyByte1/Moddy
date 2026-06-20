@@ -235,6 +235,13 @@ const BrowsePagedTab: FC<{
                     : isInstalled(selected) ? 'Uninstall' : 'Install'}
                 </ButtonItem>
               </PanelSectionRow>
+              {adapter.installNotice && !isInstalled(selected) && (
+                <PanelSectionRow>
+                  <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em' }}>
+                    {adapter.installNotice}
+                  </div>
+                </PanelSectionRow>
+              )}
             </PanelSection>
             {detail.description && (
               <div style={{ fontSize: 13, lineHeight: '18px', color: 'var(--gpColorTextSecondary)', whiteSpace: 'pre-wrap' }}>

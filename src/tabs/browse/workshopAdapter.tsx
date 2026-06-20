@@ -40,6 +40,9 @@ export const workshopAdapter: PagedVenueAdapter = {
   installModel: 'inline',
   hasFilter: false,
   emptyText: 'Catalog unavailable — check network.',
+  installNotice:
+    'Installing subscribes you to this item (and any required items) through your Steam account. ' +
+    'They appear in your Steam Workshop subscriptions; uninstalling unsubscribes them.',
 
   async fetchPage(game, query, page) {
     // Sorted by most-subscribed for now (a press-Y sort selector could re-add the option).

@@ -132,7 +132,8 @@ function NexusApiKeyField() {
       <PanelSectionRow>
         <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em' }}>
           Generate a personal key at nexusmods.com → Account → API Keys. Premium accounts
-          can install; a key is required for browsing.
+          can install; a key is required for browsing. Downloads use your own Nexus Mods
+          account and are subject to Nexus Mods' Terms of Service.
         </div>
       </PanelSectionRow>
     </>
