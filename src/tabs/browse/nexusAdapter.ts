@@ -45,9 +45,6 @@ export const nexusAdapter: PagedVenueAdapter = {
   uninstallId(_game, item) {
     return item.key; // full_name
   },
-  isBusy(item, { installing, pending, queuedRefs }) {
-    return installing === item.key || pending.has(item.key) || queuedRefs.has(item.key.toLowerCase());
-  },
   install(item, ctx) {
     // Hand to the background queue; the optimistic pending mark shows busy until the job appears.
     ctx.addPending(item.key);

@@ -136,8 +136,18 @@ const BrowsePagedTab: FC<{
 
   const selected = visible[Math.min(selectedIndex, visible.length - 1)] ?? null;
 
-  const { setInstalling, isBusy, handleInstall } = useBrowseInstall(adapter, game, onRefresh);
-  const handleUninstall = useBrowseUninstall(adapter, game, onRefresh, setInstalling);
+  const { setInstalling, isBusy, addPending, removePending } = useBrowseInstall(adapter.installModel);
+  const handleInstall = (it: BrowseItem) =>
+    adapter.install(it, { game, onRefresh, setInstalling, addPending, removePending });
+  const uninstall = useBrowseUninstall(game, onRefresh, setInstalling);
+  const handleUninstall = (it: BrowseItem) => {
+    const uid = adapter.uninstallId(game, it);
+    uninstall({
+      uninstallId: uid, title: it.title, busyKey: it.key,
+      // Nexus/Workshop record deps as the full install id — match it directly.
+      dependents: game.installed_mods.filter(m => (m.meta?.dependencies ?? []).includes(uid)),
+    });
+  };
 
   const detail = selected ? adapter.detail(selected) : null;
   const queueFooter = useQueueFooterProps();
@@ -217,10 +227,10 @@ const BrowsePagedTab: FC<{
               <PanelSectionRow>
                 <ButtonItem
                   layout="below"
-                  disabled={isBusy(selected)}
+                  disabled={isBusy(selected.key)}
                   onClick={() => (isInstalled(selected) ? handleUninstall(selected) : handleInstall(selected))}
                 >
-                  {isBusy(selected)
+                  {isBusy(selected.key)
                     ? (isInstalled(selected) ? 'Removing…' : 'Installing…')
                     : isInstalled(selected) ? 'Uninstall' : 'Install'}
                 </ButtonItem>

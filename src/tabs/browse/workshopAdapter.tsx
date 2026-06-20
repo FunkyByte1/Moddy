@@ -53,9 +53,6 @@ export const workshopAdapter: PagedVenueAdapter = {
   uninstallId(game, item) {
     return workshopModId(game.appid, item.key);
   },
-  isBusy(item, { installing }) {
-    return installing === item.key;
-  },
   install(item, ctx) {
     // Inline install (SteamClient subscribe), not the queue. Steam doesn't cascade an item's required
     // items, so surface the not-yet-installed ones as a confirmation gate first, then installWorkshopTree.

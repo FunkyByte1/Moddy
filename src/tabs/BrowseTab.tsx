@@ -11,21 +11,17 @@ import {
   getBmiCatalog,
   enqueueBmi,
   getUnresolvedDependencies,
-  uninstallMod,
-  toggleMod,
   getBrowseDenylist,
 } from '../types';
-import { useDownloadQueue, isActiveStatus } from '../downloadQueue';
 import { useQueueFooterProps } from '../components/DownloadQueueModal';
-import DependentsModal from '../components/modals/DependentsModal';
 import DependencyInstallModal from '../components/modals/DependencyInstallModal';
 import MissingDependencyModal from '../components/modals/MissingDependencyModal';
-import { showOrphanCleanup } from '../orphanCleanup';
 import { CatalogSourceLabel } from '../components/CatalogSource';
 import { BrowseFilter } from '../components/modals/BrowseFilterModal';
 import { centerInView } from '../components/centerInView';
-import { modDisplayName } from '../modName';
 import { transitiveCatalogDeps } from '../browseDeps';
+import { useBrowseInstall } from './browse/useBrowseInstall';
+import { useBrowseUninstall } from './browse/useBrowseUninstall';
 
 interface Props {
   game: GameStatus;
@@ -239,10 +235,6 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
   const [denylist, setDenylist] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [installing, setInstalling] = useState<string | null>(null);
-  // Optimistic "just clicked install" set, so the button shows busy instantly instead of waiting
-  // for the enqueue round-trip + queue_state event — otherwise a quick double-press enqueues twice.
-  const [pending, setPending] = useState<Set<string>>(new Set());
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<FixedSizeList | null>(null);
 
@@ -275,36 +267,24 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     [game.installed_mods]
   );
 
+  // Shared install busy-state (optimistic pending → queue handoff) + the uninstall flow.
+  const { setInstalling, isBusy, addPending, removePending, pending, queuedRefs } =
+    useBrowseInstall('queue');
+  const uninstall = useBrowseUninstall(game, onRefresh, setInstalling);
+
   // Mods/deps already covered by an in-flight or queued install: each in-flight mod plus its full
   // (transitive) dependency tree, looked up in the catalog. The serial worker installs a shared
-  // dependency only once — its cascade skips deps that are already recorded — so this set lets the
-  // UI stop re-prompting for (and visually re-queuing) a dep that's about to exist because an
-  // earlier job is still downloading it.
-  const queue = useDownloadQueue();
-  const queuedRefs = useMemo(
-    () => new Set(queue.filter(j => isActiveStatus(j.status)).map(j => j.ref.toLowerCase())),
-    [queue]
-  );
-  // Hand off the optimistic mark once the real job shows up in the queue (no busy-state flicker).
-  useEffect(() => {
-    setPending(p => {
-      if (p.size === 0) return p;
-      let changed = false;
-      const next = new Set(p);
-      for (const fn of p) if (queuedRefs.has(fn.toLowerCase())) { next.delete(fn); changed = true; }
-      return changed ? next : p;
-    });
-  }, [queuedRefs]);
+  // dependency only once — so this set lets the UI stop re-prompting for (and visually re-queuing) a
+  // dep that's about to exist because an earlier job is still downloading it.
   const pendingDepIds = useMemo(() => {
-    // Mods being installed right now: active queue jobs, plus just-clicked refs not yet in the queue
-    // (the optimistic `pending` set covers the brief enqueue round-trip). transitiveCatalogDeps walks
-    // each one's full dependency tree, so the install-deps prompt is suppressed for anything an
-    // in-flight install already covers (directly or transitively).
-    const inFlight = new Set<string>();
-    for (const j of queue) if (isActiveStatus(j.status)) inFlight.add(j.ref.toLowerCase());
+    // Mods being installed right now: active queue jobs (queuedRefs) plus just-clicked refs not yet
+    // in the queue (the optimistic `pending` set covers the brief enqueue round-trip).
+    // transitiveCatalogDeps walks each one's full dependency tree, so the install-deps prompt is
+    // suppressed for anything an in-flight install already covers (directly or transitively).
+    const inFlight = new Set<string>(queuedRefs);
     for (const fn of pending) inFlight.add(fn.toLowerCase());
     return transitiveCatalogDeps(catalog, inFlight);
-  }, [queue, pending, catalog]);
+  }, [queuedRefs, pending, catalog]);
 
   // Library categories ("Libraries"/"API") are governed by the dedicated
   // "Show Libraries" toggle, so they're kept out of the generic category list to
@@ -377,12 +357,12 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
   // the queue's completion is what refreshes the installed list + toasts (see ModPage), so
   // this just enqueues and returns. Uninstall stays inline (handleUninstall, below).
   const runInstall = (pkg: ThunderstorePackage, withDeps = true, allowMissing = false) => {
-    setPending(p => new Set(p).add(pkg.full_name));
+    addPending(pkg.full_name);
     const done = isBmi
       ? enqueueBmi(game.appid, pkg.full_name, pkg.name, null)
       : enqueueThunderstore(game.appid, pkg.full_name, pkg.name, null, withDeps, allowMissing);
     done.catch(() => {
-      setPending(p => { const n = new Set(p); n.delete(pkg.full_name); return n; });
+      removePending(pkg.full_name);
       toaster.toast({ title: 'Moddy', body: `Failed to queue ${pkg.name}` });
     });
   };
@@ -435,53 +415,14 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
   };
 
   const handleUninstall = (pkg: ThunderstorePackage) => {
-    // Installed mods record their deps as versioned Thunderstore strings
-    // ("Owner-Mod-1.2.3"); the install id drops the trailing version segment.
+    // Thunderstore deps are recorded as versioned full_names ("Owner-Mod-1.2.3"), so strip the
+    // version to match this mod's install id — unlike Nexus/Workshop, whose recorded deps are
+    // already full install ids. The shared hook handles the rest (dependents prompt + orphan sweep).
     const fn = pkg.full_name.toLowerCase();
     const dependents = game.installed_mods.filter(m =>
-      (m.meta?.dependencies ?? []).some(
-        d => d.split('-').slice(0, -1).join('-').toLowerCase() === fn
-      )
+      (m.meta?.dependencies ?? []).some(d => d.split('-').slice(0, -1).join('-').toLowerCase() === fn),
     );
-
-    const run = async (depAction: 'disable' | 'delete' | 'none') => {
-      setInstalling(pkg.full_name);
-      try {
-        if (depAction === 'delete') {
-          for (const dep of dependents) await uninstallMod(game.appid, dep.id);
-        } else if (depAction === 'disable') {
-          for (const dep of dependents) await toggleMod(game.appid, dep.id, false);
-        }
-        const ok = await uninstallMod(game.appid, pkg.full_name);
-        toaster.toast({
-          title: 'Moddy',
-          body: ok ? `Uninstalled ${pkg.name}` : `Failed to uninstall ${pkg.name}`,
-        });
-        await onRefresh();
-      } finally {
-        setInstalling(null);
-      }
-      const removedIds = depAction === 'delete'
-        ? [pkg.full_name, ...dependents.map(d => d.id)]
-        : [pkg.full_name];
-      showOrphanCleanup({
-        game, denylist: new Set<string>(), removedIds, mode: 'uninstall',
-        onRefresh, setBusy: b => setInstalling(b ? pkg.full_name : null),
-      });
-    };
-
-    if (dependents.length > 0) {
-      showModal(
-        <DependentsModal
-          dependentNames={dependents.map(m => modDisplayName(m))}
-          onDisable={close => { close(); run('disable'); }}
-          onIgnore={close => { close(); run('none'); }}
-          onDelete={close => { close(); run('delete'); }}
-        />
-      );
-      return;
-    }
-    run('none');
+    uninstall({ uninstallId: pkg.full_name, title: pkg.name, busyKey: pkg.full_name, dependents });
   };
 
   // Pressing A on a left-list row jumps focus to the detail panel's install button (matching the
@@ -502,10 +443,9 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     ? installedIds.has(selectedPkg.full_name.toLowerCase())
     : false;
 
-  // A mod whose job is queued/downloading reads as "busy" on its detail button, same as the
-  // old inline install. `installing` (local) still covers the inline uninstall path.
-  const selectedBusy = !!installing && installing === selectedPkg?.full_name
-    || (!!selectedPkg && (pending.has(selectedPkg.full_name) || queuedRefs.has(selectedPkg.full_name.toLowerCase())));
+  // A mod whose job is queued/downloading (or just-clicked, or mid-uninstall) reads as "busy" on its
+  // detail button — the shared queue busy-state.
+  const selectedBusy = !!selectedPkg && isBusy(selectedPkg.full_name);
 
   // Always render the Focusable layout, even during loading. If the loading
   // branch returns a bare div with no focusable children, Steam's autoFocus

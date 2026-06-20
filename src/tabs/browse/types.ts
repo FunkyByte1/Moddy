@@ -19,13 +19,6 @@ export interface BrowseDetail {
   description: string; // already cleaned (Workshop strips BBCode)
 }
 
-// Busy-state inputs the adapter reads to decide if an item's button shows "busy".
-export interface BusyContext {
-  installing: string | null; // local inline-install id
-  pending: Set<string>;      // optimistic just-clicked refs (queue venues)
-  queuedRefs: Set<string>;   // active download-queue refs, lowercased (queue venues)
-}
-
 // Tools the adapter's install() uses to drive busy state + refresh.
 export interface InstallContext {
   game: GameStatus;
@@ -49,7 +42,5 @@ export interface PagedVenueAdapter {
   installedIds(game: GameStatus): Set<string>;
   detail(item: BrowseItem): BrowseDetail;
   uninstallId(game: GameStatus, item: BrowseItem): string; // recorded id used for uninstall + dependents
-
-  isBusy(item: BrowseItem, ctx: BusyContext): boolean;
   install(item: BrowseItem, ctx: InstallContext): void;
 }

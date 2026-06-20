@@ -1,18 +1,15 @@
 import { useState, useMemo, useEffect } from 'react';
 
-import { GameStatus } from '../../types';
 import { useDownloadQueue, isActiveStatus } from '../../downloadQueue';
-import { BrowseItem, PagedVenueAdapter } from './types';
 
-// Shared install busy-state for every browse venue (paged + bulk). Queue venues (Thunderstore,
-// Nexus) show an optimistic `pending` mark on click that hands off to the real download-queue job;
-// inline venues (Workshop) use only the local `installing` id. The adapter's isBusy/install decide
-// which apply — this hook just owns the state and threads it in.
-export function useBrowseInstall(
-  adapter: PagedVenueAdapter,
-  game: GameStatus,
-  onRefresh: () => Promise<void>,
-) {
+// Shared install busy-state for every browse tab (paged Nexus/Workshop + bulk Thunderstore/BMI).
+// Queue venues show an optimistic `pending` mark on click that hands off to the real download-queue
+// job; the inline venue (Workshop) uses only the local `installing` id. The hook owns that state and
+// exposes the primitives each tab's own install action uses (the install *action* differs per venue
+// — a plain enqueue, an inline subscribe, or a dependency-prompt flow — so it stays in the tab).
+//
+// `pending` + `queuedRefs` are exposed for the bulk tab's pendingDepIds in-flight set.
+export function useBrowseInstall(installModel: 'queue' | 'inline') {
   const [installing, setInstalling] = useState<string | null>(null);
   const [pending, setPending] = useState<Set<string>>(new Set());
 
@@ -32,14 +29,14 @@ export function useBrowseInstall(
     });
   }, [queuedRefs]);
 
-  const isBusy = (it: BrowseItem) => adapter.isBusy(it, { installing, pending, queuedRefs });
+  // `key` is the install id (full_name / fileId). Queue venues also read the optimistic + queued sets.
+  const isBusy = (key: string): boolean =>
+    installModel === 'queue'
+      ? installing === key || pending.has(key) || queuedRefs.has(key.toLowerCase())
+      : installing === key;
 
-  const handleInstall = (it: BrowseItem) =>
-    adapter.install(it, {
-      game, onRefresh, setInstalling,
-      addPending: (ref) => setPending(p => new Set(p).add(ref)),
-      removePending: (ref) => setPending(p => { const n = new Set(p); n.delete(ref); return n; }),
-    });
+  const addPending = (ref: string) => setPending(p => new Set(p).add(ref));
+  const removePending = (ref: string) => setPending(p => { const n = new Set(p); n.delete(ref); return n; });
 
-  return { installing, setInstalling, isBusy, handleInstall };
+  return { installing, setInstalling, isBusy, addPending, removePending, pending, queuedRefs };
 }
