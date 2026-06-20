@@ -1,6 +1,6 @@
 import { ModalRoot, DialogButton, Focusable } from '@decky/ui';
 import { showModal } from '@decky/ui';
-import { FC, useEffect } from 'react';
+import { FC, useEffect, useRef } from 'react';
 
 import { QueueJob, cancelDownloadJob, clearDownloadJob, clearFinishedDownloads, resumeDownloadJob } from '../types';
 import { useDownloadQueue, isActiveStatus, jobStatusText } from '../downloadQueue';
@@ -37,6 +37,19 @@ const DownloadQueueModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => 
 
   // Release the single-open guard when the modal unmounts (closed by B/back or the button).
   useEffect(() => () => { modalOpen = false; }, []);
+
+  // Default gamepad focus to the footer's first button — "Clear finished" when there are
+  // finished jobs to clear, otherwise "Close" — instead of the top download row, so opening
+  // the queue just to dismiss it doesn't start you deep in the list. rAF lets it win over the
+  // modal's own initial autofocus (same trick as UnusedLibrariesModal). Mount-only so a job
+  // finishing while you're scrolling the list doesn't yank focus back to the footer.
+  const footerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      (footerRef.current?.querySelector('button, [tabindex]') as HTMLElement | null)?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   return (
     <ModalRoot closeModal={closeModal}>
@@ -98,7 +111,7 @@ const DownloadQueueModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => 
 
         {/* flow-children="horizontal" so the D-pad navigates left/right between these (the default
             for a Focusable group is vertical, which is why it was up/down before). */}
-        <Focusable flow-children="horizontal" style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
+        <Focusable ref={footerRef} flow-children="horizontal" style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
           {hasFinished && (
             <DialogButton onClick={() => clearFinishedDownloads()}>Clear finished</DialogButton>
           )}
