@@ -1,17 +1,15 @@
-import { ButtonItem, Focusable, PanelSection, PanelSectionRow, ScrollPanelGroup, Spinner, TextField, showModal } from '@decky/ui';
+import { ButtonItem, Focusable, PanelSection, PanelSectionRow, ScrollPanelGroup, Spinner, TextField } from '@decky/ui';
 import { toaster } from '@decky/api';
 import { FC, useState, useEffect, useMemo } from 'react';
 
-import { GameStatus, uninstallMod, toggleMod } from '../../types';
-import { useDownloadQueue, isActiveStatus } from '../../downloadQueue';
+import { GameStatus } from '../../types';
 import { useQueueFooterProps } from '../../components/DownloadQueueModal';
-import DependentsModal from '../../components/modals/DependentsModal';
-import { showOrphanCleanup } from '../../orphanCleanup';
 import { CatalogSourceLabel } from '../../components/CatalogSource';
 import { centerInView } from '../../components/centerInView';
 import { useGamepadListFocus } from '../../components/useGamepadListFocus';
-import { modDisplayName } from '../../modName';
 import { BrowseItem, PagedVenueAdapter } from './types';
+import { useBrowseInstall } from './useBrowseInstall';
+import { useBrowseUninstall } from './useBrowseUninstall';
 
 // Steam's gamepad-scrollable container (scrolls with the right stick); falls back to a plain
 // Focusable if the internal lookup fails. Paged venues load only a few pages, so the list is NOT
@@ -67,9 +65,6 @@ const BrowsePagedTab: FC<{
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const [installing, setInstalling] = useState<string | null>(null);
-  // Optimistic "just clicked install" set (queue venues), so the button shows busy instantly.
-  const [pending, setPending] = useState<Set<string>>(new Set());
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
@@ -141,63 +136,8 @@ const BrowsePagedTab: FC<{
 
   const selected = visible[Math.min(selectedIndex, visible.length - 1)] ?? null;
 
-  const queue = useDownloadQueue();
-  const queuedRefs = useMemo(
-    () => new Set(queue.filter(j => isActiveStatus(j.status)).map(j => j.ref.toLowerCase())),
-    [queue],
-  );
-  // Hand off the optimistic mark once the real job appears in the queue (queue venues only).
-  useEffect(() => {
-    setPending(p => {
-      if (p.size === 0) return p;
-      let changed = false;
-      const next = new Set(p);
-      for (const fn of p) if (queuedRefs.has(fn.toLowerCase())) { next.delete(fn); changed = true; }
-      return changed ? next : p;
-    });
-  }, [queuedRefs]);
-
-  const isBusy = (it: BrowseItem) => adapter.isBusy(it, { installing, pending, queuedRefs });
-
-  const handleInstall = (it: BrowseItem) => {
-    adapter.install(it, {
-      game, onRefresh, setInstalling,
-      addPending: (ref) => setPending(p => new Set(p).add(ref)),
-      removePending: (ref) => setPending(p => { const n = new Set(p); n.delete(ref); return n; }),
-    });
-  };
-
-  const handleUninstall = (it: BrowseItem) => {
-    const uid = adapter.uninstallId(game, it);
-    const dependents = game.installed_mods.filter(m => (m.meta?.dependencies ?? []).includes(uid));
-    const run = async (action: 'disable' | 'delete' | 'none') => {
-      setInstalling(it.key);
-      try {
-        if (action === 'delete') for (const d of dependents) await uninstallMod(game.appid, d.id);
-        else if (action === 'disable') for (const d of dependents) await toggleMod(game.appid, d.id, false);
-        const ok = await uninstallMod(game.appid, uid);
-        toaster.toast({ title: 'Moddy', body: ok ? `Removed ${it.title}` : `Failed to remove ${it.title}` });
-        await onRefresh();
-      } finally { setInstalling(null); }
-      const removedIds = action === 'delete' ? [uid, ...dependents.map(d => d.id)] : [uid];
-      showOrphanCleanup({
-        game, denylist: new Set<string>(), removedIds, mode: 'uninstall',
-        onRefresh, setBusy: b => setInstalling(b ? it.key : null),
-      });
-    };
-    if (dependents.length > 0) {
-      showModal(
-        <DependentsModal
-          dependentNames={dependents.map(m => modDisplayName(m))}
-          onDisable={c => { c(); run('disable'); }}
-          onIgnore={c => { c(); run('none'); }}
-          onDelete={c => { c(); run('delete'); }}
-        />,
-      );
-      return;
-    }
-    run('none');
-  };
+  const { setInstalling, isBusy, handleInstall } = useBrowseInstall(adapter, game, onRefresh);
+  const handleUninstall = useBrowseUninstall(adapter, game, onRefresh, setInstalling);
 
   const detail = selected ? adapter.detail(selected) : null;
   const queueFooter = useQueueFooterProps();
