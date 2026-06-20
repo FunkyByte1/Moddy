@@ -1,7 +1,7 @@
 import { ButtonItem, ModalRoot } from '@decky/ui';
 import { FC, useState, useEffect } from 'react';
 
-const LOCKOUT_SECONDS = 3;
+const LOCKOUT_SECONDS = 1;
 
 const ResetGameModal: FC<{
   gameName: string;
