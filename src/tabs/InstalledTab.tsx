@@ -1,4 +1,4 @@
-import { showModal, Focusable, ButtonItem, PanelSection, PanelSectionRow } from '@decky/ui';
+import { showModal, ConfirmModal, Focusable, ButtonItem, PanelSection, PanelSectionRow } from '@decky/ui';
 import { toaster } from '@decky/api';
 import { useState, useEffect, useMemo, useCallback, useRef, FC } from 'react';
 
@@ -19,6 +19,7 @@ import DependencyInstallModal from '../components/modals/DependencyInstallModal'
 import { findUnusedLibraries, showUnusedLibrariesCleanup } from '../orphanCleanup';
 import { modDisplayName } from '../modName';
 import { buildModGraph } from '../modGraph';
+import { SHOW_VERSION_OPTIONS } from '../featureFlags';
 
 const InstalledTab: FC<{
   game: GameStatus;
@@ -170,16 +171,35 @@ const InstalledTab: FC<{
 
   const handleDeleteMod = async (mod: ModInfo) => {
     const currentVersion = modByLowerId.get(mod.id.toLowerCase())?.version ?? null;
-    const backedUp = await getBackedUpVersions(game.appid, mod.id);
+    // Backed-up versions only feed the version picker, which is hidden unless SHOW_VERSION_OPTIONS.
+    const backedUp = SHOW_VERSION_OPTIONS ? await getBackedUpVersions(game.appid, mod.id) : [];
     const dependents = collectDependents([mod.id], false);
 
-    const showDeleteModal = () => showModal(
-      <DeleteVersionModal
-        modName={mod.name} currentVersion={currentVersion} backedUpVersions={backedUp}
-        onDeleteAll={async (c) => { c(); setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
-        onDeleteVersion={async (version, c) => { c(); setBusy(true); if (currentVersion === version) { await uninstallMod(game.appid, mod.id); } else { await deleteModVersion(game.appid, mod.id, version); } await onRefresh(); setBusy(false); }}
-      />
-    );
+    const showDeleteModal = () => {
+      // With version options hidden there's nothing to choose, so the DeleteVersionModal picker
+      // degenerates into a single "Delete" button that only opens this same confirmation — a
+      // redundant extra step left over from the version-picker era. Go straight to the confirm.
+      if (!SHOW_VERSION_OPTIONS) {
+        showModal(
+          <ConfirmModal
+            strTitle={`Delete ${mod.name}?`}
+            strDescription="This will remove the mod from disk."
+            strOKButtonText="Delete"
+            strCancelButtonText="Cancel"
+            bDestructiveWarning
+            onOK={async () => { setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
+          />
+        );
+        return;
+      }
+      showModal(
+        <DeleteVersionModal
+          modName={mod.name} currentVersion={currentVersion} backedUpVersions={backedUp}
+          onDeleteAll={async (c) => { c(); setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
+          onDeleteVersion={async (version, c) => { c(); setBusy(true); if (currentVersion === version) { await uninstallMod(game.appid, mod.id); } else { await deleteModVersion(game.appid, mod.id, version); } await onRefresh(); setBusy(false); }}
+        />
+      );
+    };
 
     if (dependents.length > 0) {
       showModal(
