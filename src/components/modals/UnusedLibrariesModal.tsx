@@ -1,5 +1,5 @@
 import { ButtonItem, Focusable, ModalRoot } from '@decky/ui';
-import { FC, useState } from 'react';
+import { FC, useEffect, useRef, useState } from 'react';
 
 // On-demand cleanup for library mods nothing installed relies on anymore (opened from the Installed
 // tab's "unused libraries" chip — never auto-popped after a removal). Everything is selected by
@@ -11,6 +11,16 @@ const UnusedLibrariesModal: FC<{
 }> = ({ libraries, onCleanup, closeModal }) => {
   const close = closeModal ?? (() => {});
   const [checked, setChecked] = useState<Set<string>>(() => new Set(libraries.map(l => l.id)));
+  // Default gamepad focus to the primary "Remove all" action rather than the first library row, so
+  // the common one-press flow doesn't make you scroll past the whole list first. rAF lets it win
+  // over the modal's own initial autofocus.
+  const removeAllRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      (removeAllRef.current?.querySelector('button, [tabindex]') as HTMLElement | null)?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
   const toggle = (id: string) =>
     setChecked(prev => {
       const next = new Set(prev);
@@ -36,7 +46,7 @@ const UnusedLibrariesModal: FC<{
             </ButtonItem>
           ))}
         </Focusable>
-        <div style={{ marginBottom: '8px' }}>
+        <div ref={removeAllRef} style={{ marginBottom: '8px' }}>
           <ButtonItem layout="below" disabled={count === 0} onClick={() => onCleanup([...checked], close)}>
             {count === libraries.length ? `Remove all (${count})` : `Remove selected (${count})`}
           </ButtonItem>
