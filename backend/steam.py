@@ -93,6 +93,65 @@ def set_launch_options(appid: int, options: str) -> bool:
         return False
 
 
+def get_compat_tool(appid: int) -> str:
+    """The Steam Play compatibility tool that will run this game, read from config.vdf.
+
+    Returns the per-app forced tool (Properties > Compatibility) if one is set, else the
+    global "Steam Play for all other titles" default, else "" — which for a game with a
+    native Linux build means it runs native. Mods built for the Windows build (BepInEx's
+    winhttp.dll) only load under Proton, so "" is the signal that modding won't work yet.
+    """
+    config_path = _find_config_vdf()
+    if not config_path:
+        return ""
+    try:
+        with open(config_path, "r") as f:
+            lines = f.readlines()
+    except Exception as e:
+        decky.logger.error(f"Failed to read compat tool for {appid}: {e}")
+        return ""
+    # Per-app override wins; fall back to the global default mapping (appid "0").
+    return _find_compat_tool_in_lines(lines, str(appid)) or _find_compat_tool_in_lines(lines, "0")
+
+
+def _find_compat_tool_in_lines(lines: list[str], appid: str) -> str:
+    """Walk config.vdf tracking brace depth to find
+    Software > Valve > Steam > CompatToolMapping > {appid} > "name" and return its value.
+    """
+    block_stack: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "{":
+            continue
+        if stripped == "}":
+            if block_stack:
+                block_stack.pop()
+            continue
+        key, value = _parse_vdf_line(stripped)
+        if key is None:
+            continue
+        if value is None:
+            block_stack.append(key)
+        elif key.lower() == "name" and _is_in_compat_mapping(block_stack, appid):
+            return value
+    return ""
+
+
+def _is_in_compat_mapping(block_stack: list[str], appid: str) -> bool:
+    """True when the innermost block is the {appid} entry under
+    ...Software > Valve > Steam > CompatToolMapping."""
+    s = [b.lower() for b in block_stack]
+    try:
+        idx = s.index("compattoolmapping")
+    except ValueError:
+        return False
+    pre = s[:idx]
+    if not ("software" in pre and "valve" in pre and "steam" in pre):
+        return False
+    # The appid block must be CompatToolMapping's immediate child and the current innermost block.
+    return idx == len(s) - 2 and s[idx + 1] == appid.lower()
+
+
 def _find_launch_options_in_lines(lines: list[str], appid: str) -> str:
     """
     Walk the VDF line by line tracking brace depth to find the correct
@@ -216,6 +275,12 @@ def _parse_vdf_line(stripped: str) -> tuple[str | None, str | None]:
     if m:
         return m.group(1), None
     return None, None
+
+
+def _find_config_vdf() -> str | None:
+    """The Steam-wide config.vdf (holds CompatToolMapping). Not per-user, unlike localconfig.vdf."""
+    candidate = os.path.join(decky.DECKY_USER_HOME, ".steam", "steam", "config", "config.vdf")
+    return candidate if os.path.isfile(candidate) else None
 
 
 def _find_localconfig() -> str | None:

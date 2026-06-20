@@ -64,6 +64,7 @@ class GameProfile:
     catalog: dict = field(default_factory=dict)          # Browse catalog source, e.g. {"type": "bmi", "repo": "...", "branch": "main"}
     library_workshop_ids: list[str] = field(default_factory=list)  # Workshop file ids treated as libraries (Haste tags are unreliable)
     frameworks: dict = field(default_factory=dict)       # framework-mod defs keyed by requirement flag (e.g. "steamodded")
+    requires_proton: bool = False        # True for games with a native Linux build whose mods are Windows-built (BepInEx winhttp.dll): they only load when the game is forced to run under Proton
     modloaders: list[ModloaderInfo] = field(default_factory=list)
 
     def get_modloader(self, modloader_id: str) -> ModloaderInfo | None:
@@ -195,6 +196,7 @@ def _load_game(path: str, ml_catalog: dict[str, ModloaderInfo]) -> GameProfile |
             catalog=dict(data.get("catalog", {})),
             library_workshop_ids=[str(x) for x in data.get("library_workshop_ids", [])],
             frameworks=dict(data.get("frameworks", {})),
+            requires_proton=bool(data.get("requires_proton", False)),
             modloaders=resolved_modloaders,
         )
     except Exception as e:

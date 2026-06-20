@@ -114,6 +114,11 @@ def _build_game_status(game: "registry.GameProfile", libraries: "list[str] | Non
         "modloader_installed": modloader_installed,
         "modloader_enabled": modloader_enabled,
         "modloader_ready": modloader_ready,
+        # Games with a native Linux build whose Windows-built mods only load under Proton. When
+        # set, the UI shows a "force Proton" prompt unless a compat tool is already configured.
+        # current_compat_tool is only read (config.vdf) for these games, never for the whole list.
+        "requires_proton": game.requires_proton,
+        "current_compat_tool": steam.get_compat_tool(game.appid) if game.requires_proton else "",
         "installed_mods": installed_mods_list,
     }
 
@@ -628,6 +633,7 @@ class Plugin:
         "bbepis-bepinexpack",
         "riskofthunder-bepinexpack",
         "bepinex-bepinexpack_peak",  # PEAK modloader — installed via the Mod Loader tab, not as a plugin
+        "bepinex-bepinexpack_etg",  # Enter the Gungeon modloader — installed via the Mod Loader tab, not as a plugin
         "ebkr-r2modman",
         "kesomannen-galemodmanager",
         "thunderstore-lovely",  # Balatro injector — installed via the Mod Loader tab, not as a Mods/ plugin

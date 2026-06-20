@@ -1,0 +1,10 @@
+{
+  "id": "enter-the-gungeon",
+  "name": "Enter the Gungeon",
+  "appid": 311690,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "enter-the-gungeon",
+  "requires_proton": true,
+  "modloader_ids": ["bepinex-etg"]
+}

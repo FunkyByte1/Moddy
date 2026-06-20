@@ -33,13 +33,13 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Risk of Rain 2
 - PEAK
 - Balatro
+- Enter the Gungeon
 - Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 - Slime Rancher 2 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 
 ### Planned:
 - Stardew Valley
 - No Man's Sky
-- Enter the Gungeon
 - Deep Rock Galactic
 - Monster Hunter World
 - and more :)

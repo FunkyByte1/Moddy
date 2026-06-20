@@ -109,6 +109,10 @@ export interface GameStatus {
   modloader_installed: boolean;
   modloader_enabled: boolean;
   modloader_ready: boolean;
+  // True for native-Linux games whose Windows-built mods only load under Proton (e.g. Enter the
+  // Gungeon). current_compat_tool is the tool Steam will run it with ('' = native, mods won't load).
+  requires_proton: boolean;
+  current_compat_tool: string;
   installed_mods: InstalledMod[];
 }
 
@@ -161,6 +165,43 @@ export const removeModloaderLaunchOptions = (appid: number, modloaderOptions: st
   next = tidyLaunchOptions(next);
   // Nothing but the bare placeholder (or nothing) left → field is back to default.
   setLaunchOptions(appid, next === '%command%' ? '' : next);
+};
+
+// ── Steam Play / Proton compatibility tool ────────────────────────────────────
+// Native-Linux games (e.g. Enter the Gungeon) run their native build by default, but their mods
+// are built for the Windows build (BepInEx injects via winhttp.dll), so they only load when the
+// game is forced to run under Proton. Moddy can't set the compat tool from the Python backend —
+// SpecifyCompatTool is a SteamClient method, same as the launch-options/Workshop calls above.
+
+// Pick the compat tool to force a game onto: prefer Proton Experimental (the rolling latest,
+// always present), else the newest-looking stock `proton_*`, else the first available tool.
+const pickProtonTool = (tools: { strToolName: string }[]): string | undefined => {
+  const names = tools.map(t => t.strToolName).filter(Boolean);
+  if (names.includes('proton_experimental')) return 'proton_experimental';
+  const stock = names.filter(n => n.toLowerCase().startsWith('proton_')).sort();
+  return stock[stock.length - 1] ?? names[0];
+};
+
+// Force `appid` to run under Proton so Windows-built mods load. Enumerates the installed compat
+// tools and applies the best Proton via SteamClient.Apps.SpecifyCompatTool. Returns the tool name
+// applied, or '' if the SteamClient API was unavailable / no tool could be chosen.
+export const setGameToProton = async (appid: number): Promise<string> => {
+  const apps = (window as any).SteamClient?.Apps;
+  if (typeof apps?.SpecifyCompatTool !== 'function') {
+    console.error('[Moddy] SteamClient.Apps.SpecifyCompatTool unavailable');
+    return '';
+  }
+  let tool = 'proton_experimental';
+  try {
+    if (typeof apps?.GetAvailableCompatTools === 'function') {
+      const tools = await apps.GetAvailableCompatTools(appid);
+      tool = pickProtonTool(tools ?? []) ?? tool;
+    }
+  } catch (e) {
+    console.error('[Moddy] GetAvailableCompatTools failed; defaulting to proton_experimental', e);
+  }
+  apps.SpecifyCompatTool(appid, tool);
+  return tool;
 };
 
 // ── Steam Workshop subscriptions ──────────────────────────────────────────────

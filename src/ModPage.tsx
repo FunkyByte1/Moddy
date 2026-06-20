@@ -1,4 +1,4 @@
-import { Tabs, showModal } from '@decky/ui';
+import { Tabs, showModal, DialogButton } from '@decky/ui';
 import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, useRef, FC } from 'react';
 
@@ -6,7 +6,7 @@ import DownloadQueuePill from './components/DownloadQueuePill';
 import { useQueueFooterProps, promptVariant } from './components/DownloadQueueModal';
 import { useDownloadQueue } from './downloadQueue';
 
-import { GameStatus, ModUpdate, getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
+import { GameStatus, ModUpdate, getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, setGameToProton, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
 import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
 import ProfilesTab from './tabs/ProfilesTab';
@@ -51,6 +51,10 @@ const ModPage: FC = () => {
   const [profilesRefreshKey, setProfilesRefreshKey] = useState(0);
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
   const [selectionMode, setSelectionMode] = useState(false);
+  // Optimistically hide the "force Proton" banner the moment the user applies it — config.vdf may
+  // not have flushed by the time refresh() re-reads it, so don't wait on the backend round-trip.
+  const [protonApplied, setProtonApplied] = useState(false);
+  const [settingProton, setSettingProton] = useState(false);
 
   const refresh = async () => {
     const found = await getGameStatus(appid);
@@ -484,6 +488,39 @@ const ModPage: FC = () => {
       {queue.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 12px', position: 'relative', zIndex: 50 }}>
           <DownloadQueuePill />
+        </div>
+      )}
+      {/* Force-Proton prompt: native-Linux games (e.g. Enter the Gungeon) run their native build by
+          default, but Windows-built mods only load under Proton. Shown only when the game is installed,
+          flagged requires_proton, and has no compat tool set yet — so it self-dismisses once fixed and
+          never nags games that are already configured. */}
+      {game?.installed && game.requires_proton && !game.current_compat_tool && !protonApplied && (
+        <div style={{
+          margin: '8px 12px', padding: '12px', borderRadius: '4px',
+          background: 'var(--gpColorBgTertiary, rgba(255,255,255,0.05))', borderLeft: '3px solid #f8a623',
+        }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>⚠ Proton required for mods</div>
+          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', lineHeight: 1.5, marginBottom: '10px' }}>
+            {game.name} has a native Linux build, but its mods are built for Windows and only load when
+            the game runs through Proton. Set it to run with Proton, then launch the game once.
+          </div>
+          <DialogButton
+            disabled={settingProton}
+            onClick={async () => {
+              setSettingProton(true);
+              const tool = await setGameToProton(appid);
+              setSettingProton(false);
+              if (tool) {
+                setProtonApplied(true);
+                toaster.toast({ title: 'Moddy', body: `${game.name} set to run with Proton` });
+                refresh();
+              } else {
+                toaster.toast({ title: 'Moddy', body: 'Set it in Steam: Properties → Compatibility → Force Proton' });
+              }
+            }}
+          >
+            {settingProton ? 'Setting…' : 'Set to Proton'}
+          </DialogButton>
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0 }}>
