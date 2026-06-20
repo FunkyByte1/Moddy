@@ -25,6 +25,7 @@ import { CatalogSourceLabel } from '../components/CatalogSource';
 import { BrowseFilter } from '../components/modals/BrowseFilterModal';
 import { centerInView } from '../components/centerInView';
 import { modDisplayName } from '../modName';
+import { transitiveCatalogDeps } from '../browseDeps';
 
 interface Props {
   game: GameStatus;
@@ -296,25 +297,13 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
   }, [queuedRefs]);
   const pendingDepIds = useMemo(() => {
     // Mods being installed right now: active queue jobs, plus just-clicked refs not yet in the queue
-    // (the optimistic `pending` set covers the brief enqueue round-trip).
+    // (the optimistic `pending` set covers the brief enqueue round-trip). transitiveCatalogDeps walks
+    // each one's full dependency tree, so the install-deps prompt is suppressed for anything an
+    // in-flight install already covers (directly or transitively).
     const inFlight = new Set<string>();
     for (const j of queue) if (isActiveStatus(j.status)) inFlight.add(j.ref.toLowerCase());
     for (const fn of pending) inFlight.add(fn.toLowerCase());
-    // Each install pulls its FULL transitive dependency tree (the backend cascade is recursive), so
-    // walk that tree via the catalog rather than only the direct deps — otherwise a dependency an
-    // in-flight mod pulls in transitively (but a second mod declares directly) would still be
-    // re-prompted. Cycle-guarded by the result set; a Map keeps the recursive lookups O(1).
-    const byId = new Map(catalog.map(c => [c.full_name.toLowerCase(), c]));
-    const ids = new Set<string>();
-    const visit = (id: string) => {
-      if (ids.has(id)) return;
-      ids.add(id);
-      for (const d of byId.get(id)?.latest.dependencies ?? []) {
-        visit(d.split('-').slice(0, -1).join('-').toLowerCase());
-      }
-    };
-    inFlight.forEach(visit);
-    return ids;
+    return transitiveCatalogDeps(catalog, inFlight);
   }, [queue, pending, catalog]);
 
   // Library categories ("Libraries"/"API") are governed by the dedicated
