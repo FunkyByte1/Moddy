@@ -9,5 +9,6 @@ export interface ModEntry {
   hasUpdate: boolean;
   dependenciesMet: boolean;
   isLibrary: boolean;
+  addedAt: number;  // unix seconds first installed; 0 if unknown (legacy/untracked mods)
   info: ModInfo;
 }

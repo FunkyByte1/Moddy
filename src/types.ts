@@ -40,6 +40,7 @@ export interface InstalledMod {
   version: string | null;
   meta?: ModMeta | null;
   is_library?: boolean;  // stamped by the backend from the catalog/frameworks
+  added_at?: number | null;  // unix seconds the mod was first installed; absent for legacy/untracked
 }
 
 export interface ThunderstorePackageLatest {

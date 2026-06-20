@@ -84,6 +84,10 @@ def set_installed_record(
     mods be uninstalled, toggled, and update-checked later from the record alone."""
     store = _load_store()
     record: dict = {"version": version, "filename": filename}
+    # Stamp when the mod first entered the library so the Installed tab can offer a
+    # "recently downloaded" sort. Preserve an existing record's timestamp across version
+    # changes / re-installs so updating a mod doesn't reshuffle it to the top.
+    record["added_at"] = (store.get(mod_id) or {}).get("added_at", time.time())
     if paths:
         record["paths"] = paths
     if mod is not None:
@@ -597,6 +601,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                 "version": record.get("version"),
                 "meta": record.get("meta"),
                 "is_library": record.get("is_library", False),
+                "added_at": record.get("added_at"),
             })
         return installed
 
@@ -646,6 +651,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             "enabled": enabled,
             "version": record.get("version"),
             "meta": record.get("meta"),
+            "added_at": record.get("added_at"),
         })
 
     # 3) Filesystem scan for legacy / manually-placed entries we haven't tracked.
@@ -669,6 +675,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                     "enabled": enabled,
                     "version": get_installed_version(actual_filename),
                     "meta": None,
+                    "added_at": None,
                 })
 
     return installed

@@ -1,13 +1,24 @@
-import { ButtonItem, DialogCheckbox, ModalRoot } from '@decky/ui';
+import { ButtonItem, DialogCheckbox, Dropdown, ModalRoot } from '@decky/ui';
 import { useState, FC, ReactNode } from 'react';
 
 import { ModEntry } from '../ModEntry';
+
+// Installed-list ordering. 'name' (alphabetical) is the default — it's stable and works for
+// every mod, including ones installed before install timestamps were recorded.
+export type InstalledSort = 'name' | 'recent' | 'enabled' | 'updates';
+export const INSTALLED_SORT_OPTIONS: { data: InstalledSort; label: string }[] = [
+  { data: 'name', label: 'Name (A–Z)' },
+  { data: 'recent', label: 'Recently downloaded' },
+  { data: 'enabled', label: 'Enabled first' },
+  { data: 'updates', label: 'Updates first' },
+];
 
 export interface InstalledFilter {
   enabled: boolean;
   disabled: boolean;
   onlyUpdates: boolean;
   hideLibraries: boolean;  // hide library/framework mods (default true)
+  sortBy: InstalledSort;
 }
 
 export const defaultInstalledFilter: InstalledFilter = {
@@ -15,12 +26,39 @@ export const defaultInstalledFilter: InstalledFilter = {
   disabled: true,
   onlyUpdates: false,
   hideLibraries: true,
+  sortBy: 'name',
 };
 
 export function installedMatchesFilter(entry: ModEntry, filter: InstalledFilter): boolean {
   if (filter.hideLibraries && entry.isLibrary) return false;
   if (filter.onlyUpdates && !entry.hasUpdate) return false;
   return entry.enabled ? filter.enabled : filter.disabled;
+}
+
+// Order installed entries for display. Name is the tiebreaker everywhere so the result is
+// deterministic within a group and among legacy mods with no recorded install time. Returns
+// a new array (never mutates the input).
+export function sortInstalledEntries(entries: ModEntry[], sortBy: InstalledSort): ModEntry[] {
+  const byName = (a: ModEntry, b: ModEntry) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  const sorted = [...entries];
+  switch (sortBy) {
+    // Newest install first; mods with no recorded time (legacy/untracked, addedAt 0) fall to
+    // the bottom, alphabetical among themselves.
+    case 'recent':
+      sorted.sort((a, b) => (b.addedAt - a.addedAt) || byName(a, b));
+      break;
+    case 'enabled':
+      sorted.sort((a, b) => (Number(b.enabled) - Number(a.enabled)) || byName(a, b));
+      break;
+    case 'updates':
+      sorted.sort((a, b) => (Number(b.hasUpdate) - Number(a.hasUpdate)) || byName(a, b));
+      break;
+    case 'name':
+    default:
+      sorted.sort(byName);
+  }
+  return sorted;
 }
 
 const Section: FC<{ title: string; children: ReactNode }> = ({ title, children }) => (
@@ -54,6 +92,13 @@ const InstalledFilterModal: FC<{
             {allOn ? 'Deselect All' : 'Select All'}
           </ButtonItem>
         </div>
+        <Section title="Sort By">
+          <Dropdown
+            rgOptions={INSTALLED_SORT_OPTIONS.map(o => ({ data: o.data, label: o.label }))}
+            selectedOption={local.sortBy}
+            onChange={(o) => update({ ...local, sortBy: o.data as InstalledSort })}
+          />
+        </Section>
         <Section title="Enabled Status">
           <DialogCheckbox
             label="Enabled"

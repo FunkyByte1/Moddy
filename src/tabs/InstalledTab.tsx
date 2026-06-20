@@ -11,7 +11,7 @@ import { useQueueFooterProps } from '../components/DownloadQueueModal';
 import { ModEntry } from '../components/ModEntry';
 import ModDetailPanel from '../components/ModDetailPanel';
 import ModListItem from '../components/ModListItem';
-import { InstalledFilter, installedMatchesFilter } from '../components/modals/InstalledFilterModal';
+import { InstalledFilter, installedMatchesFilter, sortInstalledEntries } from '../components/modals/InstalledFilterModal';
 import VersionPickerModal from '../components/modals/VersionPickerModal';
 import DeleteVersionModal from '../components/modals/DeleteVersionModal';
 import DependentsModal from '../components/modals/DependentsModal';
@@ -82,6 +82,7 @@ const InstalledTab: FC<{
       hasUpdate: updatesById.has(im.id),
       dependenciesMet,
       isLibrary: !!im.is_library,
+      addedAt: im.added_at ?? 0,
       info: {
         id: im.id, name, description: meta?.description ?? '', filename: im.filename,
         source: { type: 'unknown', owner: '', repo: '', asset: '' },
@@ -91,7 +92,7 @@ const InstalledTab: FC<{
   }), [game.installed_mods, modDeps, enabledLowerSet, updatesById]);
 
   const modEntries = useMemo(
-    () => allEntries.filter(e => installedMatchesFilter(e, filter)),
+    () => sortInstalledEntries(allEntries.filter(e => installedMatchesFilter(e, filter)), filter.sortBy),
     [allEntries, filter],
   );
   const selectedEntry = modEntries[Math.min(selectedIndex, modEntries.length - 1)];
