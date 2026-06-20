@@ -2,13 +2,10 @@ import { showModal } from '@decky/ui';
 
 import { GameStatus, InstalledMod, toggleMod, uninstallMod } from './types';
 import { modDisplayName } from './modName';
+import { stripVersion } from './modGraph';
 import OrphanedDependenciesModal from './components/modals/OrphanedDependenciesModal';
 
 export type RemovalMode = 'uninstall' | 'disable';
-
-// Thunderstore deps are recorded as versioned full_names ("Owner-Mod-1.2.3");
-// dropping the trailing version segment yields the install id ("Owner-Mod").
-const stripVersion = (dep: string) => dep.split('-').slice(0, -1).join('-');
 
 // Forward dependency edges among *installed* mods, keyed/valued by lowercase id.
 // Built from installed mods' recorded meta deps, dropping edges to modloader-provided

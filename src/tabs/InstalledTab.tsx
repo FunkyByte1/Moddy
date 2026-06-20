@@ -3,7 +3,7 @@ import { toaster } from '@decky/api';
 import { useState, useEffect, useMemo, useCallback, useRef, FC } from 'react';
 
 import {
-  GameStatus, ModInfo, ModUpdate, InstalledMod,
+  GameStatus, ModInfo, ModUpdate,
   installMod, installThunderstoreMod, uninstallMod, toggleMod,
   getModReleases, getBackedUpVersions, deleteModVersion, getBrowseDenylist,
 } from '../types';
@@ -18,10 +18,7 @@ import DependentsModal from '../components/modals/DependentsModal';
 import DependencyInstallModal from '../components/modals/DependencyInstallModal';
 import { showOrphanCleanup, RemovalMode } from '../orphanCleanup';
 import { modDisplayName } from '../modName';
-
-// Thunderstore deps are recorded as versioned full_names ("Owner-Mod-1.2.3");
-// the install id drops the trailing version segment.
-const stripVersion = (dep: string) => dep.split('-').slice(0, -1).join('-');
+import { buildModGraph } from '../modGraph';
 
 const InstalledTab: FC<{
   game: GameStatus;
@@ -56,77 +53,23 @@ const InstalledTab: FC<{
     getBrowseDenylist().then(d => setDenylist(new Set(d.map(x => x.toLowerCase())))).catch(() => {});
   }, []);
 
-  // Lookup structures rebuilt only when the installed-mods list changes, so renders
-  // driven by focus/selection state (frequent, especially with large lists) don't
-  // re-scan the array. modByLowerId replaces the repeated O(n) `.find()` lookups
-  // scattered through the handlers below.
-  const modByLowerId = useMemo(
-    () => new Map(game.installed_mods.map(m => [m.id.toLowerCase(), m])),
-    [game.installed_mods],
+  // The installed mods viewed as a dependency graph: lookup indexes plus the transitive
+  // enable-deps / dependents / topo-order queries (see src/modGraph.ts), rebuilt only when the
+  // installed list or denylist changes so frequent focus/selection renders don't re-scan. The
+  // pieces are destructured into the names the handlers below use.
+  const graph = useMemo(
+    () => buildModGraph(game.installed_mods, denylist),
+    [game.installed_mods, denylist],
   );
-  const installedLowerSet = useMemo(
-    () => new Set(game.installed_mods.map(m => m.id.toLowerCase())),
-    [game.installed_mods],
-  );
-  const enabledLowerSet = useMemo(
-    () => new Set(game.installed_mods.filter(m => m.enabled).map(m => m.id.toLowerCase())),
-    [game.installed_mods],
-  );
+  const {
+    byId: modByLowerId, enabledIds: enabledLowerSet,
+    modDeps, collectEnableDeps, collectDependents, topoEnableOrder,
+  } = graph;
   const updatesById = useMemo(() => new Map(updates.map(u => [u.id, u])), [updates]);
-
-  // Resolve a recorded dependency string to the (lowercase) mod id it refers to. A dep may
-  // already be a full Moddy id (a Workshop "workshop.<appid>.<fileid>" id) or a versioned
-  // Thunderstore full_name ("Owner-Mod-1.2.3"). Match an installed id directly first, then
-  // fall back to version-stripping — blindly stripping mangles hyphen-free ids (e.g. a
-  // Workshop id has no '-', so stripping would yield "").
-  const resolveDepId = useCallback((rawDep: string): string => {
-    const raw = rawDep.toLowerCase();
-    if (installedLowerSet.has(raw)) return raw;
-    const stripped = stripVersion(rawDep).toLowerCase();
-    return stripped || raw;
-  }, [installedLowerSet]);
-
-  // A mod's plugin dependencies as resolved (lowercase) mod ids, with modloader-provided
-  // (denylisted) packages removed.
-  const modDeps = useCallback((im?: InstalledMod | null): string[] =>
-    (im?.meta?.dependencies ?? [])
-      .map(resolveDepId)
-      .filter(d => !denylist.has(d)),
-    [resolveDepId, denylist]);
 
   const metaName = useCallback((baseId: string): string =>
     modByLowerId.get(baseId.toLowerCase())?.meta?.name ?? baseId,
     [modByLowerId]);
-
-  // The transitive set of dependencies that need action before `rootIds` can be enabled.
-  // Walks the dependency graph (cycle-guarded) over installed mods, splitting deps into
-  // `missing` (not installed → install) and `disabled` (installed but off → enable).
-  // Direct-only collection missed deps-of-deps — e.g. A→B→C left C disabled. A missing
-  // dep's own sub-deps aren't visible here (it's not in installed_mods); the backend
-  // resolves those when it's installed.
-  const collectEnableDeps = (rootIds: string[]): { missing: string[]; disabled: string[] } => {
-    const missing: string[] = [];
-    const disabled: string[] = [];
-    const seen = new Set<string>();
-    const stack = rootIds.map(i => i.toLowerCase());
-    while (stack.length > 0) {
-      const cur = stack.pop()!;
-      for (const dep of modDeps(modByLowerId.get(cur))) {
-        const dl = dep.toLowerCase();
-        if (seen.has(dl)) continue;
-        seen.add(dl);
-        if (enabledLowerSet.has(dl)) {
-          stack.push(dl);          // already enabled, but a sub-dep might be off
-        } else if (installedLowerSet.has(dl)) {
-          disabled.push(dep);
-          stack.push(dl);          // recurse into the disabled dep's own deps
-        } else {
-          missing.push(dep);       // not installed; backend resolves its sub-deps
-        }
-      }
-    }
-    return { missing, disabled };
-  };
 
   const allEntries: ModEntry[] = useMemo(() => game.installed_mods.map(im => {
     const meta = im.meta ?? null;
@@ -153,32 +96,6 @@ const InstalledTab: FC<{
   );
   const selectedEntry = modEntries[Math.min(selectedIndex, modEntries.length - 1)];
 
-  // Transitive set of installed mods that depend (directly or indirectly) on any of
-  // `rootIds` — the reverse mirror of collectEnableDeps. Disabling/removing a mod should
-  // account for the whole downstream chain, not just direct dependents (X needs A, Y
-  // needs X → disabling A reaches Y, not just X). With `requireEnabled`, only enabled
-  // dependents are followed (a disabled mod is already inert); without it, every
-  // installed dependent (e.g. for uninstall, which breaks dependents whether on or off).
-  // Excludes the roots themselves; cycle-guarded via `seen`.
-  const collectDependents = (rootIds: string[], requireEnabled: boolean): InstalledMod[] => {
-    const rootSet = new Set(rootIds.map(i => i.toLowerCase()));
-    const seen = new Set<string>();
-    const result: InstalledMod[] = [];
-    const stack = [...rootSet];
-    while (stack.length > 0) {
-      const target = stack.pop()!;
-      for (const m of game.installed_mods) {
-        const ml = m.id.toLowerCase();
-        if (ml === target || seen.has(ml) || rootSet.has(ml)) continue;
-        if (requireEnabled && !m.enabled) continue;
-        if (!(m.meta?.dependencies ?? []).some(d => resolveDepId(d) === target)) continue;
-        seen.add(ml);
-        result.push(m);
-        stack.push(ml);
-      }
-    }
-    return result;
-  };
 
   // Version changes / updates re-download through the Thunderstore install path
   // (the only catalog with versioned releases surfaced here).
@@ -333,27 +250,6 @@ const InstalledTab: FC<{
     });
   };
 
-  // Order ids so each mod's selected-group dependencies come before it.
-  const topoEnableOrder = (ids: string[]): string[] => {
-    const idSet = new Set(ids.map(i => i.toLowerCase()));
-    const visited = new Set<string>();
-    const result: string[] = [];
-    const visit = (id: string) => {
-      const lower = id.toLowerCase();
-      if (visited.has(lower)) return;
-      visited.add(lower);
-      const im = modByLowerId.get(lower);
-      for (const dep of modDeps(im)) {
-        if (idSet.has(dep.toLowerCase())) {
-          const depMod = modByLowerId.get(dep.toLowerCase());
-          if (depMod) visit(depMod.id);
-        }
-      }
-      result.push(id);
-    };
-    for (const id of ids) visit(id);
-    return result;
-  };
 
   const bulkEnableTargets = useMemo(
     () => [...selectedIds].filter(id => !enabledLowerSet.has(id.toLowerCase())),
