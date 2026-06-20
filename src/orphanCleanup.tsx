@@ -1,11 +1,9 @@
 import { showModal } from '@decky/ui';
 
-import { GameStatus, InstalledMod, toggleMod, uninstallMod } from './types';
+import { GameStatus, InstalledMod, uninstallMod } from './types';
 import { modDisplayName } from './modName';
 import { stripVersion } from './modGraph';
-import OrphanedDependenciesModal from './components/modals/OrphanedDependenciesModal';
-
-export type RemovalMode = 'uninstall' | 'disable';
+import UnusedLibrariesModal from './components/modals/UnusedLibrariesModal';
 
 // Forward dependency edges among *installed* mods, keyed/valued by lowercase id.
 // Built from installed mods' recorded meta deps, dropping edges to modloader-provided
@@ -37,95 +35,68 @@ function buildForwardDeps(game: GameStatus, denylist: Set<string>): Map<string, 
 }
 
 /**
- * Library/API mods that become orphaned when `removedIds` are uninstalled (mode
- * 'uninstall') or disabled (mode 'disable').
+ * Library/API mods that nothing installed currently relies on — the input for the Installed tab's
+ * "unused libraries" cleanup chip.
  *
- * Cascades: a library counts as orphaned when *all* of its remaining dependents are
- * themselves being removed, so dependency chains (mod → R2API → HookGenPatcher) are
- * fully collected. Pre-existing orphans — libraries nothing depended on to begin with
- * — are deliberately left alone; only libraries this removal strands are returned.
+ * A library is *used* if some live consumer depends on it, where a live consumer is any non-library
+ * mod or another library already known to be used. Starting from the non-library mods and growing
+ * that "used" set to a fixpoint walks dependency chains (mod → R2API → HookGenPatcher), so a library
+ * kept alive only through another (itself-used) library stays used. Everything else — including
+ * libraries that nothing ever depended on — is unused.
  *
- * For 'disable', only enabled mods count as dependents (a disabled mod neither needs
- * its deps nor can be disabled again), so it returns enabled libraries no longer
- * required by anything still enabled.
+ * Disabled mods still count as consumers: a disabled mod would want its deps back when re-enabled,
+ * so we don't strand them. This reflects the *current* installed state (no hypothetical removal); the
+ * chip surfaces it on demand rather than prompting after every uninstall.
+ *
+ * Denylisted packages (modloader-provided cores like BepInExPack, satisfied by the Mod Loader tab)
+ * are never candidates: every mod depends on them, but those edges are intentionally dropped from the
+ * graph (they're not plugin deps), which would otherwise leave them looking dependent-less. They're
+ * core infrastructure, not disposable libraries.
  */
-export function findOrphanedLibraries(
-  game: GameStatus,
-  denylist: Set<string>,
-  removedIds: Iterable<string>,
-  mode: RemovalMode,
-): InstalledMod[] {
+export function findUnusedLibraries(game: GameStatus, denylist: Set<string>): InstalledMod[] {
   const fwd = buildForwardDeps(game, denylist);
-  const active = (im: InstalledMod) => (mode === 'disable' ? im.enabled : true);
-  const removed = new Set([...removedIds].map(id => id.toLowerCase()));
-
-  // Active mods (excluding the growing `removed` set) that depend on the library.
-  const remainingDependents = (libLower: string): boolean =>
-    game.installed_mods.some(im => {
-      const l = im.id.toLowerCase();
-      return active(im) && l !== libLower && !removed.has(l) && (fwd.get(l)?.has(libLower) ?? false);
-    });
-  // Whether any active mod (removed or not) ever depended on it — used to skip
-  // pre-existing orphans so an unrelated removal doesn't flag long-unused libraries.
-  const everDependedOn = (libLower: string): boolean =>
-    game.installed_mods.some(im => {
-      const l = im.id.toLowerCase();
-      return active(im) && l !== libLower && (fwd.get(l)?.has(libLower) ?? false);
-    });
-
-  const orphans: InstalledMod[] = [];
+  const isLib = new Map(game.installed_mods.map(m => [m.id.toLowerCase(), !!m.is_library]));
+  const used = new Set<string>();
   let changed = true;
   while (changed) {
     changed = false;
-    for (const im of game.installed_mods) {
-      const lower = im.id.toLowerCase();
-      if (!im.is_library || removed.has(lower) || !active(im)) continue;
-      if (!everDependedOn(lower)) continue;        // never used → leave it alone
-      if (!remainingDependents(lower)) {           // all its users are being removed
-        removed.add(lower);
-        orphans.push(im);
-        changed = true;
+    for (const m of game.installed_mods) {
+      const ml = m.id.toLowerCase();
+      // A library can only keep its own deps alive once it is itself known to be used; a
+      // non-library is always a live consumer.
+      if (m.is_library && !used.has(ml)) continue;
+      for (const dep of fwd.get(ml) ?? []) {
+        if (isLib.get(dep) && !used.has(dep)) { used.add(dep); changed = true; }
       }
     }
   }
-  return orphans;
+  return game.installed_mods.filter(m =>
+    m.is_library && !denylist.has(m.id.toLowerCase()) && !used.has(m.id.toLowerCase()));
 }
 
-const nameOf = (im: InstalledMod) => modDisplayName(im);
-
 /**
- * Compute the orphaned libraries left by removing `removedIds` and, if any, prompt
- * the user to uninstall / disable / keep them. Fire-and-forget: call it after the
- * triggering removal's own refresh. `game` should be the pre-removal snapshot (the
- * removal is simulated via `removedIds`).
+ * Surface the currently-unused libraries and let the user clean them up, defaulting to removing all
+ * but allowing individual deselection. Fire-and-forget; no-op when nothing is unused. Called from the
+ * Installed tab's cleanup chip (not automatically after a removal).
  */
-export function showOrphanCleanup(opts: {
+export function showUnusedLibrariesCleanup(opts: {
   game: GameStatus;
   denylist: Set<string>;
-  removedIds: Iterable<string>;
-  mode: RemovalMode;
   onRefresh: () => Promise<void>;
   setBusy: (b: boolean) => void;
 }): void {
-  const { game, denylist, removedIds, mode, onRefresh, setBusy } = opts;
-  const orphans = findOrphanedLibraries(game, denylist, removedIds, mode);
-  if (orphans.length === 0) return;
+  const { game, denylist, onRefresh, setBusy } = opts;
+  const libs = findUnusedLibraries(game, denylist);
+  if (libs.length === 0) return;
 
   showModal(
-    <OrphanedDependenciesModal
-      names={orphans.map(nameOf)}
-      mode={mode}
-      onUninstall={async (close) => {
+    <UnusedLibrariesModal
+      libraries={libs.map(l => ({ id: l.id, name: modDisplayName(l) }))}
+      onCleanup={async (removeIds, close) => {
         close(); setBusy(true);
-        for (const o of orphans) await uninstallMod(game.appid, o.id);
+        for (const id of removeIds) await uninstallMod(game.appid, id);
         await onRefresh(); setBusy(false);
       }}
-      onDisable={async (close) => {
-        close(); setBusy(true);
-        for (const o of orphans) await toggleMod(game.appid, o.id, false);
-        await onRefresh(); setBusy(false);
-      }}
-      onKeep={(close) => { close(); }}
     />
   );
 }

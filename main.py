@@ -647,9 +647,15 @@ class Plugin:
 
     async def get_browse_denylist(self) -> list[str]:
         """Lowercase install ids the UI should treat as 'not a real dependency' — modloaders,
-        mod-manager apps (Thunderstore + Nexus) — so they're hidden from Browse and never flagged
-        as a missing dependency on installed mods."""
-        return sorted(self._BROWSE_DENYLIST | self._NEXUS_DENYLIST)
+        mod-manager apps (Thunderstore + Nexus), and every game's implicit deps (modloader cores
+        like RiskofThunder-RoR2BepInExPack that the cascade injects into each install, so no mod
+        declares them) — so they're hidden from Browse, never flagged as a missing dependency, and
+        never offered as an 'unused library'.
+
+        Implicit deps are unioned in only here, NOT into _BROWSE_DENYLIST: that set is what the
+        install cascade uses to *skip* installs, and the modloader cores must still get installed."""
+        implicit = {dep.lower() for g in registry.SUPPORTED_GAMES for dep in g.implicit_deps}
+        return sorted(self._BROWSE_DENYLIST | self._NEXUS_DENYLIST | implicit)
 
     async def get_unresolved_dependencies(self, appid: int, full_name: str, with_deps: bool = True) -> list:
         """Declared dependencies of `full_name` that aren't in the catalog (so they can't be

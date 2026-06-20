@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { findOrphanedLibraries } from './orphanCleanup';
+import { findUnusedLibraries } from './orphanCleanup';
 import type { GameStatus, InstalledMod } from './types';
 
-// findOrphanedLibraries answers: "if I remove these mods, which LIBRARY mods are stranded?" —
-// libraries that were depended on, whose remaining dependents are all being removed too (cascading),
-// while leaving pre-existing/never-used orphans alone. importing orphanCleanup.tsx pulls in @decky/ui
-// (mocked in test/setup.ts).
+// findUnusedLibraries answers: "which LIBRARY mods does nothing installed rely on right now?" — the
+// input for the Installed tab's cleanup chip. A library is used if some non-library mod (or another
+// used library, transitively) depends on it; everything else is unused, including libraries nothing
+// ever depended on. Disabled mods still count as consumers. Importing orphanCleanup.tsx pulls in
+// @decky/ui (mocked in test/setup.ts).
 
 const mod = (
   id: string,
@@ -18,63 +19,49 @@ const mod = (
 const game = (...mods: InstalledMod[]): GameStatus => ({ appid: 1, installed_mods: mods } as GameStatus);
 const ids = (mods: InstalledMod[]) => mods.map(m => m.id).sort();
 
-describe('findOrphanedLibraries', () => {
-  it('orphans a library whose only dependent is being removed', () => {
+describe('findUnusedLibraries', () => {
+  it('flags a library nothing depends on', () => {
+    const g = game(mod('A'), mod('Lib', { library: true }));
+    expect(ids(findUnusedLibraries(g, new Set()))).toEqual(['Lib']);
+  });
+
+  it('keeps a library a non-library mod depends on', () => {
     const g = game(mod('A', { deps: ['Lib-1.0.0'] }), mod('Lib', { library: true }));
-    expect(ids(findOrphanedLibraries(g, new Set(), ['A'], 'uninstall'))).toEqual(['Lib']);
+    expect(findUnusedLibraries(g, new Set())).toEqual([]);
   });
 
-  it('keeps a library that still has another dependent', () => {
-    const g = game(
-      mod('A', { deps: ['Lib-1.0.0'] }),
-      mod('B', { deps: ['Lib-1.0.0'] }),
-      mod('Lib', { library: true }),
-    );
-    expect(findOrphanedLibraries(g, new Set(), ['A'], 'uninstall')).toEqual([]); // B still needs Lib
+  it('keeps a library a disabled mod still depends on', () => {
+    const g = game(mod('A', { deps: ['Lib-1.0.0'], enabled: false }), mod('Lib', { library: true }));
+    expect(findUnusedLibraries(g, new Set())).toEqual([]); // A would want Lib back when re-enabled
   });
 
-  it('cascades through a dependency chain (Mod -> R2API -> HookGenPatcher)', () => {
+  it('never flags a non-library mod, even if nothing depends on it', () => {
+    const g = game(mod('A', { deps: ['Plugin-1.0.0'] }), mod('Plugin', { library: false }));
+    expect(findUnusedLibraries(g, new Set())).toEqual([]);
+  });
+
+  it('keeps a whole live chain (Mod -> R2API -> HookGenPatcher)', () => {
     const g = game(
       mod('Mod', { deps: ['R2API-1.0.0'] }),
       mod('R2API', { deps: ['HookGenPatcher-1.0.0'], library: true }),
       mod('HookGenPatcher', { library: true }),
     );
-    // Removing Mod strands R2API, which in turn strands HookGenPatcher.
-    expect(ids(findOrphanedLibraries(g, new Set(), ['Mod'], 'uninstall'))).toEqual(['HookGenPatcher', 'R2API']);
+    expect(findUnusedLibraries(g, new Set())).toEqual([]);
   });
 
-  it('leaves a pre-existing orphan (a library nothing ever depended on) alone', () => {
-    const g = game(mod('A'), mod('Lib', { library: true })); // nothing depends on Lib
-    expect(findOrphanedLibraries(g, new Set(), ['A'], 'uninstall')).toEqual([]);
-  });
-
-  it('does not flag a now-unused NON-library mod', () => {
-    const g = game(mod('A', { deps: ['Plugin-1.0.0'] }), mod('Plugin', { library: false }));
-    expect(findOrphanedLibraries(g, new Set(), ['A'], 'uninstall')).toEqual([]);
-  });
-
-  it('does not return the removed mod itself even if it is a library', () => {
-    const g = game(mod('A', { deps: ['Lib-1.0.0'] }), mod('Lib', { library: true }));
-    // Removing Lib directly: it is the removal target, not an orphan it created.
-    expect(findOrphanedLibraries(g, new Set(), ['Lib'], 'uninstall')).toEqual([]);
-  });
-
-  describe('uninstall vs disable mode', () => {
-    // Lib is depended on by A (enabled) and B (disabled). We remove A.
+  it('flags a whole chain whose only non-library consumer is gone', () => {
+    // No non-library mod depends on R2API → it and its sub-library are both unused.
     const g = game(
-      mod('Lib', { library: true, enabled: true }),
-      mod('A', { deps: ['Lib-1.0.0'], enabled: true }),
-      mod('B', { deps: ['Lib-1.0.0'], enabled: false }),
+      mod('R2API', { deps: ['HookGenPatcher-1.0.0'], library: true }),
+      mod('HookGenPatcher', { library: true }),
     );
+    expect(ids(findUnusedLibraries(g, new Set()))).toEqual(['HookGenPatcher', 'R2API']);
+  });
 
-    it('uninstall mode counts the disabled dependent, so Lib survives', () => {
-      // B is still installed and depends on Lib → not orphaned.
-      expect(findOrphanedLibraries(g, new Set(), ['A'], 'uninstall')).toEqual([]);
-    });
-
-    it('disable mode ignores the disabled dependent, so Lib is orphaned', () => {
-      // Only enabled mods count as active dependents; B (disabled) doesn't keep Lib alive.
-      expect(ids(findOrphanedLibraries(g, new Set(), ['A'], 'disable'))).toEqual(['Lib']);
-    });
+  it('never flags a denylisted (modloader-provided) package as unused', () => {
+    // BepInExPack is core infra installed via the Mod Loader tab; edges to it are dropped from the
+    // graph (not a plugin dep), so it would otherwise look dependent-less. It must never be offered.
+    const g = game(mod('A', { deps: ['BepInExPack-5.4.0'] }), mod('BepInExPack', { library: true }));
+    expect(findUnusedLibraries(g, new Set(['bepinexpack']))).toEqual([]);
   });
 });

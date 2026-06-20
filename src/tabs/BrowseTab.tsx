@@ -14,12 +14,12 @@ import {
   getBrowseDenylist,
 } from '../types';
 import { useQueueFooterProps } from '../components/DownloadQueueModal';
-import DependencyInstallModal from '../components/modals/DependencyInstallModal';
-import MissingDependencyModal from '../components/modals/MissingDependencyModal';
+import DependencyChecklistModal from '../components/modals/DependencyChecklistModal';
 import { CatalogSourceLabel } from '../components/CatalogSource';
 import { BrowseFilter } from '../components/modals/BrowseFilterModal';
 import { centerInView } from '../components/centerInView';
 import { transitiveCatalogDeps } from '../browseDeps';
+import { stripVersion } from '../modGraph';
 import { useBrowseInstall } from './browse/useBrowseInstall';
 import { useBrowseUninstall } from './browse/useBrowseUninstall';
 
@@ -139,9 +139,13 @@ const DetailPanel: FC<{
   pkg: ThunderstorePackage | null;
   installing: string | null;
   isInstalled: boolean;
+  // Number of resolvable, not-yet-installed dependencies — when > 0 (and not installed), the
+  // "Install with options…" escape hatch is offered alongside the plain (install-everything) button.
+  missingDepCount: number;
   onInstall: (pkg: ThunderstorePackage) => void;
+  onInstallWithOptions: (pkg: ThunderstorePackage) => void;
   onUninstall: (pkg: ThunderstorePackage) => void;
-}> = ({ pkg, installing, isInstalled, onInstall, onUninstall }) => {
+}> = ({ pkg, installing, isInstalled, missingDepCount, onInstall, onInstallWithOptions, onUninstall }) => {
   if (!pkg) {
     return (
       <div style={{ color: 'var(--gpColorTextSecondary)', padding: 16 }}>
@@ -202,6 +206,13 @@ const DetailPanel: FC<{
                 : 'Install'}
           </ButtonItem>
         </PanelSectionRow>
+        {!isInstalled && missingDepCount > 0 && (
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={isBusy} onClick={() => onInstallWithOptions(pkg)}>
+              Install with options…
+            </ButtonItem>
+          </PanelSectionRow>
+        )}
       </PanelSection>
       {pkg.latest.description && (
         <div style={{ fontSize: 13, lineHeight: '18px', color: 'var(--gpColorTextSecondary)' }}>
@@ -367,51 +378,66 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     });
   };
 
+  // A mod's resolvable, not-yet-installed dependencies, as checklist entries (with the version the
+  // mod pins). Thunderstore deps are versioned strings ("Owner-Mod-1.2.3"); the install id is the
+  // un-versioned full_name. Denylisted packages (modloaders satisfied by the Mod Loader tab) and
+  // deps already installed or in-flight are dropped — they never need a choice. BMI items carry no
+  // deps, so this is empty for them.
+  const depEntries = (pkg: ThunderstorePackage) =>
+    pkg.latest.dependencies
+      .map(d => ({ id: stripVersion(d), version: d.split('-').slice(-1)[0] }))
+      .filter(e => e.id && !denylist.has(e.id.toLowerCase())
+        && !installedIds.has(e.id.toLowerCase()) && !pendingDepIds.has(e.id.toLowerCase()))
+      .map(e => ({
+        id: e.id,
+        version: e.version,
+        name: catalog.find(p => p.full_name.toLowerCase() === e.id.toLowerCase())?.name ?? e.id,
+      }));
+
+  // Plain install: pull the mod and all its dependencies, no prompt. If a declared dependency
+  // isn't in the catalog (can't be auto-installed), don't block — install the mod anyway and warn
+  // via a toast rather than failing or interrupting. Per-dependency control lives behind the
+  // "Install with options…" button (handleInstallWithOptions).
   const handleInstall = async (pkg: ThunderstorePackage) => {
-    // Thunderstore only: a declared dependency might not be in the catalog (can't auto-install).
-    // Check up front (the backend refreshes once to rule out a stale cache) and, if so, let the
-    // user install anyway without it rather than failing the whole install.
     if (!isBmi) {
       const unresolved = await getUnresolvedDependencies(game.appid, pkg.full_name).catch(() => [] as string[]);
       if (unresolved.length > 0) {
-        showModal(
-          <MissingDependencyModal
-            modName={pkg.name}
-            missingNames={unresolved}
-            onInstallAnyway={close => { close(); runInstall(pkg, true, true); }}
-          />
-        );
+        toaster.toast({
+          title: 'Moddy',
+          body: `Installing ${pkg.name} — ${unresolved.length} ${unresolved.length === 1 ? "dependency isn't" : "dependencies aren't"} available and won't be installed`,
+        });
+        runInstall(pkg, true, true);
         return;
       }
     }
-    // Thunderstore deps are versioned strings ("Owner-Mod-1.2.3"); the install id is the
-    // un-versioned full_name. Only prompt for deps that aren't already installed — the
-    // backend cascades them on install, so this modal is a confirmation gate (like the
-    // Installed tab's enable-deps prompt), not a separate install path. (BMI items carry no
-    // deps, so this is effectively a no-op gate for them and they install directly.)
-    // Drop denylisted packages (modloaders / mod-manager apps): a mod's declared dependency on
-    // e.g. BepInExPack is satisfied by the Mod Loader tab, not by installing it as a plugin — so
-    // it must never appear in the install-deps prompt (matching the Browse panel's dep list).
-    const missingDeps = pkg.latest.dependencies
-      .map(d => d.split('-').slice(0, -1).join('-'))
-      .filter(id => id && !denylist.has(id.toLowerCase())
-        && !installedIds.has(id.toLowerCase()) && !pendingDepIds.has(id.toLowerCase()));
-
-    if (missingDeps.length > 0) {
-      const depNames = missingDeps.map(id =>
-        catalog.find(p => p.full_name.toLowerCase() === id.toLowerCase())?.name ?? id
-      );
-      showModal(
-        <DependencyInstallModal
-          modName={pkg.name}
-          dependencyNames={depNames}
-          onInstall={close => { close(); runInstall(pkg, true); }}
-          onSkip={close => { close(); runInstall(pkg, false); }}
-        />
-      );
-      return;
-    }
     runInstall(pkg);
+  };
+
+  // The "special" path: install the mod alone, then enqueue only the dependencies the user kept
+  // (each pulls its own subtree). Lets a mod be installed while declining a bad/outdated dep it
+  // declares, without losing the others.
+  const installSelective = (pkg: ThunderstorePackage, selectedIds: string[]) => {
+    runInstall(pkg, false, true);
+    for (const depId of selectedIds) {
+      const depPkg = catalog.find(p => p.full_name.toLowerCase() === depId.toLowerCase());
+      addPending(depId);
+      enqueueThunderstore(game.appid, depId, depPkg?.name ?? depId, null, true, true).catch(() => {
+        removePending(depId);
+        toaster.toast({ title: 'Moddy', body: `Failed to queue ${depPkg?.name ?? depId}` });
+      });
+    }
+  };
+
+  const handleInstallWithOptions = (pkg: ThunderstorePackage) => {
+    const deps = depEntries(pkg);
+    if (deps.length === 0) { handleInstall(pkg); return; }
+    showModal(
+      <DependencyChecklistModal
+        modName={pkg.name}
+        dependencies={deps}
+        onInstall={(selected, close) => { close(); installSelective(pkg, selected); }}
+      />
+    );
   };
 
   const handleUninstall = (pkg: ThunderstorePackage) => {
@@ -524,7 +550,9 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
           pkg={selectedPkg}
           installing={selectedBusy ? (selectedPkg?.full_name ?? null) : null}
           isInstalled={selectedIsInstalled}
+          missingDepCount={selectedPkg && !selectedIsInstalled ? depEntries(selectedPkg).length : 0}
           onInstall={handleInstall}
+          onInstallWithOptions={handleInstallWithOptions}
           onUninstall={handleUninstall}
         />
       </Focusable>
