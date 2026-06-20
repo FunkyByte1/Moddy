@@ -11,8 +11,9 @@ import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
 import ProfilesTab from './tabs/ProfilesTab';
 import BrowseTab from './tabs/BrowseTab';
-import WorkshopBrowseTab from './tabs/WorkshopBrowseTab';
-import NexusBrowseTab from './tabs/NexusBrowseTab';
+import BrowsePagedTab from './tabs/browse/BrowsePagedTab';
+import { nexusAdapter } from './tabs/browse/nexusAdapter';
+import { workshopAdapter } from './tabs/browse/workshopAdapter';
 import OptionsModal from './components/modals/OptionsModal';
 import ModLoaderModal from './components/modals/ModLoaderModal';
 import ResetGameModal from './components/modals/ResetGameModal';
@@ -418,12 +419,13 @@ const ModPage: FC = () => {
         onSecondaryActionDescription: 'Filter',
       },
     }] : []),
-    // Nexus games browse a server-paginated/searched catalog in their own tab.
+    // Nexus + Workshop browse a server-paginated catalog via the shared (non-virtualized) paged tab.
     ...(game.catalog_type === 'nexus' ? [{
       id: 'browse',
       title: 'Browse',
       content: (
-        <NexusBrowseTab
+        <BrowsePagedTab
+          adapter={nexusAdapter}
           game={game}
           onRefresh={refresh}
           filter={nexusFilter}
@@ -439,12 +441,11 @@ const ModPage: FC = () => {
         onSecondaryActionDescription: 'Filter',
       },
     }] : []),
-    // Steam Workshop games browse a server-paginated catalog in their own tab.
     ...(game.modloader === 'steamworkshop' ? [{
       id: 'browse',
       title: 'Browse',
       content: (
-        <WorkshopBrowseTab game={game} onRefresh={refresh} />
+        <BrowsePagedTab adapter={workshopAdapter} game={game} onRefresh={refresh} />
       ),
       footer: {
         ...queueFooter,
