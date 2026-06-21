@@ -130,6 +130,12 @@ def get_community_catalog(community: str, force: bool = False) -> list[dict]:
     )
 
 
+def get_cached_community_catalog(community: str) -> "list[dict] | None":
+    """The community catalog from cache only (in-memory, else on-disk at any age); None if not
+    cached. Never fetches — for the latency-sensitive game-status path."""
+    return catalog_cache.get_cached(_catalog_cache_path(community))
+
+
 def refresh_community_catalog(community: str) -> bool:
     """Pull a fresh copy of the community catalog from Thunderstore, bypassing the
     cache-freshness check. Used by the Options-menu manual refresh. The existing

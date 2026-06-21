@@ -68,6 +68,8 @@ const BrowsePagedTab: FC<{
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // Set when an on-screen-keyboard search is submitted; consumed once the matching fetch lands.
+  const [pendingSearchFocus, setPendingSearchFocus] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 350);
@@ -132,6 +134,17 @@ const BrowsePagedTab: FC<{
   // Keep the selection in range when the install-status filter shrinks the list.
   useEffect(() => { setSelectedIndex(0); }, [filter?.installed, filter?.notInstalled]);
 
+  // After an on-screen-keyboard search is submitted (Enter/R2 blurred the field), move focus to the
+  // first result — otherwise focus is left on nothing and the user has to navigate back into the
+  // list by hand. Unlike the bulk tab, results here are fetched async, so wait until the fetch for
+  // the *latest* query has settled (debounced === search, not loading) before grabbing focus, so we
+  // don't focus a stale page mid-debounce.
+  useEffect(() => {
+    if (!pendingSearchFocus || loading || debounced !== search.trim()) return;
+    setPendingSearchFocus(false);
+    if (visible.length > 0) focusRowAfterLoad(0);
+  }, [pendingSearchFocus, loading, debounced, search, visible.length]);
+
   const selected = visible[Math.min(selectedIndex, visible.length - 1)] ?? null;
 
   const { setInstalling, isBusy, addPending, removePending } = useBrowseInstall(adapter.installModel);
@@ -148,7 +161,7 @@ const BrowsePagedTab: FC<{
   };
 
   const detail = selected ? adapter.detail(selected) : null;
-  const queueFooter = useQueueFooterProps();
+  const queueFooter = useQueueFooterProps(game.appid);
 
   return (
     <Focusable
@@ -159,7 +172,7 @@ const BrowsePagedTab: FC<{
       <Focusable style={{ width: LEFT_PANEL_WIDTH, borderRight: '1px solid var(--gpColorSeparator)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: 8 }}>
           <TextField label={adapter.searchLabel} value={search} onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
+            onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); setPendingSearchFocus(true); } }} />
           <CatalogSourceLabel source={adapter.sourceLabel} />
           <div style={{ marginTop: 6, minHeight: 16, fontSize: 11, color: 'var(--gpColorTextSecondary)' }}>
             {loading ? 'Loading…' : visible.length > 0 ? `${visible.length} mod${visible.length === 1 ? '' : 's'}` : ''}

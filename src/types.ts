@@ -435,7 +435,9 @@ export const enqueueNexus =
 export const resumeDownloadJob = callable<[job_id: number, variant: string], boolean>('resume_download_job');
 export const cancelDownloadJob = callable<[job_id: number], boolean>('cancel_download_job');
 export const clearDownloadJob = callable<[job_id: number], boolean>('clear_download_job');
-export const clearFinishedDownloads = callable<[], void>('clear_finished_downloads');
+// Clears finished (done/failed/cancelled) jobs. Pass an appid to clear only that game's finished
+// jobs — the queue panel is per-game, so "Clear finished" must not wipe another game's outcomes.
+export const clearFinishedDownloads = callable<[appid?: number], void>('clear_finished_downloads');
 export const getDownloadQueue = callable<[], QueueJob[]>('get_download_queue');
 
 // Account-global plugin settings (e.g. the Nexus API key). Stored plaintext in the

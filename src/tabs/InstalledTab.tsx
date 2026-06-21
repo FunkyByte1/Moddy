@@ -419,7 +419,7 @@ const InstalledTab: FC<{
   const onItemToggle = useCallback((id: string, enable: boolean) => handleToggleRef.current(id, enable), []);
   const onItemFocus = useCallback((index: number) => setSelectedIndex(index), []);
 
-  const queueFooter = useQueueFooterProps();
+  const queueFooter = useQueueFooterProps(game.appid);
 
   return (
     <Focusable style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>

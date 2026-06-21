@@ -167,9 +167,12 @@ async def resume(job_id: int, variant: str) -> bool:
     return True
 
 
-async def clear_finished() -> None:
+async def clear_finished(appid: int | None = None) -> None:
+    """Drop finished (done/failed/cancelled) jobs. With `appid`, only that game's finished jobs
+    are cleared — the UI's queue panel is per-game, so this must leave other games' rows intact."""
     global _order
-    for jid in [i for i in _order if _jobs.get(i) and _jobs[i].status in _FINISHED]:
+    for jid in [i for i in _order if _jobs.get(i) and _jobs[i].status in _FINISHED
+                and (appid is None or _jobs[i].appid == appid)]:
         _jobs.pop(jid, None)
     _order = [i for i in _order if i in _jobs]
     await _emit_state()

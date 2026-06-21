@@ -1,4 +1,4 @@
-import { Tabs, showModal, DialogButton } from '@decky/ui';
+import { Tabs, showModal, DialogButton, Spinner } from '@decky/ui';
 import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, useRef, FC } from 'react';
 
@@ -36,6 +36,10 @@ const handledJobs = new Set<number>();
 const ModPage: FC = () => {
   const appid = parseInt(window.location.pathname.split('/').pop() ?? '0');
   const [game, setGame] = useState<GameStatus | null>(null);
+  // Distinguishes "still loading the first status" from "loaded, but no game" — without it the
+  // null-game branch can't tell a pending fetch from a genuinely unsupported game, so it showed
+  // the "not supported" text during load.
+  const [loaded, setLoaded] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [progress, setProgress] = useState(0);
   const [modloaderReadyOverride, setModloaderReadyOverride] = useState(false);
@@ -59,6 +63,7 @@ const ModPage: FC = () => {
   const refresh = async () => {
     const found = await getGameStatus(appid);
     if (found) setGame(found);
+    setLoaded(true);
   };
 
   // Background download queue: enqueued installs finish out-of-band, so this page watches the
@@ -101,7 +106,7 @@ const ModPage: FC = () => {
   // The named onOptionsButton (Y) dispatches through SteamUI's footer system reliably regardless
   // of which child holds focus, and shows a bottom-bar prompt — neither of which the View/Select
   // button supports.
-  const queueFooter = useQueueFooterProps();
+  const queueFooter = useQueueFooterProps(appid);
 
   // Seed the Browse filters' "Show NSFW" from the global default-on sub-setting, once.
   // Only takes effect when NSFW is allowed; the per-session toggle can still override it.
@@ -127,7 +132,18 @@ const ModPage: FC = () => {
         if (eventAppid === appid) setProgress(percent);
       }
     );
-    return () => removeEventListener('install_progress', listener);
+    // The backend warms an uncached Browse catalog out-of-band (so the first status returns
+    // instantly); it emits this once the catalog lands so we re-pull and library mods get
+    // classified/hidden. Without it the page would paint, but with libraries showing until the
+    // next manual refresh.
+    const staleListener = addEventListener<[eventAppid: number]>(
+      'game_status_stale',
+      (eventAppid) => { if (eventAppid === appid) refresh(); }
+    );
+    return () => {
+      removeEventListener('install_progress', listener);
+      removeEventListener('game_status_stale', staleListener);
+    };
   }, []);
 
   const modloaderReady = !!game && (game.modloader_ready || modloaderReadyOverride);
@@ -166,7 +182,19 @@ const ModPage: FC = () => {
     }
   }, [game]);
 
-  if (!game) return <div style={{ padding: '16px' }}>Game not supported or not installed.</div>;
+  if (!game) {
+    // Loading vs. genuinely-null are different states now: show a spinner until the first status
+    // resolves, only then fall back to the unsupported message.
+    if (!loaded) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', height: '100%', minHeight: '160px' }}>
+          <Spinner style={{ width: 32, height: 32 }} />
+          <span style={{ color: 'var(--gpColorTextSecondary)' }}>Loading…</span>
+        </div>
+      );
+    }
+    return <div style={{ padding: '16px' }}>Game not supported or not installed.</div>;
+  }
 
   const handleCancelInstall = async () => {
     const { cancelInstall } = await import('./types');
@@ -487,7 +515,7 @@ const ModPage: FC = () => {
           when idle. Overlaps the tab content (high z-index) when expanded. */}
       {queue.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 12px', position: 'relative', zIndex: 50 }}>
-          <DownloadQueuePill />
+          <DownloadQueuePill appid={appid} />
         </div>
       )}
       {/* Force-Proton prompt: native-Linux games (e.g. Enter the Gungeon) run their native build by

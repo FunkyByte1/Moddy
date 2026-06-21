@@ -90,6 +90,29 @@ def refreshed(cache_path: str, fetch_fn, *, label: str = "catalog") -> bool:
     return _cache_mtime(cache_path) > before
 
 
+def get_cached(cache_path: str) -> "list[dict] | None":
+    """Return the parsed catalog from cache — in-memory if present, else the on-disk copy at
+    ANY age — WITHOUT ever fetching. None when nothing is cached.
+
+    For latency-sensitive callers (game status) that must not block on the network: a stale copy
+    is fine for library classification, and a missing one is the caller's cue to warm it in the
+    background. A disk read is memoized so the next call is instant."""
+    mem = _mem_catalog.get(cache_path)
+    if mem:
+        return mem[1]
+    try:
+        mtime = os.path.getmtime(cache_path)
+        with open(cache_path, "r") as f:
+            packages = json.load(f).get("packages", [])
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        decky.logger.warning(f"catalog cache read failed: {e}")
+        return None
+    _mem_catalog[cache_path] = (mtime, packages)
+    return packages
+
+
 def _read_stale(cache_path: str) -> list[dict]:
     """Fall back to whatever packages are on disk after a failed fetch; [] if none usable."""
     try:

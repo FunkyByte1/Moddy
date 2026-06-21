@@ -3,7 +3,7 @@ import { showModal } from '@decky/ui';
 import { FC, useEffect, useRef } from 'react';
 
 import { QueueJob, cancelDownloadJob, clearDownloadJob, clearFinishedDownloads, resumeDownloadJob } from '../types';
-import { useDownloadQueue, isActiveStatus, jobStatusText } from '../downloadQueue';
+import { useDownloadQueue, useGameDownloadQueue, summarize, isActiveStatus, jobStatusText } from '../downloadQueue';
 import VariantModal from './modals/VariantModal';
 
 /** Ask which variant to install for a parked (needs_input) job, then resume it from its cache. */
@@ -31,9 +31,16 @@ const statusColor = (j: QueueJob): string => {
   }
 };
 
-const DownloadQueueModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => {
-  const jobs = useDownloadQueue();
+const DownloadQueueModal: FC<{ appid: number; closeModal?: () => void }> = ({ appid, closeModal }) => {
+  const jobs = useGameDownloadQueue(appid);
   const hasFinished = jobs.some(j => !isActiveStatus(j.status));
+
+  // The backend queue is globally serial — one worker drains it across all games — but this panel
+  // only lists THIS game's jobs. So a job here can sit at "Queued" with nothing above it while the
+  // worker is busy downloading for a different game. Surface that, without naming the other game's
+  // mod, so the empty-list-but-still-queued state reads as "waiting in line", not "stuck".
+  const { current } = summarize(useDownloadQueue());
+  const foreignDownloading = current !== null && current.appid !== appid;
 
   // Release the single-open guard when the modal unmounts (closed by B/back or the button).
   useEffect(() => () => { modalOpen = false; }, []);
@@ -61,6 +68,16 @@ const DownloadQueueModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => 
         style={{ padding: '12px 4px' }}
       >
         <div style={{ fontWeight: 'bold', fontSize: '1.2em', marginBottom: '12px' }}>Downloads</div>
+
+        {foreignDownloading && (
+          <div style={{
+            marginBottom: '12px', padding: '8px 10px', borderRadius: '6px',
+            background: 'var(--gpColorBgTertiary, rgba(255,255,255,0.06))',
+            fontSize: '0.85em', color: 'var(--gpColorTextSecondary)',
+          }}>
+            ⬇ A download for another game is in progress.
+          </div>
+        )}
 
         {jobs.length === 0 ? (
           <div style={{ color: 'var(--gpColorTextSecondary)' }}>No downloads.</div>
@@ -113,7 +130,7 @@ const DownloadQueueModal: FC<{ closeModal?: () => void }> = ({ closeModal }) => 
             for a Focusable group is vertical, which is why it was up/down before). */}
         <Focusable ref={footerRef} flow-children="horizontal" style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
           {hasFinished && (
-            <DialogButton onClick={() => clearFinishedDownloads()}>Clear finished</DialogButton>
+            <DialogButton onClick={() => clearFinishedDownloads(appid)}>Clear finished</DialogButton>
           )}
           <DialogButton onClick={() => closeModal?.()}>Close</DialogButton>
         </Focusable>
@@ -128,21 +145,23 @@ export default DownloadQueueModal;
 // re-fire — but rapid presses before focus moves could. Reset on the modal's unmount (above).
 let modalOpen = false;
 
-/** Open the download-queue modal (no-op if already open). Triggered by the pill and the Y button. */
-export function openDownloadQueue(): void {
+/** Open the download-queue panel for one game (no-op if already open). Triggered by the pill and
+ * the Y button. The panel shows only `appid`'s jobs — the queue is per-game from the UI's view. */
+export function openDownloadQueue(appid: number): void {
   if (modalOpen) return;
   modalOpen = true;
-  showModal(<DownloadQueueModal />);
+  showModal(<DownloadQueueModal appid={appid} />);
 }
 
 /**
  * Footer-legend props for the Downloads (Y) button, spread onto any Focusable that owns a footer
  * legend. SteamUI resolves the legend from the *focused* Focusable, so each region that sets
- * Options/Filter must also set this for the prompt to appear there. Empty while the queue is idle.
+ * Options/Filter must also set this for the prompt to appear there. Scoped to `appid`: the prompt
+ * only shows (and Y only opens the panel) when *this game* has queued jobs.
  */
-export function useQueueFooterProps(): { onOptionsButton?: () => void; onOptionsActionDescription?: string } {
-  const jobs = useDownloadQueue();
+export function useQueueFooterProps(appid: number): { onOptionsButton?: () => void; onOptionsActionDescription?: string } {
+  const jobs = useGameDownloadQueue(appid);
   return jobs.length > 0
-    ? { onOptionsButton: openDownloadQueue, onOptionsActionDescription: 'Downloads' }
+    ? { onOptionsButton: () => openDownloadQueue(appid), onOptionsActionDescription: 'Downloads' }
     : {};
 }

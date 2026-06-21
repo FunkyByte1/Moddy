@@ -142,6 +142,12 @@ def get_bmi_catalog(repo: str, branch: str = "main", force: bool = False) -> lis
     )
 
 
+def get_cached_bmi_catalog(repo: str, branch: str = "main") -> "list[dict] | None":
+    """The BMI catalog from cache only (in-memory, else on-disk at any age); None if not cached.
+    Never fetches — for the latency-sensitive game-status path."""
+    return catalog_cache.get_cached(_catalog_cache_path(repo))
+
+
 def find_bmi_package(repo: str, full_name: str, branch: str = "main") -> dict | None:
     """Look up a single catalog item by full_name (case-insensitive)."""
     target = full_name.lower()

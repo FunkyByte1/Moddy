@@ -1,14 +1,14 @@
 import { Focusable } from '@decky/ui';
 import { FC } from 'react';
 
-import { useDownloadQueue, summarize } from '../downloadQueue';
+import { useGameDownloadQueue, summarize } from '../downloadQueue';
 import { openDownloadQueue } from './DownloadQueueModal';
 
-// At-a-glance queue indicator in the ModPage header. Shows what's downloading now + position +
-// percent; selecting it (or the Y "Downloads" button) opens the full, focus-trapped modal.
-// Hidden entirely when the queue is empty.
-const DownloadQueuePill: FC = () => {
-  const jobs = useDownloadQueue();
+// At-a-glance queue indicator in the ModPage header. Shows what's downloading now for THIS game +
+// position + percent; selecting it (or the Y "Downloads" button) opens the full, focus-trapped
+// modal. Hidden entirely when this game's queue is empty (another game's download won't show it).
+const DownloadQueuePill: FC<{ appid: number }> = ({ appid }) => {
+  const jobs = useGameDownloadQueue(appid);
   if (jobs.length === 0) return null;
 
   const { current } = summarize(jobs);
@@ -20,8 +20,8 @@ const DownloadQueuePill: FC = () => {
 
   return (
     <Focusable
-      onActivate={openDownloadQueue}
-      onClick={openDownloadQueue}
+      onActivate={() => openDownloadQueue(appid)}
+      onClick={() => openDownloadQueue(appid)}
       style={{
         display: 'flex', alignItems: 'center', gap: '8px',
         padding: '4px 12px', borderRadius: '14px',

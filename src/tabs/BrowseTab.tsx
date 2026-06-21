@@ -248,6 +248,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<FixedSizeList | null>(null);
+  const listOuterRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -459,6 +460,17 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     (detailRef.current?.querySelector('button, [tabindex]') as HTMLElement | null)?.focus();
   }, []);
 
+  // After submitting a search on the on-screen keyboard (Enter/R2 blurs the field), drop focus onto
+  // the first result so the user can navigate the list straight away instead of being left on
+  // nothing. Filtering here is synchronous, so by Enter the list already reflects the query; scroll
+  // to the top first to guarantee row 0 is rendered (virtualized), then focus its button next frame.
+  const focusFirstRow = useCallback(() => {
+    listRef.current?.scrollToItem(0);
+    requestAnimationFrame(() => {
+      (listOuterRef.current?.querySelector('button') as HTMLElement | null)?.focus();
+    });
+  }, []);
+
   const itemData: RowData = useMemo(
     () => ({ packages: filtered, selectedIndex, installedIds, onSelect: setSelectedIndex, onActivate: focusDetail }),
     [filtered, selectedIndex, installedIds, focusDetail]
@@ -500,6 +512,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     listSlot = (
       <FixedSizeList
         ref={listRef}
+        outerRef={listOuterRef}
         height={LIST_HEIGHT}
         width={LIST_WIDTH}
         itemCount={filtered.length}
@@ -514,7 +527,7 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
   return (
     <Focusable
       style={{ display: 'flex', height: '100%', overflow: 'hidden' }}
-      {...useQueueFooterProps()}
+      {...useQueueFooterProps(game.appid)}
       onSecondaryButton={onFilterButton}
       onSecondaryActionDescription="Filter"
     >
@@ -531,8 +544,9 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
             label="Search"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            // Enter (R2 on the on-screen keyboard) dismisses the keyboard by blurring the field.
-            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+            // Enter (R2 on the on-screen keyboard) dismisses the keyboard by blurring the field,
+            // then moves focus to the first result so the list is ready to navigate.
+            onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); focusFirstRow(); } }}
           />
           <CatalogSourceLabel source={isBmi ? 'bmi' : 'thunderstore'} />
           <div style={{ marginTop: 4, fontSize: 11, color: 'var(--gpColorTextSecondary)' }}>

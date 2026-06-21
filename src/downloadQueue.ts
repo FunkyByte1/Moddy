@@ -9,7 +9,7 @@
 // initDownloadQueue() is called once from the plugin root; the listeners outlive any single
 // page mount so background downloads stay visible after you leave a game's page.
 
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { addEventListener, removeEventListener } from '@decky/api';
 import { QueueJob, getDownloadQueue } from './types';
 
@@ -32,6 +32,18 @@ function getSnapshot(): QueueJob[] {
 /** Read the live queue. Re-renders the calling component on any queue change. */
 export function useDownloadQueue(): QueueJob[] {
   return useSyncExternalStore(subscribe, getSnapshot);
+}
+
+/**
+ * The live queue scoped to a single game. The backend queue is shared and serial across all
+ * games (one worker drains it), but each job records its `appid`, so the per-game UI — the
+ * ModPage pill, the Y "Downloads" panel, and the Y footer prompt — shows only this game's jobs.
+ * A RoR2 download no longer shows up while you're on Balatro. The QAM panel stays global on
+ * purpose (it's the cross-game overview).
+ */
+export function useGameDownloadQueue(appid: number): QueueJob[] {
+  const all = useDownloadQueue();
+  return useMemo(() => all.filter(j => j.appid === appid), [all, appid]);
 }
 
 // A job is "active" (occupying the queue) while it is waiting, downloading, or parked for a user

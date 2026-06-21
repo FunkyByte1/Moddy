@@ -37,7 +37,7 @@ const ModDetailPanel: FC<{
     return !!denylist && (denylist.has(lower) || denylist.has(lower.split('-').slice(0, -1).join('-')));
   };
   const shownDeps = (entry.info.dependencies ?? []).filter(d => !isDenylisted(d));
-  const queueFooter = useQueueFooterProps();
+  const queueFooter = useQueueFooterProps(game.appid);
 
   return (
     <Focusable

@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import os
 import decky
@@ -36,23 +37,76 @@ def _catalog_for_game(game: "registry.GameProfile") -> list[dict]:
     return []
 
 
-def _library_full_names(game: "registry.GameProfile", lib_cats: list[str]) -> set[str]:
+def _cached_catalog_for_game(game: "registry.GameProfile") -> "list[dict] | None":
+    """The game's Browse catalog from cache ONLY — never fetches. None when not yet cached, so
+    the status path can skip library classification and warm the catalog in the background instead
+    of blocking on a multi-second network fetch (the cause of the ModPage blank-page wait)."""
+    try:
+        if game.catalog.get("type") == "bmi" and game.catalog.get("repo"):
+            return bmi.get_cached_bmi_catalog(game.catalog["repo"], game.catalog.get("branch", "main"))
+        if game.thunderstore_community:
+            return thunderstore.get_cached_community_catalog(game.thunderstore_community)
+    except Exception as e:
+        decky.logger.warning(f"Could not load cached catalog for {game.id}: {e}")
+    return None
+
+
+def _library_full_names(packages: "list[dict]", lib_cats: list[str]) -> set[str]:
     """Lowercased catalog full_names whose categories mark them as libraries."""
     if not lib_cats:
         return set()
     lib_set = {c.lower() for c in lib_cats}
     names: set[str] = set()
-    for p in _catalog_for_game(game):
+    for p in packages:
         if any(c.lower() in lib_set for c in p.get("categories", [])):
             names.add(p.get("full_name", "").lower())
     names.discard("")
     return names
 
 
-def _build_game_status(game: "registry.GameProfile", libraries: "list[str] | None" = None) -> dict:
+# Catalogs currently being warmed in the background (keyed by community / repo), so repeated
+# status calls for the same game don't stack duplicate fetches.
+_warming_catalogs: "set[str]" = set()
+
+
+def _schedule_catalog_warm(game: "registry.GameProfile") -> None:
+    """Fetch a game's Browse catalog in the background (off the event loop), then emit
+    `game_status_stale` so the UI re-pulls and library mods get classified. Used by the
+    status path when the catalog isn't cached yet, to keep that path instant. Deduped per
+    catalog. No-op if there's no running loop (shouldn't happen — callers are async handlers)."""
+    key = game.thunderstore_community or game.catalog.get("repo") or game.id
+    if key in _warming_catalogs:
+        return
+    _warming_catalogs.add(key)
+
+    async def _run() -> None:
+        try:
+            await asyncio.to_thread(_catalog_for_game, game)
+        except Exception as e:  # noqa: BLE001 — a failed warm just leaves mods unclassified
+            decky.logger.warning(f"Background catalog warm failed for {game.id}: {e}")
+        finally:
+            _warming_catalogs.discard(key)
+        try:
+            await decky.emit("game_status_stale", game.appid)
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        asyncio.create_task(_run())
+    except RuntimeError:
+        _warming_catalogs.discard(key)
+
+
+def _build_game_status(game: "registry.GameProfile", libraries: "list[str] | None" = None,
+                       *, blocking_catalog: bool = True) -> dict:
     """Build the install/mod-status dict for one supported game. Pass `libraries` (a
     pre-parsed Steam library list) when building many games at once so libraryfolders.vdf
-    is read once for the whole batch rather than once per game."""
+    is read once for the whole batch rather than once per game.
+
+    With `blocking_catalog=False` the library classification reads the Browse catalog from
+    cache only (never fetching), so the call can't block on the network — installed mods come
+    back unclassified if the catalog isn't cached yet. The latency-sensitive single-game status
+    path uses this and warms the catalog out-of-band; the full-list path keeps the fetch."""
     install_dir = steam.find_game_install_dir(game.appid, libraries)
 
     # Use the first modloader defined for the game
@@ -81,10 +135,11 @@ def _build_game_status(game: "registry.GameProfile", libraries: "list[str] | Non
     # installed mods to classify, so it never runs for unmodded games.
     lib_cats = registry.library_categories(game)
     framework_ids = {fw.get("id", k).lower() for k, fw in game.frameworks.items()}
-    lib_names = (
-        _library_full_names(game, lib_cats)
-        if (installed_mods_list and lib_cats) else set()
-    )
+    if installed_mods_list and lib_cats:
+        packages = _catalog_for_game(game) if blocking_catalog else _cached_catalog_for_game(game)
+    else:
+        packages = []
+    lib_names = _library_full_names(packages or [], lib_cats)
     # Nexus has no library categories, so library Nexus mods are listed per game (catalog.library_ids).
     nexus_lib_ids = registry.nexus_library_ids(game)
     workshop = game.uses_steam_workshop()
@@ -146,7 +201,17 @@ class Plugin:
         game = registry.get_game_by_appid(appid)
         if not game:
             return None
-        return _build_game_status(game)
+        # Read the catalog from cache only so this never blocks on a network fetch — the ModPage
+        # gates its whole render on this call, so a synchronous catalog pull here showed a blank
+        # page for seconds (notably RoR2's large Thunderstore catalog). If the catalog isn't cached
+        # yet, classification is skipped now and warmed out-of-band; `game_status_stale` then tells
+        # the UI to re-pull so library mods get hidden once it lands.
+        status = _build_game_status(game, blocking_catalog=False)
+        if (status["installed"] and status["installed_mods"]
+                and registry.library_categories(game)
+                and _cached_catalog_for_game(game) is None):
+            _schedule_catalog_warm(game)
+        return status
 
     async def install_modloader(self, appid: int, version: str | None = None) -> "bool | str":
         """Returns True on success, False on failure, or "premium_required" when a Nexus-sourced
@@ -906,8 +971,8 @@ class Plugin:
     async def cancel_download_job(self, job_id: int) -> bool:
         return await download_queue.cancel(job_id)
 
-    async def clear_finished_downloads(self) -> None:
-        await download_queue.clear_finished()
+    async def clear_finished_downloads(self, appid: int | None = None) -> None:
+        await download_queue.clear_finished(appid)
 
     async def clear_download_job(self, job_id: int) -> bool:
         return await download_queue.clear_job(job_id)
