@@ -296,17 +296,55 @@ def get_files(domain: str, mod_id: str) -> list[dict]:
 
 
 def primary_file_id(domain: str, mod_id: str) -> str | None:
-    """The id of the mod's primary downloadable file: the one Nexus marks MAIN, else the
-    most recently uploaded. Returns None if the mod has no files."""
+    """The id of the mod's primary downloadable file. Returns None if the mod has no files.
+
+    Preference order:
+      1. The file the author flagged `is_primary` (Nexus's highlighted download). A page can have
+         SEVERAL MAIN files — e.g. Stardew Valley Expanded lists optional alternate farms (Immersive
+         Farm 2 Remastered) as MAIN too — and those are often uploaded more recently than the actual
+         mod, so "newest MAIN" grabs the wrong file (installs the add-on, not the mod). is_primary is
+         the author's explicit "this is THE download," so it wins.
+      2. Else the most recently uploaded MAIN file.
+      3. Else the most recently uploaded file of any category.
+    (Multi-file pages where the user wants a specific optional file still need a file picker — TODO.)
+    """
     files = get_files(domain, mod_id)
     if not files:
         return None
+    primary = next((f for f in files if f.get("is_primary") and f.get("file_id") is not None), None)
+    if primary:
+        return str(primary["file_id"])
     main = [f for f in files if (f.get("category_name") or "").upper() == "MAIN"]
     chosen = main or files
     # Highest file_id == most recent upload, a stable tiebreaker.
     best = max(chosen, key=lambda f: f.get("file_id", 0))
     fid = best.get("file_id")
     return str(fid) if fid is not None else None
+
+
+def selectable_files(domain: str, mod_id: str) -> list[dict]:
+    """The files on a mod page a user might actually install — MAIN + OPTIONAL, excluding old
+    versions / archived / miscellaneous. Each: {file_id (str), name, category, is_primary, size}.
+    Sorted primary-first, then MAIN before OPTIONAL, then by name. Empty / single-element means
+    there's no real choice to make; >1 is when the file picker is worth showing (e.g. Stardew Valley
+    Expanded's main download + its optional alternate farms)."""
+    out: list[dict] = []
+    for f in get_files(domain, mod_id):
+        cat = (f.get("category_name") or "").upper()
+        if cat not in ("MAIN", "OPTIONAL"):
+            continue
+        fid = f.get("file_id")
+        if fid is None:
+            continue
+        out.append({
+            "file_id": str(fid),
+            "name": f.get("name") or f.get("file_name") or str(fid),
+            "category": cat,
+            "is_primary": bool(f.get("is_primary")),
+            "size": f.get("size_kb") or f.get("size") or 0,
+        })
+    out.sort(key=lambda f: (not f["is_primary"], f["category"] != "MAIN", f["name"].lower()))
+    return out
 
 
 def get_download_url(domain: str, mod_id: str, file_id: str) -> str | None:

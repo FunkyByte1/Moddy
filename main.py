@@ -523,6 +523,36 @@ class Plugin:
         domain, mod_id = parsed
         if installed is None:
             installed = []
+
+        # Multi-file picker (SMAPI / Stardew): a Nexus page can list several installable files — the
+        # main mod plus optional add-ons (e.g. Stardew Valley Expanded + its alternate farms). For
+        # zip_smapi games the `variant` channel carries the user's file pick (comma-joined file ids
+        # from the picker). The non-zip_smapi variant flow (RE4/MHW archive-payload variants) is
+        # unchanged — it has no selectable_files step and flows through the cascade below.
+        if game.catalog.get("install_type") == "zip_smapi":
+            if variant is None:
+                files = nexus.selectable_files(domain, mod_id)
+                if len(files) > 1:
+                    return {
+                        "needs_variant": True,
+                        "multi_select": True,  # the UI shows a checklist, not a single-pick list
+                        "variants": [{
+                            "id": f["file_id"],
+                            "label": f["name"]
+                                     + (" (optional)" if f["category"] == "OPTIONAL" else "")
+                                     + (" — recommended" if f["is_primary"] else ""),
+                        } for f in files],
+                    }
+                # 0–1 files: nothing to choose — fall through to the normal cascade (is_primary picks).
+            else:
+                file_ids = [x for x in variant.split(",") if x]
+                res = await self._install_nexus_multifile(
+                    game, install_dir, domain, mod_id, version, file_ids, seen=set(), installed=installed,
+                )
+                if (res is None or res is False) and installed:
+                    await self._rollback_installs(game, install_dir, installed)
+                return res
+
         # No "N of M" pre-pass for Nexus: unlike Thunderstore's in-memory catalog, requirement
         # resolution is an uncached GraphQL call, so a pre-pass would double those calls — and a
         # rate-limited second call (the one that actually drives the cascade) could return nothing,
@@ -559,6 +589,62 @@ class Plugin:
             provider, game, install_dir, (domain, mod_id), version,
             seen=seen, installed=installed, top=top, variant=variant,
         )
+
+    async def _install_nexus_multifile(self, game, install_dir, domain, mod_id, version, file_ids, *,
+                                       seen, installed):
+        """Install several user-chosen files of ONE Nexus SMAPI mod as a single library entry: its
+        requirements first (via the shared cascade, best-effort like a normal Nexus install), then
+        the chosen files downloaded and placed together under the one mod id (e.g. Stardew Valley
+        Expanded's main download + its optional alternate farm). Returns
+        True/False/None/"premium_required"."""
+        provider = install_cascade.NexusProvider(self._nexus_browse_denylist())
+        ref = (domain, mod_id)
+        item = provider.find(game, ref)
+        if item is None:
+            return False
+        seen.add(provider.key(ref))  # a requirement that lists this mod back can't re-pull it
+
+        # 1) Requirements first (depth-first). Best-effort: a failed requirement warns but the mod
+        #    still installs (matches NexusProvider.deps_fatal=False).
+        for dep_ref, dep_label in provider.dep_refs(game, item, ref):
+            dep_res = await install_cascade.run_cascade(
+                provider, game, install_dir, dep_ref, None,
+                seen=seen, installed=installed, is_dependency=True,
+            )
+            if dep_res == install_cascade.PREMIUM_REQUIRED:
+                return install_cascade.PREMIUM_REQUIRED
+            if dep_res is None:
+                return None
+            if dep_res is False:
+                decky.logger.warning(f"Dependency {dep_label} did not install (continuing)")
+                await download_queue.note_warning(f"Couldn't install dependency: {dep_label}")
+
+        # 2) Resolve a download URL for each chosen file (Premium-gated like any Nexus download).
+        urls: list[str] = []
+        for fid in file_ids:
+            try:
+                url = nexus.get_download_url(domain, mod_id, fid)
+            except nexus.PremiumRequired:
+                return install_cascade.PREMIUM_REQUIRED
+            if url:
+                urls.append(url)
+        if not urls:
+            decky.logger.error(f"nexus.{domain}.{mod_id}: no downloadable files among {file_ids}")
+            return False
+
+        # 3) Reuse the provider to build the ModInfo (id/meta/recorded deps), then install all chosen
+        #    files combined into that one record.
+        spec = provider.build_install(game, item, ref, None)
+        if spec == install_cascade.PREMIUM_REQUIRED:
+            return install_cascade.PREMIUM_REQUIRED
+        if spec is None:
+            return False
+        was_fresh = not mods.installed_files_present(game, install_dir, provider.key(ref))
+        await download_queue.note_item(spec.mod.name)
+        res = await mods.install_smapi_files(game, install_dir, spec.mod, version or spec.version, urls)
+        if res is True and was_fresh and installed is not None:
+            installed.append(spec.mod.id)
+        return res
 
     # ── Plugin settings (account-global; e.g. the Nexus API key) ───────────────
     async def get_setting(self, key: str):
@@ -669,6 +755,10 @@ class Plugin:
                                        # source), but also mirrored on Nexus, so hide that listing
         "nexus.monsterhunterrise.181", # HunterPie v2 — external .NET overlay app, not an in-game
                                        # mod; runs as a separate process (Moddy can't install/run it)
+        "nexus.stardewvalley.2400",    # SMAPI — installed via the Mod Loader tab (GitHub source), but
+                                       # also mirrored on Nexus where ~every mod lists it as a required
+                                       # mod; hide that listing and skip it as a dependency (it has no
+                                       # manifest.json, so zip_smapi would reject it anyway)
         "nexus.site.818",              # Fluffy Mod Manager 5000 (site-wide Nexus listing some mods require)
     }
 

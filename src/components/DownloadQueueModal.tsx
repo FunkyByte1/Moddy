@@ -5,9 +5,22 @@ import { FC, useEffect, useRef } from 'react';
 import { QueueJob, cancelDownloadJob, clearDownloadJob, clearFinishedDownloads, resumeDownloadJob } from '../types';
 import { useDownloadQueue, isActiveStatus, jobStatusText } from '../downloadQueue';
 import VariantModal from './modals/VariantModal';
+import FileChoiceModal from './modals/FileChoiceModal';
 
-/** Ask which variant to install for a parked (needs_input) job, then resume it from its cache. */
+/** Resolve a parked (needs_input) job's choice, then resume it. A multi-select job is a Nexus
+ *  file picker (pick one or more files → resume with the ids comma-joined); otherwise it's a
+ *  single-pick archive variant. Both ride the same resume channel. */
 export function promptVariant(job: QueueJob): void {
+  if (job.multi_select) {
+    showModal(
+      <FileChoiceModal
+        modName={job.name}
+        files={job.variants}
+        onConfirm={(ids, close) => { close(); resumeDownloadJob(job.job_id, ids.join(',')); }}
+      />
+    );
+    return;
+  }
   showModal(
     <VariantModal
       modName={job.name}

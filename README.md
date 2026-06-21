@@ -28,20 +28,22 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 ## Supported Games
 ### Currently Supported:
 
+
+- Risk of Rain 2
+- Balatro
+- PEAK
 - Haste
 - Hand of Fate 2
-- Risk of Rain 2
-- PEAK
-- Balatro
 - Enter the Gungeon
+- Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 - Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
+- Monster Hunter World *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
+- Monster Hunter Rise *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 - Slime Rancher 2 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 
 ### Planned:
-- Stardew Valley
 - No Man's Sky
-- Deep Rock Galactic
-- Monster Hunter World
+- Elden Ring
 - and more :)
 
 ## Mod Sources
