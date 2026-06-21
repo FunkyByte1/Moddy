@@ -244,7 +244,9 @@ async def install_modloader(game: GameProfile, install_dir: str, modloader_id: s
         return False
     if ml.native:
         return True  # platform-provided (e.g. Steam Workshop) — nothing to install
-    if ml.source.type == "github":
+    if ml.source.type == "github" and ml.source.install_type == "smapi_installer":
+        ok = await _install_smapi_modloader(game, install_dir, ml, version)
+    elif ml.source.type == "github":
         ok = await _install_github_modloader(game, install_dir, ml, version)
     elif ml.source.type == "thunderstore":
         ok = await _install_thunderstore_modloader(game, install_dir, ml, version)
@@ -460,6 +462,106 @@ async def _install_nexus_modloader(game: GameProfile, install_dir: str, ml: Modl
             os.remove(tmp_archive)
         if os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir)
+
+
+async def _install_smapi_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> bool:
+    """Install SMAPI for Stardew Valley — the Proton / Windows-build path.
+
+    SMAPI is a launcher REPLACEMENT, not a WINEDLLOVERRIDES DLL proxy like every other Moddy loader:
+    the Windows SMAPI files are dropped into the game folder and the game is then launched via
+    StardewModdingAPI.exe through the loader's sed-rewrite launch option (applied by the frontend,
+    not here). SMAPI ships from GitHub (Pathoschild/SMAPI) as an interactive INSTALLER, not a plain
+    file tree — the runnable files live in `internal/windows/install.dat` (a zip renamed to .dat). We
+    extract the installer, extract install.dat into the game folder, then synthesize
+    `StardewModdingAPI.deps.json` by copying the game's `Stardew Valley.deps.json` (the documented
+    manual-install step). Every placed file is tracked so uninstall removes exactly SMAPI's footprint
+    (including the two helper mods it bundles under Mods/) and never the user's other mods."""
+    # The installer asset name embeds the version (SMAPI-<ver>-installer.zip), so it can't be a fixed
+    # asset string in the registry — resolve it from the release here.
+    if version:
+        asset = f"SMAPI-{version}-installer.zip"
+        url = github.get_download_url_for_version(ml.source.owner, ml.source.repo, version, asset)
+        resolved_version = version
+    else:
+        latest = github.get_latest_release_assets(ml.source.owner, ml.source.repo)
+        if not latest:
+            decky.logger.error(f"Could not resolve latest {ml.id} release from GitHub")
+            return False
+        resolved_version, assets = latest
+        # Pick "SMAPI-<ver>-installer.zip", NOT the "-installer-double-zipped.zip" browser variant.
+        url = next(
+            (u for n, u in assets.items() if n.endswith("-installer.zip") and "double-zipped" not in n),
+            None,
+        )
+    if not url:
+        decky.logger.error(f"{ml.name}: could not resolve a SMAPI installer download URL")
+        return False
+
+    tmp_zip = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_tmp.zip")
+    tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_extract")
+    tmp_payload = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_payload")
+    try:
+        decky.logger.info(f"Downloading {ml.name} {resolved_version} from {url}")
+        await utils.download(url, tmp_zip, game.appid)
+
+        for d in (tmp_dir, tmp_payload):
+            if os.path.exists(d):
+                shutil.rmtree(d)
+        os.makedirs(tmp_dir)
+        with zipfile.ZipFile(tmp_zip, "r") as z:
+            z.extractall(tmp_dir)
+
+        # Locate internal/windows/install.dat — the Windows payload that drops into the game folder.
+        # (The Proton path runs the Windows build, so we install that, not internal/linux.)
+        dat_path = None
+        for root, _dirs, files in os.walk(tmp_dir):
+            if "install.dat" in files and os.path.basename(root).lower() == "windows":
+                dat_path = os.path.join(root, "install.dat")
+                break
+        if not dat_path:
+            raise Exception("SMAPI installer did not contain internal/windows/install.dat")
+
+        os.makedirs(tmp_payload)
+        with zipfile.ZipFile(dat_path, "r") as z:  # install.dat is a zip renamed to .dat
+            z.extractall(tmp_payload)
+
+        # Synthesize StardewModdingAPI.deps.json from the game's deps file (manual-install step 3) so
+        # .NET resolves the game's dependencies when launched via SMAPI.
+        game_deps = os.path.join(install_dir, "Stardew Valley.deps.json")
+        if os.path.isfile(game_deps):
+            shutil.copyfile(game_deps, os.path.join(tmp_payload, "StardewModdingAPI.deps.json"))
+        else:
+            decky.logger.warning(
+                f"{ml.name}: 'Stardew Valley.deps.json' not found in game folder — SMAPI may fail to "
+                "start (is the game installed and up to date?)"
+            )
+
+        # Merge the whole payload into the game folder, tracking each placed file so uninstall removes
+        # exactly SMAPI's footprint and leaves the user's other mods under Mods/ intact.
+        placed: list[str] = []
+        with _StagedInstall(install_dir) as txn:
+            for root, _dirs, files in os.walk(tmp_payload):
+                for fn in files:
+                    full = os.path.join(root, fn)
+                    rel = os.path.relpath(full, tmp_payload)
+                    txn.place(full, rel)
+                    placed.append(rel)
+
+        set_modloader_version(ml.id, resolved_version, paths=placed)
+        decky.logger.info(f"{ml.name} {resolved_version} installed successfully ({len(placed)} file(s))")
+        return True
+    except utils.InstallCancelledError:
+        decky.logger.info(f"{ml.name} installation was cancelled")
+        return False
+    except Exception as e:
+        decky.logger.error(f"{ml.name} installation failed: {e}")
+        return False
+    finally:
+        if os.path.exists(tmp_zip):
+            os.remove(tmp_zip)
+        for d in (tmp_dir, tmp_payload):
+            if os.path.exists(d):
+                shutil.rmtree(d)
 
 
 async def _install_github_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> bool:

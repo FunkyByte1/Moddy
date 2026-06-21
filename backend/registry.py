@@ -13,7 +13,7 @@ class ModSource:
     asset: str = ""    # Asset filename to download (for type="github")
     branch: str = "main"  # Branch to download (for type="github_source")
     url: str = ""      # Direct URL (for type="url")
-    install_type: str = "file"  # "file" | "zip_dir" | "zip_flat" | "zip_natives" | "zip_nativepc" | "zip_into_game" | "steamworkshop"
+    install_type: str = "file"  # "file" | "zip_dir" | "zip_flat" | "zip_natives" | "zip_nativepc" | "zip_smapi" | "zip_into_game" | "steamworkshop" | "smapi_installer"
     workshop_id: str = ""  # Steam Workshop published file id (for type="steamworkshop")
     nexus_domain: str = ""  # Nexus game domain slug, e.g. "slimerancher2" (for type="nexus")
     mod_id: str = ""        # Nexus mod id (for type="nexus"); file_id is resolved at install time

@@ -58,3 +58,15 @@ def get_latest_download_url(owner: str, repo: str, asset: str) -> tuple[str, str
     if not url:
         return None
     return latest["version"], url
+
+
+def get_latest_release_assets(owner: str, repo: str) -> tuple[str, dict[str, str]] | None:
+    """Returns (version, {asset_name: download_url}) for the latest release. Use this when the
+    asset name embeds the version (e.g. SMAPI's `SMAPI-<ver>-installer.zip`), so the caller can
+    select by pattern rather than an exact name."""
+    url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+    data = fetch.fetch_json(url)
+    if not data or "tag_name" not in data:
+        return None
+    assets = {a["name"]: a["browser_download_url"] for a in data.get("assets", [])}
+    return data["tag_name"], assets

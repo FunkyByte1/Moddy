@@ -1,0 +1,15 @@
+{
+  "id": "smapi",
+  "name": "SMAPI",
+  "files": [],
+  "dirs": [],
+  "indicator": "StardewModdingAPI.dll",
+  "ready_indicator": null,
+  "launch_options": "echo \"%command%\" | sed 's/Stardew Valley.exe/StardewModdingAPI.exe/' | sh",
+  "source": {
+    "type": "github",
+    "owner": "Pathoschild",
+    "repo": "SMAPI",
+    "install_type": "smapi_installer"
+  }
+}

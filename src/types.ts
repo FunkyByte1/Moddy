@@ -420,6 +420,7 @@ export interface QueueJob {
   items_done: number;  // "N" — packages started in this job's cascade
   items_total: number; // "M" — total packages this job installs (0 = unknown / single)
   variants: NexusVariant[]; // present while status is 'needs_input' — the choices to offer
+  multi_select?: boolean;   // the parked choice is a Nexus file picker (checklist), not a single-pick variant
 }
 export const enqueueThunderstore =
   callable<[appid: number, full_name: string, name: string, version: string | null, with_deps?: boolean, allow_missing?: boolean], number>('enqueue_thunderstore');

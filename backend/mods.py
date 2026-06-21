@@ -413,6 +413,8 @@ def mod_files_present(game: GameProfile, install_dir: str, record: dict) -> bool
     paths = record.get("paths")
     if install_type in ("zip_flat", "zip_natives", "zip_nativepc"):
         return _flat_mod_present(_flat_target_paths(install_dir, paths))
+    if install_type == "zip_smapi":
+        return _smapi_mod_present(_flat_target_paths(install_dir, paths))
     if install_type == "zip_dir" or paths:
         mods_path = resolve_mods_path(game, install_dir)
         filename = record.get("filename") or ""
@@ -631,6 +633,13 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             if not _flat_mod_present(target_paths):
                 continue  # installed for a different game
             enabled = _natives_mod_enabled(target_paths)
+        elif install_type == "zip_smapi":
+            # SMAPI mod: one or more folders under Mods/, each with a manifest.json. Present iff
+            # any tracked folder exists (active or `.`-disabled); enabled iff the active form is on disk.
+            target_paths = _flat_target_paths(install_dir, paths)
+            if not _smapi_mod_present(target_paths):
+                continue  # installed for a different game
+            enabled = _smapi_mod_enabled(target_paths)
         elif install_type == "zip_dir" or paths:
             target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
             if not any(_tracked_present(d) for d in target_dirs):
@@ -702,6 +711,8 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
         return await _install_mod_zip_natives(game, install_dir, mod, version, url, variant)
     if mod.source.install_type == "zip_nativepc":
         return await _install_mod_zip_nativepc(game, install_dir, mod, version, url, variant)
+    if mod.source.install_type == "zip_smapi":
+        return await _install_mod_zip_smapi(game, install_dir, mods_path, mod, version, url)
     # Guard: only the single-file installer is a safe default. An unrecognized install_type
     # must NOT silently fall through to it — that once dumped a raw mod archive into RE4's
     # game dir (the `nexus-<id>` file). Fail loudly instead.
@@ -1044,6 +1055,28 @@ def _natives_mod_enabled(target_paths: list[str]) -> bool:
     return any(os.path.isfile(p) for p in target_paths)
 
 
+def _dotprefix_disabled(path: str) -> str:
+    """The disabled form of a SMAPI mod folder: a leading dot on its basename
+    (Mods/CoolMod -> Mods/.CoolMod). SMAPI ignores any entry under Mods/ whose name starts
+    with '.', so renaming the folder this way disables the mod non-destructively — unlike the
+    `.disabled` suffix the dll/natives loaders use, the marker is a prefix on the basename."""
+    head, base = os.path.split(path.rstrip(os.sep))
+    return os.path.join(head, "." + base)
+
+
+def _smapi_mod_present(target_paths: list[str]) -> bool:
+    """Whether a SMAPI (zip_smapi) mod's folders exist on disk in either form (enabled
+    `Mods/<X>` or dot-disabled `Mods/.<X>`). Scopes a browsed mod to the game whose Mods/
+    folder actually holds it — the install store is shared across games."""
+    return any(os.path.exists(p) or os.path.exists(_dotprefix_disabled(p)) for p in target_paths)
+
+
+def _smapi_mod_enabled(target_paths: list[str]) -> bool:
+    """Whether a SMAPI mod is enabled — i.e. any tracked folder is present in its active
+    (non-dot-prefixed) form. Disabling renames every tracked folder to its `.`-prefixed name."""
+    return any(os.path.exists(p) for p in target_paths)
+
+
 async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
     """Install a flat-loader mod (e.g. MelonLoader): extract the archive's contents directly
     into the mods dir so DLLs sit at the top level where the loader scans, stripping a single
@@ -1114,6 +1147,148 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
             os.remove(tmp_zip)
         if os.path.exists(staging):
             shutil.rmtree(staging)
+
+
+def _safe_folder_name(name: str) -> str:
+    """A filesystem-safe Mods/ subfolder name derived from a mod's name, for the rare SMAPI
+    archive that ships manifest.json at its root with no containing folder. Strips path separators
+    and a leading dot (a leading dot would mark the folder disabled to SMAPI)."""
+    cleaned = re.sub(r'[\\/:*?"<>|]', "_", name).strip().lstrip(".")
+    return cleaned or "Mod"
+
+
+def _smapi_commit(install_dir: str, mods_path: str, extract_root: str, staging: str,
+                  mod: ModInfo, version: str | None, old_paths: list) -> bool:
+    """Place every SMAPI mod folder found anywhere under `extract_root` into Mods/, transactionally.
+
+    Shared by the single-archive (`_install_mod_zip_smapi`) and combined multi-file
+    (`install_smapi_files`) paths — `extract_root` may hold one extracted archive or several (each in
+    its own subdir). Finds every manifest.json, keeps only the top-most folders (a manifest nested
+    inside another mod's folder is a bundled content pack that ships with its parent — placing it
+    separately would duplicate it), stages each top folder verbatim, retires the previous install,
+    and commits all-or-nothing. Returns False (and places nothing) if no manifest is found. Each mod
+    folder keeps its own name; a manifest at an extract ROOT (no containing folder) is wrapped under a
+    folder named after the mod."""
+    import shutil
+    extract_root = os.path.normpath(extract_root)
+    manifest_dirs: list[str] = []
+    for root, _dirs, files in os.walk(extract_root):
+        if any(f.lower() == "manifest.json" for f in files):
+            manifest_dirs.append(os.path.normpath(root))
+    roots = [
+        d for d in manifest_dirs
+        if not any(o != d and (d + os.sep).startswith(o + os.sep) for o in manifest_dirs)
+    ]
+    if not roots:
+        decky.logger.error(f"{mod.name}: no manifest.json in archive — not a SMAPI mod, refusing to install")
+        return False
+
+    placements: list[tuple[str, str]] = []   # (staged abs, install-dir-relative dest)
+    created_tops: set[str] = set()
+    for root in roots:
+        folder = _safe_folder_name(mod.filename) if root == extract_root else os.path.basename(root)
+        for sub_root, _sub_dirs, files in os.walk(root):
+            for fn in files:
+                src = os.path.join(sub_root, fn)
+                dest_rel = os.path.join(folder, os.path.relpath(src, root))
+                staged_abs = os.path.join(staging, dest_rel)
+                os.makedirs(os.path.dirname(staged_abs), exist_ok=True)
+                shutil.copyfile(src, staged_abs)
+                placements.append((staged_abs, os.path.relpath(os.path.join(mods_path, dest_rel), install_dir)))
+        created_tops.add(os.path.relpath(os.path.join(mods_path, folder), install_dir))
+
+    # Commit: retire the previous install (both the active and `.`-disabled form of each tracked
+    # folder), then place the new payload all-or-nothing.
+    with _StagedInstall(install_dir) as txn:
+        for p in old_paths:
+            txn.retire(p)
+            txn.retire(_dotprefix_disabled(p))
+        for staged_abs, install_rel in placements:
+            txn.place(staged_abs, install_rel)
+
+    paths = sorted(created_tops)
+    set_installed_record(mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
+    decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {len(paths)} mod folder(s), {len(placements)} file(s)")
+    return True
+
+
+async def _install_mod_zip_smapi(game: GameProfile, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
+    """Install a single-archive SMAPI mod into Mods/ (the cascade/dependency path). A Stardew mod is
+    a folder with manifest.json at its top; one Nexus archive may hold one folder, a folder nested
+    under a wrapper, OR several sibling mod folders. Unlike zip_flat — which strips the wrapper folder
+    and even drops manifest.json (it's in the Thunderstore metadata skip-set) — this preserves each
+    mod's folder verbatim. See `_smapi_commit`. For a user multi-file pick see `install_smapi_files`."""
+    import shutil
+
+    tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_tmp.archive")
+    tmp_extract = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_extract")
+    staging = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_smapi_staging")
+    for p in (tmp_extract, staging):
+        if os.path.exists(p):
+            shutil.rmtree(p)
+
+    # Previous install's tracked folders. Retired inside the commit transaction (in _smapi_commit) —
+    # NOT before the download — so a dead link or cancel can't destroy the old install before ready.
+    old_paths = (_load_store().get(mod.id) or {}).get("paths") or []
+    try:
+        decky.logger.info(f"Downloading {mod.name} from {url}")
+        await utils.download(url, tmp_archive, game.appid)
+        extract_archive(tmp_archive, tmp_extract)
+        return _smapi_commit(install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
+    except utils.InstallCancelledError:
+        decky.logger.info(f"Install of {mod.name} was cancelled")
+        return None
+    except Exception as e:
+        decky.logger.error(f"Failed to install {mod.name}: {e}")
+        return False
+    finally:
+        if os.path.exists(tmp_archive):
+            os.remove(tmp_archive)
+        for p in (tmp_extract, staging):
+            if os.path.exists(p):
+                shutil.rmtree(p)
+
+
+async def install_smapi_files(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, urls: list) -> bool | None:
+    """Install MULTIPLE chosen Nexus files of one SMAPI mod (the file-picker path) as a single
+    library entry. Each file is downloaded and extracted into its own subdir of one combined extract
+    tree, then `_smapi_commit` places every mod folder found across all of them under Mods/ and
+    records them together under the one mod id — so e.g. Stardew Valley Expanded's main download and
+    its optional alternate farm install as one unit. All-or-nothing: a failure rolls back."""
+    import shutil
+
+    mods_path = resolve_mods_path(game, install_dir)
+    os.makedirs(mods_path, exist_ok=True)
+    tmp_extract = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_extract")
+    staging = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_smapi_staging")
+    for p in (tmp_extract, staging):
+        if os.path.exists(p):
+            shutil.rmtree(p)
+
+    old_paths = (_load_store().get(mod.id) or {}).get("paths") or []
+    try:
+        for i, url in enumerate(urls):
+            archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_f{i}.archive")
+            try:
+                decky.logger.info(f"Downloading {mod.name} file {i + 1}/{len(urls)} from {url}")
+                await utils.download(url, archive, game.appid)
+                # Each archive into its own subdir so same-named folders across files don't collide
+                # before placement; _smapi_commit walks the whole tree.
+                extract_archive(archive, os.path.join(tmp_extract, f"f{i}"))
+            finally:
+                if os.path.exists(archive):
+                    os.remove(archive)
+        return _smapi_commit(install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
+    except utils.InstallCancelledError:
+        decky.logger.info(f"Install of {mod.name} was cancelled")
+        return None
+    except Exception as e:
+        decky.logger.error(f"Failed to install {mod.name}: {e}")
+        return False
+    finally:
+        for p in (tmp_extract, staging):
+            if os.path.exists(p):
+                shutil.rmtree(p)
 
 
 def _system_env() -> dict:
@@ -1597,7 +1772,11 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
             # *.dll.disabled, so remove that variant too.
             for relpath in paths:
                 full = os.path.join(install_dir, relpath)
-                for cand in (full, full + ".disabled"):
+                # A SMAPI mod that's currently disabled lives at Mods/.<X>, not Mods/<X>.disabled.
+                cands = [full, full + ".disabled"]
+                if install_type == "zip_smapi":
+                    cands.append(_dotprefix_disabled(full))
+                for cand in cands:
                     if os.path.isdir(cand):
                         shutil.rmtree(cand)
                         decky.logger.info(f"Removed {os.path.relpath(cand, install_dir)}")
@@ -1754,6 +1933,32 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
                 decky.logger.warning(f"No files to {'enable' if enable else 'disable'} for {mod_id}")
                 return False
             decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} ({renamed} file{'s' if renamed != 1 else ''})")
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to toggle {mod_id}: {e}")
+            return False
+
+    if install_type == "zip_smapi":
+        # SMAPI mod: SMAPI skips any folder under Mods/ whose name starts with '.', so toggle
+        # each tracked mod folder between `Mods/<X>` and `Mods/.<X>`. Non-destructive and
+        # exactly what the in-game mod-manager mods do.
+        target_paths = _flat_target_paths(install_dir, record.get("paths"))
+        renamed = 0
+        try:
+            for p in target_paths:
+                disabled = _dotprefix_disabled(p)
+                if enable:
+                    if os.path.exists(disabled) and not os.path.exists(p):
+                        os.rename(disabled, p)
+                        renamed += 1
+                else:
+                    if os.path.exists(p):
+                        os.rename(p, disabled)
+                        renamed += 1
+            if renamed == 0:
+                decky.logger.warning(f"No folders to {'enable' if enable else 'disable'} for {mod_id}")
+                return False
+            decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} ({renamed} folder{'s' if renamed != 1 else ''})")
             return True
         except Exception as e:
             decky.logger.error(f"Failed to toggle {mod_id}: {e}")

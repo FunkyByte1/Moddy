@@ -1,0 +1,15 @@
+{
+  "id": "stardew-valley",
+  "name": "Stardew Valley",
+  "appid": 413150,
+  "mods_dir": "Mods",
+  "mods_dir_type": "game",
+  "modloader_ids": ["smapi"],
+  "requires_proton": true,
+  "catalog": {
+    "type": "nexus",
+    "nexus_domain": "stardewvalley",
+    "install_type": "zip_smapi",
+    "library_ids": ["1915", "1348", "1720", "1726", "6529", "3231"]
+  }
+}

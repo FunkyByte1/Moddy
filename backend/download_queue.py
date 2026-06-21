@@ -51,6 +51,7 @@ class Job:
         # Parked-job (needs_input) support — used by the Nexus variant flow.
         self.variant: "str | None" = None      # the chosen variant, set on resume
         self.variants: list = []                # options to present while parked
+        self.multi_select: bool = False         # parked choice is a checklist (file picker), not single-pick
         self.installed: list = []               # ids freshly installed this job (survives a park)
         self.rollback = None                    # optional async rollback(job) for a parked cancel
         self.cleanup = None                     # optional sync cleanup() (e.g. drop a cached extract)
@@ -70,6 +71,7 @@ class Job:
             "items_done": self.items_done,
             "items_total": self.items_total,
             "variants": self.variants,
+            "multi_select": self.multi_select,
         }
 
 
@@ -158,6 +160,7 @@ async def resume(job_id: int, variant: str) -> bool:
         return False
     job.variant = variant
     job.variants = []
+    job.multi_select = False
     job.cancel_requested = False
     job.status = STATUS_QUEUED
     _ensure_worker()
@@ -284,6 +287,7 @@ async def _worker() -> None:
                 result = None
             if isinstance(result, dict) and result.get("needs_variant"):
                 job.variants = result.get("variants") or []
+                job.multi_select = bool(result.get("multi_select"))  # file picker → checklist UI
                 job.status = STATUS_NEEDS_INPUT  # parked; worker moves on (does NOT block)
             elif isinstance(result, str):
                 job.status = STATUS_FAILED
