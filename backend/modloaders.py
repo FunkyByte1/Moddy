@@ -258,32 +258,39 @@ async def install_modloader(game: GameProfile, install_dir: str, modloader_id: s
     return ok
 
 
+def _config_key(line: str) -> str:
+    """The key of a REFramework config line. re2_fw_config.txt is `Key=Value` per line, so the
+    key is everything before the first '=' (blank/`=`-less lines have no key)."""
+    s = line.strip()
+    return s.split("=", 1)[0].strip() if "=" in s else ""
+
+
 def _apply_config_files(install_dir: str, ml: ModloaderInfo) -> None:
-    """Write a modloader's post-install config files (e.g. REFramework's
-    reframework/config.txt with `LooseFileLoader_Enabled true`, which is what makes
-    RE4 read loose `natives/` mods). Each entry maps a game-dir-relative path to
-    `Key Value` lines. Existing keys are overridden and any unrelated lines preserved,
-    so a user's other REFramework settings aren't clobbered on reinstall/update."""
+    """Write a modloader's post-install config files (e.g. REFramework's `re2_fw_config.txt` —
+    in the game root, the fixed name REFramework reads for every RE Engine game — with
+    `LooseFileLoader_Enabled=true`, which is what makes it read loose `natives/` mods). Each
+    entry maps a game-dir-relative path to `Key=Value` lines. Existing keys are overridden and any
+    unrelated lines preserved, so the rest of a user's REFramework settings (the full file it
+    rewrites on a clean exit) aren't clobbered on reinstall/update."""
     for rel_path, content in ml.config_files.items():
         try:
             dst = os.path.join(install_dir, rel_path)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            # Desired key → full line (key is the first whitespace-delimited token).
+            os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+            # Desired key → full line.
             desired: dict[str, str] = {}
             order: list[str] = []
             for line in content.splitlines():
-                line = line.strip()
-                if not line:
+                key = _config_key(line)
+                if not key:
                     continue
-                key = line.split(None, 1)[0]
-                desired[key] = line
+                desired[key] = line.strip()
                 order.append(key)
             out_lines: list[str] = []
             seen: set[str] = set()
             if os.path.isfile(dst):
                 with open(dst, "r") as f:
                     for line in f.read().splitlines():
-                        key = line.strip().split(None, 1)[0] if line.strip() else ""
+                        key = _config_key(line)
                         if key and key in desired:
                             out_lines.append(desired[key])  # override existing
                             seen.add(key)
