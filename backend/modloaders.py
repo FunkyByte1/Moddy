@@ -4,6 +4,8 @@ import shutil
 import zipfile
 import decky
 import github
+import mods
+import nexus
 import thunderstore
 import utils
 from install_txn import _StagedInstall
@@ -59,9 +61,20 @@ def get_modloader_version(modloader_id: str) -> str | None:
     return _load_version_store().get(modloader_id, {}).get("version")
 
 
-def set_modloader_version(modloader_id: str, version: str) -> None:
+def get_modloader_paths(modloader_id: str) -> list[str]:
+    """Game-dir-relative paths a loader install placed (tracked for loaders installed by merging a
+    whole archive, e.g. Stracker's: dinput8.dll + loader.dll + loader-config.json + nativePC/plugins/*).
+    Lets uninstall remove exactly what was installed without touching the shared nativePC tree. Empty
+    for loaders installed before this was tracked, or that only place declared files/dirs."""
+    return list(_load_version_store().get(modloader_id, {}).get("paths") or [])
+
+
+def set_modloader_version(modloader_id: str, version: str, paths: list[str] | None = None) -> None:
     store = _load_version_store()
-    store[modloader_id] = {"version": version}
+    entry = {"version": version}
+    if paths:
+        entry["paths"] = list(paths)
+    store[modloader_id] = entry
     _save_version_store(store)
 
 
@@ -152,6 +165,32 @@ async def disable_modloader(game: GameProfile, install_dir: str, modloader_id: s
         return False
 
 
+def _remove_uninstall_artifacts(install_dir: str, ml: ModloaderInfo) -> None:
+    """Remove a loader's `uninstall_files`/`uninstall_dirs` — its on-disk footprint that Moddy does
+    NOT install but should clean up: REFramework's runtime-generated reframework/ dir + logs, or
+    Stracker's bundled nativePC/plugins/* (MonsterLoader/QuestLoader — error-prone, intentionally not
+    installed; this also clears any a previous Moddy build left behind). Empties dirs are pruned."""
+    removed_files: list[str] = []
+    for f in ml.uninstall_files:
+        for candidate in [f, f + ".disabled"]:
+            path = os.path.join(install_dir, candidate)
+            if os.path.isfile(path):
+                os.remove(path)
+                removed_files.append(candidate)
+    if removed_files:
+        mods._prune_empty_dirs(install_dir, removed_files)
+    for d in ml.uninstall_dirs:
+        # Defensive: never let a stray/empty entry resolve to the game root and rmtree it.
+        if not d or os.path.normpath(d) in (".", os.sep, ""):
+            continue
+        for candidate in [d, d + ".disabled"]:
+            path = os.path.join(install_dir, candidate)
+            if os.path.normpath(path) == os.path.normpath(install_dir):
+                continue
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+
+
 async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id: str) -> bool:
     ml = game.get_modloader(modloader_id)
     if not ml:
@@ -159,6 +198,18 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
     if ml.native:
         return True
     try:
+        # Loaders installed by merging a whole archive (Stracker's: dinput8.dll, loader.dll,
+        # loader-config.json, nativePC/plugins/*) tracked every placed path — remove exactly those
+        # (and their .disabled forms), then prune any dirs they emptied, so the shared nativePC tree
+        # and other mods' files survive.
+        tracked_paths = get_modloader_paths(modloader_id)
+        for relpath in tracked_paths:
+            for candidate in [relpath, relpath + ".disabled"]:
+                path = os.path.join(install_dir, candidate)
+                if os.path.isfile(path):
+                    os.remove(path)
+        if tracked_paths:
+            mods._prune_empty_dirs(install_dir, tracked_paths)
         for f in ml.files:
             for candidate in [f, f + ".disabled"]:
                 path = os.path.join(install_dir, candidate)
@@ -169,24 +220,7 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
                 path = os.path.join(install_dir, candidate)
                 if os.path.isdir(path):
                     shutil.rmtree(path)
-        # Extra cleanup: files/dirs that aren't installed by Moddy but are part of the loader's
-        # on-disk footprint (e.g. REFramework's runtime-generated reframework/ dir + logs). We
-        # only install dinput8.dll, but a clean uninstall should leave nothing behind.
-        for f in ml.uninstall_files:
-            for candidate in [f, f + ".disabled"]:
-                path = os.path.join(install_dir, candidate)
-                if os.path.isfile(path):
-                    os.remove(path)
-        for d in ml.uninstall_dirs:
-            # Defensive: never let a stray/empty entry resolve to the game root and rmtree it.
-            if not d or os.path.normpath(d) in (".", os.sep, ""):
-                continue
-            for candidate in [d, d + ".disabled"]:
-                path = os.path.join(install_dir, candidate)
-                if os.path.normpath(path) == os.path.normpath(install_dir):
-                    continue
-                if os.path.isdir(path):
-                    shutil.rmtree(path)
+        _remove_uninstall_artifacts(install_dir, ml)
         # Restore backed up version.dll if present
         bak = os.path.join(install_dir, "version.dll.deckhand_bak")
         if os.path.isfile(bak):
@@ -199,8 +233,11 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
         return False
 
 
-async def install_modloader(game: GameProfile, install_dir: str, modloader_id: str, version: str | None = None) -> bool:
-    """Install a modloader for a game. Returns True on success."""
+async def install_modloader(game: GameProfile, install_dir: str, modloader_id: str, version: str | None = None) -> "bool | str":
+    """Install a modloader for a game. Returns True on success, False on failure, or the string
+    "premium_required" when a Nexus-sourced loader (e.g. Stracker's Loader for MHW) can't be
+    downloaded because the configured Nexus key isn't Premium — so the UI can show a specific
+    message instead of a generic failure."""
     ml = game.get_modloader(modloader_id)
     if not ml:
         decky.logger.error(f"Unknown modloader: {modloader_id}")
@@ -211,10 +248,12 @@ async def install_modloader(game: GameProfile, install_dir: str, modloader_id: s
         ok = await _install_github_modloader(game, install_dir, ml, version)
     elif ml.source.type == "thunderstore":
         ok = await _install_thunderstore_modloader(game, install_dir, ml, version)
+    elif ml.source.type == "nexus":
+        ok = await _install_nexus_modloader(game, install_dir, ml, version)
     else:
         decky.logger.error(f"Unsupported modloader source type: {ml.source.type}")
         return False
-    if ok and ml.config_files:
+    if ok is True and ml.config_files:
         _apply_config_files(install_dir, ml)
     return ok
 
@@ -319,6 +358,99 @@ async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, m
     finally:
         if os.path.exists(tmp_zip):
             os.remove(tmp_zip)
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
+
+
+async def _install_nexus_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> "bool | str":
+    """Install a Nexus-sourced modloader (Stracker's Loader pattern). Unlike GitHub/Thunderstore
+    loaders, Nexus has no public release feed, so we resolve the mod's primary file and a direct
+    CDN link via the v1 API — which requires a Nexus Premium key (free accounts can't get API
+    download links). Mirrors how browsed Nexus mods are fetched. Returns "premium_required" if the
+    key isn't Premium. `version` is ignored: we always install the mod's current primary file (Nexus
+    file ids aren't user-selectable here)."""
+    domain = ml.source.nexus_domain
+    mod_id = ml.source.mod_id
+    if not domain or not mod_id:
+        decky.logger.error(f"{ml.id}: nexus source missing nexus_domain/mod_id")
+        return False
+
+    try:
+        file_id = nexus.primary_file_id(domain, mod_id)
+        if not file_id:
+            decky.logger.error(f"{ml.name}: no downloadable file found on Nexus ({domain}/{mod_id})")
+            return False
+        url = nexus.get_download_url(domain, mod_id, file_id)
+    except nexus.PremiumRequired:
+        decky.logger.error(f"{ml.name}: a Nexus Premium account is required to download the loader")
+        return "premium_required"
+    except Exception as e:
+        decky.logger.error(f"{ml.name}: failed to resolve Nexus download: {e}")
+        return False
+    if not url:
+        decky.logger.error(f"{ml.name}: could not resolve a Nexus download URL")
+        return False
+
+    mod_meta = nexus.get_mod(domain, mod_id) or {}
+    resolved_version = str(mod_meta.get("version", "") or "") or "latest"
+
+    tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_tmp.archive")
+    tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_extract")
+
+    try:
+        decky.logger.info(f"Downloading {ml.name} {resolved_version} from Nexus")
+        await utils.download(url, tmp_archive, game.appid)
+
+        decky.logger.info(f"Extracting {ml.name}")
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
+        os.makedirs(tmp_dir)
+        mods.extract_archive(tmp_archive, tmp_dir)
+
+        # Nexus archives often wrap the payload in a folder (e.g. "Stracker's Loader/"). Locate the
+        # directory that actually holds the loader file (ml.files[0], e.g. dinput8.dll) and install
+        # from there; fall back to the extract root.
+        inner_path = tmp_dir
+        marker = ml.files[0] if ml.files else None
+        if marker:
+            for root, _dirs, files in os.walk(tmp_dir):
+                if marker in files:
+                    inner_path = root
+                    break
+
+        for f in ml.files:
+            if not os.path.isfile(os.path.join(inner_path, f)):
+                raise Exception(f"Expected file missing from archive: {f}")
+        for d in ml.dirs:
+            if not os.path.isdir(os.path.join(inner_path, d)):
+                raise Exception(f"Expected directory missing from archive: {d}")
+
+        # Install the ENTIRE archive merged into the game root — Stracker's Loader is more than its
+        # dinput8.dll proxy: the zip also ships loader.dll (the actual loader the proxy hands off to),
+        # loader-config.json, and nativePC/plugins/*. Installing only dinput8.dll leaves the proxy with
+        # nothing to load → the generic "Stracker's loader error" popup. Every placed path is tracked
+        # so uninstall removes exactly these (never the shared nativePC tree wholesale).
+        placed: list[str] = []
+        with _StagedInstall(install_dir) as txn:
+            for root, _dirs, files in os.walk(inner_path):
+                for fn in files:
+                    full = os.path.join(root, fn)
+                    rel = os.path.relpath(full, inner_path)
+                    txn.place(full, rel)
+                    placed.append(rel)
+
+        set_modloader_version(ml.id, resolved_version, paths=placed)
+        decky.logger.info(f"{ml.name} {resolved_version} installed successfully ({len(placed)} file(s))")
+        return True
+    except utils.InstallCancelledError:
+        decky.logger.info(f"{ml.name} installation was cancelled")
+        return False
+    except Exception as e:
+        decky.logger.error(f"{ml.name} installation failed: {e}")
+        return False
+    finally:
+        if os.path.exists(tmp_archive):
+            os.remove(tmp_archive)
         if os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir)
 

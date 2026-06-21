@@ -1,0 +1,9 @@
+{
+  "id": "monster-hunter-world",
+  "name": "Monster Hunter: World",
+  "appid": 582010,
+  "mods_dir": "",
+  "mods_dir_type": "game",
+  "modloader_ids": ["strackers-loader"],
+  "catalog": { "type": "nexus", "nexus_domain": "monsterhunterworld", "install_type": "zip_nativepc" }
+}

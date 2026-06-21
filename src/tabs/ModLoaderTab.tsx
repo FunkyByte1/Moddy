@@ -96,16 +96,22 @@ const ModLoaderTab: FC<{
     setLocalInstalling(true);
     setInstalling(true);
     setProgress(0);
-    const ok = await installModloader(game.appid, version);
+    const result = await installModloader(game.appid, version);
     setLocalInstalling(false);
     setInstalling(false);
-    if (ok) {
+    if (result === true) {
       if (game.modloader_launch_options) addModloaderLaunchOptions(game.appid, game.modloader_launch_options);
       await onRefresh();
       await loadVersion();
       if (game.modloader_needs_first_launch) {
         showModal(<FirstLaunchModal gameName={game.name} modloaderName={game.modloader_name} />);
       }
+    } else if (result === 'premium_required') {
+      // Nexus-sourced loaders (e.g. Stracker's Loader) need a Premium account to fetch a download link.
+      toaster.toast({
+        title: 'Moddy',
+        body: `${game.modloader_name} downloads from Nexus Mods, which needs a Nexus Premium account. Add a Premium API key in Settings, then try again.`,
+      });
     } else {
       toaster.toast({ title: 'Moddy', body: `Failed to install ${game.modloader_name}` });
     }

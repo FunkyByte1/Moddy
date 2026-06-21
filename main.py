@@ -146,7 +146,9 @@ class Plugin:
             return None
         return _build_game_status(game)
 
-    async def install_modloader(self, appid: int, version: str | None = None) -> bool:
+    async def install_modloader(self, appid: int, version: str | None = None) -> "bool | str":
+        """Returns True on success, False on failure, or "premium_required" when a Nexus-sourced
+        loader can't be downloaded without a Premium key (the UI shows a specific message)."""
         game = registry.get_game_by_appid(appid)
         if not game or not game.modloaders:
             return False
@@ -154,7 +156,7 @@ class Plugin:
         if not install_dir:
             return False
         ok = await modloaders.install_modloader(game, install_dir, game.modloaders[0].id, version)
-        if ok:
+        if ok is True:
             # Bundled frameworks (e.g. Steamodded) ship with the loader since nearly every
             # mod needs them. Best-effort: a framework hiccup doesn't fail the loader install.
             for key, _fw in game.bundled_frameworks():

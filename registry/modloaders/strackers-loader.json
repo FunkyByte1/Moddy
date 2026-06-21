@@ -1,0 +1,15 @@
+{
+  "id": "strackers-loader",
+  "name": "Stracker's Loader",
+  "files": ["dinput8.dll"],
+  "dirs": [],
+  "indicator": "dinput8.dll",
+  "ready_indicator": null,
+  "launch_options": "WINEDLLOVERRIDES=\"dinput8=n,b\" %command%",
+  "source": {
+    "type": "nexus",
+    "nexus_domain": "monsterhunterworld",
+    "mod_id": "1982",
+    "install_type": "zip_into_game"
+  }
+}

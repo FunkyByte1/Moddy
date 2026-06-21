@@ -26,6 +26,16 @@ import download_queue
 PREMIUM_REQUIRED = "premium_required"
 
 
+def _is_game_modloader(game, domain: str, mod_id) -> bool:
+    """True if (domain, mod_id) is this game's modloader sourced from Nexus (e.g. MHW's Stracker's
+    Loader = monsterhunterworld/1982). Such a Nexus requirement is the loader, not a mod, so the
+    cascade skips it — it's installed/managed by the modloader system."""
+    for ml in game.modloaders:
+        if ml.source.type == "nexus" and ml.source.nexus_domain == domain and str(ml.source.mod_id) == str(mod_id):
+            return True
+    return False
+
+
 @dataclass
 class InstallSpec:
     """The concrete install a provider resolved for a ref: the ModInfo to hand to mods.install_mod,
@@ -156,6 +166,13 @@ class NexusProvider(ModProvider):
         out = []
         for req in item["requirements"]:
             req_id = f"nexus.{req['domain']}.{req['mod_id']}"
+            # The game's modloader is often itself a Nexus mod that others list as a requirement
+            # (MHW mods depend on Stracker's Loader, nexus mod 1982). It's installed/managed by the
+            # modloader system, not as a mod — installing it again here duplicates it (and its bundled
+            # nativePC/plugins). Skip it.
+            if _is_game_modloader(game, req["domain"], req["mod_id"]):
+                decky.logger.info(f"Skipping modloader requirement {req_id} ({req.get('name')}) — managed as the loader")
+                continue
             # Only same-domain Nexus mods are installable through this game's catalog; others are
             # still recorded as deps (see build_install) but left to the user.
             if req["domain"] != domain:
@@ -168,7 +185,9 @@ class NexusProvider(ModProvider):
         domain, mod_id = ref
         info = item["info"]
         key = self.key(ref)
-        dep_ids = [f"nexus.{r['domain']}.{r['mod_id']}" for r in item["requirements"]]
+        # Record real requirements, but not the modloader (managed separately; see dep_refs).
+        dep_ids = [f"nexus.{r['domain']}.{r['mod_id']}" for r in item["requirements"]
+                   if not _is_game_modloader(game, r["domain"], r["mod_id"])]
         try:
             file_id = nexus.primary_file_id(domain, mod_id)
             if not file_id:

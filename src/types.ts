@@ -330,7 +330,9 @@ export const getGameStatus = async (appid: number): Promise<GameStatus | null> =
   }
   return game;
 };
-export const installModloader = callable<[appid: number, version: string | null], boolean>('install_modloader');
+// Returns true on success, false on failure, or the string 'premium_required' when a Nexus-sourced
+// loader (e.g. Stracker's Loader for MHW) needs a Nexus Premium account to download.
+export const installModloader = callable<[appid: number, version: string | null], boolean | string>('install_modloader');
 export const uninstallModloader = callable<[appid: number], boolean>('uninstall_modloader');
 export const getModloaderUninstallImpact = callable<[appid: number], { id: string; name: string }[]>('get_modloader_uninstall_impact');
 export const enableModloader = callable<[appid: number], boolean>('enable_modloader');

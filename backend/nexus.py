@@ -77,7 +77,10 @@ def _search_query(domain: str, term: str, count: int, offset: int, include_adult
     counts stay correct) via the `adultContent` BooleanFilter — verified live as the {value,op}
     shape, not a bare boolean."""
     parts = [f"gameDomainName:{{value:{json.dumps(domain)},op:EQUALS}}"]
-    if term:
+    # The WILDCARD filter rejects 1-char terms ("Wildcard value must have 2 or more characters"),
+    # which surfaced as a hard error mid-typing. Below 2 chars, skip the filter (show the unfiltered
+    # game list) rather than fire a query the server refuses.
+    if term and len(term) >= 2:
         parts.append(f"nameStemmed:{{value:{json.dumps(term)},op:WILDCARD}}")
     if not include_adult:
         parts.append("adultContent:{value:false,op:EQUALS}")

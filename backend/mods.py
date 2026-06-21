@@ -411,7 +411,7 @@ def mod_files_present(game: GameProfile, install_dir: str, record: dict) -> bool
         return True  # Steam-managed subscription — files aren't under install_dir
     install_type = record.get("install_type") or (record.get("source") or {}).get("install_type") or "file"
     paths = record.get("paths")
-    if install_type in ("zip_flat", "zip_natives"):
+    if install_type in ("zip_flat", "zip_natives", "zip_nativepc"):
         return _flat_mod_present(_flat_target_paths(install_dir, paths))
     if install_type == "zip_dir" or paths:
         mods_path = resolve_mods_path(game, install_dir)
@@ -623,9 +623,10 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             if not _flat_mod_present(target_paths):
                 continue  # installed for a different game
             enabled = _flat_mod_enabled(target_paths)
-        elif install_type == "zip_natives":
-            # RE4 loose mod: per-file paths under natives/. Present iff any tracked file
-            # exists (active or *.disabled); enabled iff the active form is on disk.
+        elif install_type in ("zip_natives", "zip_nativepc"):
+            # Loose mod (RE4 natives/, MHW nativePC/): per-file paths merged into the game root.
+            # Present iff any tracked file exists (active or *.disabled); enabled iff the active
+            # form is on disk.
             target_paths = _flat_target_paths(install_dir, paths)
             if not _flat_mod_present(target_paths):
                 continue  # installed for a different game
@@ -699,6 +700,8 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
         return await _install_mod_zip_flat(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_natives":
         return await _install_mod_zip_natives(game, install_dir, mod, version, url, variant)
+    if mod.source.install_type == "zip_nativepc":
+        return await _install_mod_zip_nativepc(game, install_dir, mod, version, url, variant)
     # Guard: only the single-file installer is a safe default. An unrecognized install_type
     # must NOT silently fall through to it — that once dumped a raw mod archive into RE4's
     # game dir (the `nexus-<id>` file). Fail loudly instead.
@@ -1113,8 +1116,17 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
             shutil.rmtree(staging)
 
 
-def _extract_archive(archive_path: str, dest_dir: str) -> None:
-    """Extract a mod archive into dest_dir. RE4/Nexus mods ship as .zip, .7z, or .rar;
+def _system_env() -> dict:
+    """A copy of the environment with Steam's dynamic-linker overrides stripped, for shelling out to
+    system binaries. Decky runs the plugin under Steam, which exports LD_LIBRARY_PATH/LD_PRELOAD
+    pointing at Steam's bundled libs (an incompatible libreadline/libstdc++). A system binary like
+    `7z` — or the `/bin/sh` it spawns — then dies with `symbol lookup error: … undefined symbol`
+    (e.g. rl_trim_arg_from_keyseq from readline). Removing these lets the child resolve system libs."""
+    return {k: v for k, v in os.environ.items() if k not in ("LD_LIBRARY_PATH", "LD_PRELOAD")}
+
+
+def extract_archive(archive_path: str, dest_dir: str) -> None:
+    """Extract a mod archive into dest_dir. RE4/MHW/Nexus mods ship as .zip, .7z, or .rar;
     Python's zipfile only handles zip, so 7z/rar are handed to the system `7z` (ships on
     SteamOS). Routes by magic bytes since the downloaded file may carry no extension."""
     import zipfile, subprocess
@@ -1126,14 +1138,15 @@ def _extract_archive(archive_path: str, dest_dir: str) -> None:
         with zipfile.ZipFile(archive_path, "r") as z:
             z.extractall(dest_dir)
         return
-    sevenzip = _sh.which("7z") or _sh.which("7za") or _sh.which("7zr")
-    if not sevenzip and os.path.isfile("/usr/bin/7z"):
-        sevenzip = "/usr/bin/7z"
+    sevenzip = _sh.which("7z") or _sh.which("7za") or _sh.which("7zz") or _sh.which("7zr")
+    for cand in ("/usr/bin/7z", "/usr/bin/7zz", "/usr/bin/7za"):
+        if not sevenzip and os.path.isfile(cand):
+            sevenzip = cand
     if not sevenzip:
         raise Exception("system 7z not found — cannot extract a .7z/.rar mod archive")
     result = subprocess.run(
         [sevenzip, "x", "-y", f"-o{dest_dir}", archive_path],
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=_system_env(),
     )
     if result.returncode != 0:
         raise Exception(f"7z failed: {result.stderr.decode(errors='replace')[:200]}")
@@ -1224,20 +1237,21 @@ def _renumber_pak_mods(install_dir: str) -> None:
 
 
 def _detect_variants(extract_dir: str) -> list[dict]:
-    """List the selectable payloads in an extracted RE4 mod archive. A payload is a directory
-    that directly holds a `.pak`, or that contains a `natives/` subtree. Most mods have exactly
-    one; some bundle several mutually-exclusive options the user must choose between (e.g. the
-    "Max Stack Sizes" mod ships 21 `.pak` variants — 0999/9999/x02…, each in its own folder with
-    a modinfo.ini). Returns [{"id": <path relative to extract_dir>, "label": <folder name>}],
-    sorted; 0 or 1 entries means no choice is needed."""
+    """List the selectable payloads in an extracted loose-file (zip_natives / zip_nativepc) mod
+    archive. A payload is a directory that directly holds a `.pak`, or that contains a `natives/`
+    (RE4) or `nativePC/` (MHW) subtree. Most mods have exactly one; some bundle several
+    mutually-exclusive options the user must choose between (e.g. RE4's "Max Stack Sizes" ships 21
+    `.pak` variants — 0999/9999/x02…, each in its own folder with a modinfo.ini). Returns
+    [{"id": <path relative to extract_dir>, "label": <folder name>}], sorted; 0 or 1 entries means
+    no choice is needed."""
     payload_dirs: set[str] = set()
     for root, dirs, files in os.walk(extract_dir):
         in_natives = (os.sep + "natives" + os.sep) in (root + os.sep).lower()
         if not in_natives and any(f.lower().endswith(".pak") for f in files):
             payload_dirs.add(root)              # a folder holding a .pak
         for d in dirs:
-            if d.lower() == "natives":
-                payload_dirs.add(root)          # the parent of a natives/ tree
+            if d.lower() in ("natives", "nativepc"):
+                payload_dirs.add(root)          # the parent of a natives/ or nativePC/ tree
     variants = []
     for d in sorted(payload_dirs):
         rel = os.path.relpath(d, extract_dir)
@@ -1245,21 +1259,82 @@ def _detect_variants(extract_dir: str) -> list[dict]:
     return variants
 
 
-async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None, variant: str | None = None) -> "bool | None | dict":
-    """Install an RE4 mod from its archive (zip/7z/rar). Handles the two RE4 mod shapes:
-    - Loose-file: a `natives/` tree (often wrapped in a `<Mod Name>/` folder beside modinfo.ini
-      + a screenshot we ignore), merged into the game ROOT where REFramework's loose-file loader
-      reads it. Paths are lowercased (RE4 requests lowercase; the Deck FS is case-sensitive, so
-      `natives/STM/...` wouldn't be found otherwise).
-    - `.pak`: a re_chunk patch the engine loads natively (no REFramework needed). Moddy slots it
-      just above the highest existing patch so it overrides the base game, assigning the number
-      itself to avoid colliding with the mod's original name or another mod's slot.
+# Files that are mod-manager metadata / documentation rather than game assets — skipped when
+# wrapping a Fluffy-packaged mod (no nativePC/ folder) into the loader's folder.
+_LOOSE_METADATA_NAMES = {"modinfo.ini", "desktop.ini", "thumbs.db"}
+_LOOSE_METADATA_EXTS = {".txt", ".md", ".url", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".pdf", ".html"}
+
+# Top-level folder names that appear directly inside MHW's nativePC/. Used to tell a real content
+# folder (keep it — `pl/…` must become `nativePC/pl/…`) from a "<Mod Name>/" wrapper folder (descend
+# into it) when a Fluffy archive has a single top-level dir. Stracker plugins live in nativePC/plugins.
+_MHW_NATIVEPC_DIRS = {
+    "pl", "npc", "em", "common", "stage", "ui", "gui", "vfx", "sound", "se", "wp", "facial",
+    "equip", "quest", "gm", "hm", "it", "id", "motion", "demo", "title", "map", "hit", "ce",
+    "cs", "sm", "mc", "scaffold", "shell", "archon", "assets", "animation", "chunk", "stm",
+    "plugins", "loader", "nativepc",
+}
+
+
+def _looks_like_nativepc_content(name: str) -> bool:
+    return name.lower() in _MHW_NATIVEPC_DIRS
+
+
+def _is_loose_metadata(rel: str) -> bool:
+    """True for a wrap-loose archive entry that's mod-manager metadata or a preview/readme, not a
+    game asset. Only top-level entries are screened (assets nested inside content folders, e.g. a
+    `pl/.../foo.png` texture sidecar, are kept) — so this matches RE4's modinfo.ini/screenshot skip
+    but is scoped to the archive root."""
+    if os.sep in rel:
+        return False  # nested file — part of the content tree, keep it
+    name = os.path.basename(rel).lower()
+    if name in _LOOSE_METADATA_NAMES:
+        return True
+    return os.path.splitext(name)[1] in _LOOSE_METADATA_EXTS
+
+
+def _strip_loose_wrapper(search_root: str) -> str:
+    """If the payload is entirely inside a single "<Mod Name>/" wrapper directory (e.g.
+    "<Mod Name>/pl/…", with at most metadata files beside it), return that inner dir so the content
+    isn't buried a level too deep. A lone top-level dir is only treated as a wrapper when its name
+    is NOT a known nativePC content folder — otherwise `pl/…` (an armor mod touching only `pl`) would
+    be wrongly stripped to `f_equip/…`. The Fluffy norm — content folders directly at the root next
+    to modinfo.ini — has multiple dirs or a content-named dir, so it's returned unchanged."""
+    try:
+        entries = os.listdir(search_root)
+    except OSError:
+        return search_root
+    dirs = [e for e in entries if os.path.isdir(os.path.join(search_root, e))]
+    nonmeta_files = [e for e in entries if not os.path.isdir(os.path.join(search_root, e)) and not _is_loose_metadata(e)]
+    if len(dirs) == 1 and not nonmeta_files and not _looks_like_nativepc_content(dirs[0]):
+        return os.path.join(search_root, dirs[0])
+    return search_root
+
+
+async def _install_mod_loose_merge(
+    game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None,
+    variant: str | None = None, *, folder: str, lowercase: bool, handle_paks: bool, wrap_loose: bool = False,
+) -> "bool | None | dict":
+    """Install a Capcom-style loose-file mod from its archive (zip/7z/rar) by merging a
+    `<folder>/` tree into the game ROOT, where a dinput8 loader reads it. The placed tree's top
+    component is normalized to `folder` (the registry casing), so an archive that ships `NativePC/`
+    or `Natives/` still lands in the canonical dir; casing INSIDE the tree is preserved (RE4 also
+    lowercases the whole path — see below). Two games use this:
+    - RE4 (folder="natives", lowercase=True, handle_paks=True): merged into the root where
+      REFramework's loose-file loader reads it. Paths are lowercased (RE4 requests lowercase; the
+      Deck FS is case-sensitive, so `natives/STM/...` wouldn't be found otherwise). `.pak` content
+      mods are re_chunk patches the engine loads natively — Moddy slots each just above the highest
+      existing patch so it overrides the base game, assigning the number itself to avoid colliding
+      with the mod's original name or another mod's slot.
+    - MHW (folder="nativePC", lowercase=False, handle_paks=False, wrap_loose=True): merged into the
+      root where Stracker's Loader reads it. Casing is preserved. `wrap_loose` handles the common
+      Fluffy-Mod-Manager packaging where the archive has NO `nativePC/` folder — just `modinfo.ini`
+      + a preview image + the content folders (`pl/`, `stm/`, …) at the root: those content folders
+      ARE the nativePC payload, so they're wrapped under `nativePC/` (metadata/images skipped).
     If the archive bundles multiple variants and none was chosen, returns
     `{"needs_variant": True, "variants": [...]}` so the UI can ask which to install; pass the
     chosen variant's `id` back as `variant` to install just that one.
     Every placed file is tracked in `paths` (install-dir-relative) so uninstall/toggle act
-    per-file — loose mods all merge into the shared natives/stm tree, so the folder can't be
-    treated as one unit."""
+    per-file — loose mods all merge into a shared tree, so the folder can't be treated as one unit."""
     import shutil
 
     tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_tmp.archive")
@@ -1283,7 +1358,7 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
                 shutil.rmtree(tmp_extract)
             decky.logger.info(f"Downloading {mod.name} from {url}")
             await utils.download(url, tmp_archive, game.appid)
-            _extract_archive(tmp_archive, tmp_extract)
+            extract_archive(tmp_archive, tmp_extract)
 
         # Resolve which payload to install. Multiple variants + no choice → ask the UI.
         variants = _detect_variants(tmp_extract)
@@ -1302,35 +1377,53 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
 
         # Build the placement plan from the staging tree — read-only, the live game dir is untouched
         # until the commit transaction below.
-        # 1. Loose-file payload: the shallowest natives/ tree, merged into the game root (lowercased,
-        #    since RE4 requests lowercase paths and the Deck FS is case-sensitive).
+        # 1. Loose-file payload: the shallowest <folder>/ tree, merged into the game root under the
+        #    canonical `folder` name. RE4 lowercases (it requests lowercase paths and the Deck FS is
+        #    case-sensitive); MHW preserves casing (Stracker's matches the mod's original path).
+        def _place(full: str, inner_rel: str) -> tuple[str, str]:
+            rel = os.path.join(folder, inner_rel) if inner_rel != "." else folder
+            return (full, rel.lower() if lowercase else rel)
+
         natives_placements: list[tuple[str, str]] = []  # (staged src, install-dir-relative dest)
         natives_dirs = []
         for root, dirs, _files in os.walk(search_root):
             for d in dirs:
-                if d.lower() == "natives":
+                if d.lower() == folder.lower():
                     natives_dirs.append(os.path.join(root, d))
         natives_dirs.sort(key=lambda p: p.count(os.sep))
         if natives_dirs:
             nat = natives_dirs[0]
-            base = os.path.dirname(nat)
             for root, _dirs, files in os.walk(nat):
                 for fn in files:
                     full = os.path.join(root, fn)
-                    natives_placements.append((full, os.path.relpath(full, base).lower()))
+                    natives_placements.append(_place(full, os.path.relpath(full, nat)))
+        elif wrap_loose:
+            # No <folder>/ in the archive (Fluffy packaging): the content at the payload root IS the
+            # folder's payload. Place every non-metadata file under <folder>/, preserving its path.
+            # A single wrapper dir holding everything (e.g. "<Mod Name>/pl/…") is descended into so we
+            # don't bury the tree one level too deep; content-at-root (the Fluffy norm) is used as-is.
+            payload_root = _strip_loose_wrapper(search_root)
+            for root, _dirs, files in os.walk(payload_root):
+                for fn in files:
+                    if _is_loose_metadata(os.path.relpath(os.path.join(root, fn), payload_root)):
+                        continue
+                    full = os.path.join(root, fn)
+                    natives_placements.append(_place(full, os.path.relpath(full, payload_root)))
 
-        # 2. .pak content mods. Skip any .pak inside a natives/ tree (those are assets, copied above).
+        # 2. .pak content mods (RE4 only). Skip any .pak inside a <folder>/ tree (those are assets,
+        #    copied above).
         pak_srcs = []
-        for root, _dirs, files in os.walk(search_root):
-            if (os.sep + "natives" + os.sep) in (root + os.sep).lower():
-                continue
-            for fn in files:
-                if fn.lower().endswith(".pak"):
-                    pak_srcs.append(os.path.join(root, fn))
-        pak_srcs.sort()
+        if handle_paks:
+            for root, _dirs, files in os.walk(search_root):
+                if (os.sep + folder.lower() + os.sep) in (root + os.sep).lower():
+                    continue
+                for fn in files:
+                    if fn.lower().endswith(".pak"):
+                        pak_srcs.append(os.path.join(root, fn))
+            pak_srcs.sort()
 
         if not natives_placements and not pak_srcs:
-            decky.logger.error(f"{mod.name}: archive has no natives/ folder or .pak file — nothing to install")
+            decky.logger.error(f"{mod.name}: archive has no {folder}/ folder{' or .pak file' if handle_paks else ''} — nothing to install")
             return False
 
         # Commit: retire the previous install and place the new payload all-or-nothing. Pak slots are
@@ -1367,6 +1460,25 @@ async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: Mod
         # Keep the extracted archive when parked for a variant choice; the resume reuses it.
         if not park and os.path.exists(tmp_extract):
             shutil.rmtree(tmp_extract)
+
+
+async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None, variant: str | None = None) -> "bool | None | dict":
+    """RE4 loose-file install: merge a lowercased `natives/` tree into the game root and slot
+    `.pak` content mods. See _install_mod_loose_merge."""
+    return await _install_mod_loose_merge(
+        game, install_dir, mod, version, url, variant,
+        folder="natives", lowercase=True, handle_paks=True,
+    )
+
+
+async def _install_mod_zip_nativepc(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None, variant: str | None = None) -> "bool | None | dict":
+    """MHW loose-file install: merge a case-preserved `nativePC/` tree into the game root, where
+    Stracker's Loader reads it. No `.pak` slotting. Fluffy-packaged mods (no nativePC/ folder, just
+    content folders + modinfo.ini) are wrapped into nativePC/. See _install_mod_loose_merge."""
+    return await _install_mod_loose_merge(
+        game, install_dir, mod, version, url, variant,
+        folder="nativePC", lowercase=False, handle_paks=False, wrap_loose=True,
+    )
 
 
 def discard_natives_cache(filename: str) -> None:
@@ -1591,10 +1703,10 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
             decky.logger.error(f"Failed to toggle {mod_id}: {e}")
             return False
 
-    if install_type == "zip_natives":
-        # RE4 loose mod: REFramework's loose loader matches files by exact path, so disabling
-        # renames every tracked file to *.disabled (and enabling renames back). These are game
-        # assets (.tex/.mesh/.spck…), not .dll, so we flip all tracked files, not just DLLs.
+    if install_type in ("zip_natives", "zip_nativepc"):
+        # Loose mod (RE4 natives/, MHW nativePC/): the loader matches files by exact path, so
+        # disabling renames every tracked file to *.disabled (and enabling renames back). These are
+        # game assets (.tex/.mesh/.spck…), not .dll, so we flip all tracked files, not just DLLs.
         target_paths = _flat_target_paths(install_dir, record.get("paths"))
         renamed = 0
         try:
