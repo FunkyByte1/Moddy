@@ -59,6 +59,55 @@ class NativesAtomicityTest(unittest.TestCase):
         self.assertTrue(self.exists("re_chunk_000.pak.patch_002.pak"))
         self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["re_chunk_000.pak.patch_002.pak"])
 
+    # --- reframework/ merge (REFramework plugins & scripts) -------------------
+
+    def test_reframework_plugin_merges_into_root(self):
+        # REFramework plugins (e.g. Direct2D) ship a reframework/ tree, NOT natives/ and no .pak.
+        # Before, the installer rejected them ("nothing to install"); reframework/ is now a merge root.
+        res, mod = self._install({"reframework/plugins/reframework-d2d.dll": b"dll", "README.txt": "x"}, "1.0.0")
+        self.assertTrue(res)
+        self.assertTrue(self.exists("reframework/plugins/reframework-d2d.dll"))
+        self.assertFalse(self.exists("README.txt"))  # docs beside the tree aren't installed
+        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["reframework/plugins/reframework-d2d.dll"])
+
+    def test_reframework_casing_canonicalized_and_lowercased(self):
+        # An archive shipping "REFramework/AutoRun/…" lands in the canonical, lowercased path.
+        res, _ = self._install({"REFramework/AutoRun/MyLib.lua": b"lua"}, "1.0.0")
+        self.assertTrue(res)
+        self.assertTrue(self.exists("reframework/autorun/mylib.lua"))
+
+    def test_reframework_wrapper_dir_descended(self):
+        # Many archives wrap the reframework/ tree under a "<Mod Name>/" dir; the shallowest tree wins.
+        res, _ = self._install({"REFramework-D2D/reframework/plugins/d2d.dll": b"dll"}, "1.0.0")
+        self.assertTrue(res)
+        self.assertTrue(self.exists("reframework/plugins/d2d.dll"))
+        self.assertFalse(self.exists("reframework-d2d/reframework/plugins/d2d.dll"))
+
+    def test_natives_and_reframework_both_merge(self):
+        # A mod bundling both an asset tree and a plugin: both land in the game root.
+        res, mod = self._install({
+            "natives/stm/a.tex": b"tex",
+            "reframework/plugins/p.dll": b"dll",
+        }, "1.0.0")
+        self.assertTrue(res)
+        self.assertTrue(self.exists("natives/stm/a.tex"))
+        self.assertTrue(self.exists("reframework/plugins/p.dll"))
+        self.assertEqual(
+            sorted(mods.get_installed_record(mod.id)["paths"]),
+            ["natives/stm/a.tex", "reframework/plugins/p.dll"],
+        )
+
+    def test_reframework_toggle_and_uninstall(self):
+        _, mod = self._install({"reframework/plugins/d2d.dll": b"dll"}, "1.0.0")
+        run(mods.toggle_mod(self.game, self.install_dir, mod.id, False))
+        self.assertFalse(self.exists("reframework/plugins/d2d.dll"))
+        self.assertTrue(self.exists("reframework/plugins/d2d.dll.disabled"))
+        run(mods.toggle_mod(self.game, self.install_dir, mod.id, True))
+        self.assertTrue(self.exists("reframework/plugins/d2d.dll"))
+        run(mods.uninstall_mod(self.game, self.install_dir, mod.id))
+        self.assertFalse(self.exists("reframework/plugins/d2d.dll"))
+        self.assertIsNone(mods.get_installed_record(mod.id))
+
     # --- rollback -------------------------------------------------------------
 
     def test_failed_midcommit_upgrade_restores_natives_install(self):

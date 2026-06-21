@@ -1312,20 +1312,22 @@ def _strip_loose_wrapper(search_root: str) -> str:
 
 async def _install_mod_loose_merge(
     game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None,
-    variant: str | None = None, *, folder: str, lowercase: bool, handle_paks: bool, wrap_loose: bool = False,
+    variant: str | None = None, *, folders: tuple[str, ...], lowercase: bool, handle_paks: bool, wrap_loose: bool = False,
 ) -> "bool | None | dict":
-    """Install a Capcom-style loose-file mod from its archive (zip/7z/rar) by merging a
-    `<folder>/` tree into the game ROOT, where a dinput8 loader reads it. The placed tree's top
-    component is normalized to `folder` (the registry casing), so an archive that ships `NativePC/`
-    or `Natives/` still lands in the canonical dir; casing INSIDE the tree is preserved (RE4 also
-    lowercases the whole path — see below). Two games use this:
-    - RE4 (folder="natives", lowercase=True, handle_paks=True): merged into the root where
-      REFramework's loose-file loader reads it. Paths are lowercased (RE4 requests lowercase; the
-      Deck FS is case-sensitive, so `natives/STM/...` wouldn't be found otherwise). `.pak` content
-      mods are re_chunk patches the engine loads natively — Moddy slots each just above the highest
-      existing patch so it overrides the base game, assigning the number itself to avoid colliding
-      with the mod's original name or another mod's slot.
-    - MHW (folder="nativePC", lowercase=False, handle_paks=False, wrap_loose=True): merged into the
+    """Install a Capcom-style loose-file mod from its archive (zip/7z/rar) by merging one or more
+    top-level `<folder>/` trees into the game ROOT, where a dinput8 loader reads them. Each placed
+    tree's top component is normalized to the canonical `folder` name (the registry casing), so an
+    archive that ships `NativePC/` or `Natives/` still lands in the canonical dir; casing INSIDE the
+    tree is preserved (RE4 also lowercases the whole path — see below). Two games use this:
+    - RE4 (folders=("natives","reframework"), lowercase=True, handle_paks=True): merged into the root
+      where REFramework reads them — `natives/` is the loose-file asset tree, and `reframework/` holds
+      REFramework plugins/scripts (e.g. reframework/plugins/reframework-d2d.dll, reframework/autorun/*.lua),
+      so plugin mods install through the normal flow instead of failing as "nothing to install". Paths
+      are lowercased (RE4 requests lowercase; the Deck FS is case-sensitive, so `natives/STM/...` wouldn't
+      be found otherwise). `.pak` content mods are re_chunk patches the engine loads natively — Moddy slots
+      each just above the highest existing patch so it overrides the base game, assigning the number itself
+      to avoid colliding with the mod's original name or another mod's slot.
+    - MHW (folders=("nativePC",), lowercase=False, handle_paks=False, wrap_loose=True): merged into the
       root where Stracker's Loader reads it. Casing is preserved. `wrap_loose` handles the common
       Fluffy-Mod-Manager packaging where the archive has NO `nativePC/` folder — just `modinfo.ini`
       + a preview image + the content folders (`pl/`, `stm/`, …) at the root: those content folders
@@ -1377,45 +1379,52 @@ async def _install_mod_loose_merge(
 
         # Build the placement plan from the staging tree — read-only, the live game dir is untouched
         # until the commit transaction below.
-        # 1. Loose-file payload: the shallowest <folder>/ tree, merged into the game root under the
-        #    canonical `folder` name. RE4 lowercases (it requests lowercase paths and the Deck FS is
-        #    case-sensitive); MHW preserves casing (Stracker's matches the mod's original path).
-        def _place(full: str, inner_rel: str) -> tuple[str, str]:
+        # 1. Loose-file payload: for each canonical merge folder, the shallowest matching `<folder>/`
+        #    tree in the archive, merged into the game root under the canonical name. RE4 merges both
+        #    natives/ (assets) and reframework/ (plugins/scripts); MHW merges nativePC/ only. RE4
+        #    lowercases (it requests lowercase paths and the Deck FS is case-sensitive); MHW preserves
+        #    casing (Stracker's matches the mod's original path).
+        def _place(full: str, inner_rel: str, folder: str) -> tuple[str, str]:
             rel = os.path.join(folder, inner_rel) if inner_rel != "." else folder
             return (full, rel.lower() if lowercase else rel)
 
         natives_placements: list[tuple[str, str]] = []  # (staged src, install-dir-relative dest)
-        natives_dirs = []
-        for root, dirs, _files in os.walk(search_root):
-            for d in dirs:
-                if d.lower() == folder.lower():
-                    natives_dirs.append(os.path.join(root, d))
-        natives_dirs.sort(key=lambda p: p.count(os.sep))
-        if natives_dirs:
-            nat = natives_dirs[0]
-            for root, _dirs, files in os.walk(nat):
+        for folder in folders:
+            matches = []
+            for root, dirs, _files in os.walk(search_root):
+                for d in dirs:
+                    if d.lower() == folder.lower():
+                        matches.append(os.path.join(root, d))
+            matches.sort(key=lambda p: p.count(os.sep))
+            if not matches:
+                continue
+            top = matches[0]  # shallowest tree for this folder (descends through any wrapper dir)
+            for root, _dirs, files in os.walk(top):
                 for fn in files:
                     full = os.path.join(root, fn)
-                    natives_placements.append(_place(full, os.path.relpath(full, nat)))
-        elif wrap_loose:
+                    natives_placements.append(_place(full, os.path.relpath(full, top), folder))
+        if not natives_placements and wrap_loose:
             # No <folder>/ in the archive (Fluffy packaging): the content at the payload root IS the
-            # folder's payload. Place every non-metadata file under <folder>/, preserving its path.
-            # A single wrapper dir holding everything (e.g. "<Mod Name>/pl/…") is descended into so we
-            # don't bury the tree one level too deep; content-at-root (the Fluffy norm) is used as-is.
+            # folder's payload. Place every non-metadata file under the (single) canonical folder,
+            # preserving its path. A single wrapper dir holding everything (e.g. "<Mod Name>/pl/…") is
+            # descended into so we don't bury the tree one level too deep; content-at-root (the Fluffy
+            # norm) is used as-is.
             payload_root = _strip_loose_wrapper(search_root)
             for root, _dirs, files in os.walk(payload_root):
                 for fn in files:
                     if _is_loose_metadata(os.path.relpath(os.path.join(root, fn), payload_root)):
                         continue
                     full = os.path.join(root, fn)
-                    natives_placements.append(_place(full, os.path.relpath(full, payload_root)))
+                    natives_placements.append(_place(full, os.path.relpath(full, payload_root), folders[0]))
 
         # 2. .pak content mods (RE4 only). Skip any .pak inside a <folder>/ tree (those are assets,
         #    copied above).
         pak_srcs = []
         if handle_paks:
+            skip = tuple(os.sep + f.lower() + os.sep for f in folders)
             for root, _dirs, files in os.walk(search_root):
-                if (os.sep + folder.lower() + os.sep) in (root + os.sep).lower():
+                rp = (root + os.sep).lower()
+                if any(s in rp for s in skip):
                     continue
                 for fn in files:
                     if fn.lower().endswith(".pak"):
@@ -1423,7 +1432,8 @@ async def _install_mod_loose_merge(
             pak_srcs.sort()
 
         if not natives_placements and not pak_srcs:
-            decky.logger.error(f"{mod.name}: archive has no {folder}/ folder{' or .pak file' if handle_paks else ''} — nothing to install")
+            folders_desc = " or ".join(f + "/" for f in folders)
+            decky.logger.error(f"{mod.name}: archive has no {folders_desc} folder{' or .pak file' if handle_paks else ''} — nothing to install")
             return False
 
         # Commit: retire the previous install and place the new payload all-or-nothing. Pak slots are
@@ -1463,11 +1473,11 @@ async def _install_mod_loose_merge(
 
 
 async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None, variant: str | None = None) -> "bool | None | dict":
-    """RE4 loose-file install: merge a lowercased `natives/` tree into the game root and slot
-    `.pak` content mods. See _install_mod_loose_merge."""
+    """RE4 loose-file install: merge lowercased `natives/` (assets) and `reframework/` (REFramework
+    plugins/scripts) trees into the game root and slot `.pak` content mods. See _install_mod_loose_merge."""
     return await _install_mod_loose_merge(
         game, install_dir, mod, version, url, variant,
-        folder="natives", lowercase=True, handle_paks=True,
+        folders=("natives", "reframework"), lowercase=True, handle_paks=True,
     )
 
 
@@ -1477,7 +1487,7 @@ async def _install_mod_zip_nativepc(game: GameProfile, install_dir: str, mod: Mo
     content folders + modinfo.ini) are wrapped into nativePC/. See _install_mod_loose_merge."""
     return await _install_mod_loose_merge(
         game, install_dir, mod, version, url, variant,
-        folder="nativePC", lowercase=False, handle_paks=False, wrap_loose=True,
+        folders=("nativePC",), lowercase=False, handle_paks=False, wrap_loose=True,
     )
 
 
