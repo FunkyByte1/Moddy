@@ -18,7 +18,8 @@ import tempfile
 import zipfile
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_BACKEND = os.path.join(os.path.dirname(_THIS_DIR), "backend")
+_REPO_ROOT = os.path.dirname(_THIS_DIR)
+_BACKEND = os.path.join(_REPO_ROOT, "backend")
 
 
 def _install_fake_decky() -> types.ModuleType:
@@ -49,6 +50,10 @@ def _install_fake_decky() -> types.ModuleType:
 decky = _install_fake_decky()
 if _BACKEND not in sys.path:
     sys.path.insert(0, _BACKEND)
+# Also expose the repo root so tests can `import main` (the plugin entrypoint lives there, not in
+# backend/). Without this the cascade tests error at collection with "No module named 'main'".
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 import mods       # noqa: E402
 import utils      # noqa: E402
