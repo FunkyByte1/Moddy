@@ -34,6 +34,7 @@ class CatalogItem(TypedDict):
     is_deprecated: bool
     has_nsfw_content: bool
     categories: list[str]
+    is_library: bool          # a library/framework for other mods — hidden from Browse by default
     latest: CatalogItemLatest
 
 
@@ -49,6 +50,7 @@ def make_item(
     is_deprecated: bool = False,
     has_nsfw_content: bool = False,
     categories: Optional[list[str]] = None,
+    is_library: bool = False,
     version_number: str = "",
     description: str = "",
     icon: str = "",
@@ -70,6 +72,7 @@ def make_item(
         "is_deprecated": is_deprecated,
         "has_nsfw_content": has_nsfw_content,
         "categories": list(categories or []),
+        "is_library": is_library,
         "latest": {
             "version_number": version_number,
             "description": description,

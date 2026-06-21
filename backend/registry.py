@@ -264,3 +264,16 @@ def library_categories(game: GameProfile) -> list[str]:
         return list(explicit)
     catalog_type = game.catalog.get("type") or ("thunderstore" if game.thunderstore_community else "")
     return list(_DEFAULT_LIBRARY_CATEGORIES.get(catalog_type, []))
+
+
+def nexus_library_ids(game: GameProfile) -> set[str]:
+    """Full install ids (`nexus.<domain>.<mod_id>`, lowercased) that the game marks as
+    libraries via `catalog.library_ids`. Nexus has no library categorization, so these are
+    listed by hand per game (e.g. RE4's REFramework Direct2D / Lua API — framework deps other
+    mods need, not content). Empty unless the catalog is Nexus with a domain."""
+    if game.catalog.get("type") != "nexus":
+        return set()
+    domain = game.catalog.get("nexus_domain", "")
+    if not domain:
+        return set()
+    return {f"nexus.{domain}.{mid}".lower() for mid in game.catalog.get("library_ids", [])}

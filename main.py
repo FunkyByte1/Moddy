@@ -85,6 +85,8 @@ def _build_game_status(game: "registry.GameProfile", libraries: "list[str] | Non
         _library_full_names(game, lib_cats)
         if (installed_mods_list and lib_cats) else set()
     )
+    # Nexus has no library categories, so library Nexus mods are listed per game (catalog.library_ids).
+    nexus_lib_ids = registry.nexus_library_ids(game)
     workshop = game.uses_steam_workshop()
     for im in installed_mods_list:
         # Workshop mods carry is_library on their record (from the game's
@@ -92,7 +94,7 @@ def _build_game_status(game: "registry.GameProfile", libraries: "list[str] | Non
         if workshop:
             continue
         idl = im["id"].lower()
-        im["is_library"] = idl in lib_names or idl in framework_ids
+        im["is_library"] = idl in lib_names or idl in framework_ids or idl in nexus_lib_ids
 
     return {
         "id": game.id,
@@ -486,7 +488,16 @@ class Plugin:
             include_adult = bool(settings.get_setting("nexus_include_adult", False))
         results = nexus.search(domain, query, page, bool(include_adult), sort)
         deny = self._nexus_browse_denylist()
-        return [it for it in results if it.get("full_name", "").lower() not in deny]
+        lib_ids = registry.nexus_library_ids(game)
+        out = []
+        for it in results:
+            fn = it.get("full_name", "").lower()
+            if fn in deny:
+                continue
+            if fn in lib_ids:
+                it["is_library"] = True  # framework dep (e.g. Direct2D) — hidden from Browse by default
+            out.append(it)
+        return out
 
     async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None,
                                 variant: str | None = None, installed: "list | None" = None):

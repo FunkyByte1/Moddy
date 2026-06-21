@@ -22,8 +22,12 @@ describe('nexus adapter mappers', () => {
   it('nexusItem normalizes the package (installId lowercased)', () => {
     expect(nexusItem(tsPkg())).toEqual({
       key: 'Owner-Mod', installId: 'owner-mod', title: 'Mod', subtitle: 'Owner',
-      iconUrl: 'http://icon', raw: tsPkg(),
+      iconUrl: 'http://icon', isLibrary: false, raw: tsPkg(),
     });
+  });
+  it('nexusItem carries the backend-stamped is_library flag', () => {
+    expect(nexusItem(tsPkg({ is_library: true })).isLibrary).toBe(true);
+    expect(nexusItem(tsPkg()).isLibrary).toBe(false);
   });
   it('nexusDetail builds the byline with version + date and no tags', () => {
     const d = nexusDetail(tsPkg());

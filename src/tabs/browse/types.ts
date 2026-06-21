@@ -9,6 +9,7 @@ export interface BrowseItem {
   title: string;
   subtitle: string;   // "owner" | "1.2k subscribers"
   iconUrl: string;
+  isLibrary?: boolean; // Nexus: framework/library mod, hidden by default. Workshop leaves it unset.
   raw: unknown;       // ThunderstorePackage (Nexus) | WorkshopCatalogItem (Workshop)
 }
 

@@ -11,6 +11,7 @@ export function nexusItem(p: ThunderstorePackage): BrowseItem {
     title: p.name,
     subtitle: p.owner,
     iconUrl: p.latest.icon,
+    isLibrary: !!p.is_library,
     raw: p,
   };
 }

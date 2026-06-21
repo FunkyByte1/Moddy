@@ -8,8 +8,11 @@ import { CatalogSourceLabel } from '../../components/CatalogSource';
 import { centerInView } from '../../components/centerInView';
 import { useGamepadListFocus } from '../../components/useGamepadListFocus';
 import { BrowseItem, PagedVenueAdapter } from './types';
+import { BrowsePagedFilter, pagedVisible } from './pagedFilter';
 import { useBrowseInstall } from './useBrowseInstall';
 import { useBrowseUninstall } from './useBrowseUninstall';
+
+export type { BrowsePagedFilter } from './pagedFilter';
 
 // Steam's gamepad-scrollable container (scrolls with the right stick); falls back to a plain
 // Focusable if the internal lookup fails. Paged venues load only a few pages, so the list is NOT
@@ -45,8 +48,6 @@ const Row: FC<{
     </div>
   </Focusable>
 );
-
-export interface BrowsePagedFilter { installed: boolean; notInstalled: boolean; showNsfw: boolean; sortBy?: string; }
 
 const BrowsePagedTab: FC<{
   adapter: PagedVenueAdapter;
@@ -121,15 +122,11 @@ const BrowsePagedTab: FC<{
   const installedIds = useMemo(() => adapter.installedIds(game), [adapter, game]);
   const isInstalled = (it: BrowseItem) => installedIds.has(it.installId);
 
-  // Nexus filters by installed-status client-side; Workshop has no filter (visible === items).
+  // Nexus filters client-side by hide-libraries + installed status; Workshop has no filter
+  // (hasFilter=false) so visible === items.
   const visible = useMemo(() => {
     if (!adapter.hasFilter || !filter) return items;
-    return items.filter(it => {
-      const inst = installedIds.has(it.installId);
-      if (inst && !filter.installed) return false;
-      if (!inst && !filter.notInstalled) return false;
-      return true;
-    });
+    return pagedVisible(items, filter, installedIds);
   }, [adapter, filter, items, installedIds]);
 
   // Keep the selection in range when the install-status filter shrinks the list.

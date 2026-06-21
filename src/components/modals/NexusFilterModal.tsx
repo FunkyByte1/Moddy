@@ -12,16 +12,17 @@ export const NEXUS_SORT_OPTIONS: { data: NexusSort; label: string }[] = [
   { data: 'name', label: 'Name (A–Z)' },
 ];
 
-// Nexus browse is server-paginated and its catalog items only carry name/owner/version/
-// date/desc/icon — so unlike the Thunderstore filter there's no deprecated/library/category
-// data to filter on. Install status is filtered client-side over the loaded pages; NSFW and
-// sort are server-side (toggling either re-fetches), and NSFW is only offered when the
-// account-global "Allow NSFW" gate is on.
+// Nexus browse is server-paginated. Most catalog items carry only name/owner/version/date/desc/icon,
+// but the backend stamps is_library on mods listed in the game's catalog.library_ids (Nexus has no
+// library category), so "Hide Libraries" filters those client-side. Install status + hide-libraries
+// are filtered over the loaded pages; NSFW and sort are server-side (toggling either re-fetches), and
+// NSFW is only offered when the account-global "Allow NSFW" gate is on.
 export interface NexusFilter {
   installed: boolean;
   notInstalled: boolean;
   showNsfw: boolean;
   sortBy: NexusSort;
+  hideLibraries: boolean;
 }
 
 export const defaultNexusFilter: NexusFilter = {
@@ -29,10 +30,11 @@ export const defaultNexusFilter: NexusFilter = {
   notInstalled: true,
   showNsfw: false,
   sortBy: 'popularity',
+  hideLibraries: true,
 };
 
 const isDefault = (f: NexusFilter): boolean =>
-  f.installed && f.notInstalled && !f.showNsfw && f.sortBy === 'popularity';
+  f.installed && f.notInstalled && !f.showNsfw && f.sortBy === 'popularity' && f.hideLibraries;
 
 const Section: FC<{ title: string; children: ReactNode }> = ({ title, children }) => (
   <div style={{ marginBottom: '12px' }}>
@@ -84,6 +86,13 @@ const NexusFilterModal: FC<{
             label="Not Installed"
             checked={local.notInstalled}
             onChange={(v) => update({ ...local, notInstalled: v })}
+          />
+        </Section>
+        <Section title="Libraries">
+          <DialogCheckbox
+            label="Hide Libraries"
+            checked={local.hideLibraries}
+            onChange={(v) => update({ ...local, hideLibraries: v })}
           />
         </Section>
         {nsfwEnabled ? (

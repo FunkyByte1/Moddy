@@ -63,6 +63,7 @@ export interface ThunderstorePackage {
   is_deprecated: boolean;
   has_nsfw_content: boolean;
   categories: string[];
+  is_library?: boolean;  // backend-stamped (Nexus: catalog.library_ids); Thunderstore filters via categories
   latest: ThunderstorePackageLatest;
 }
 
