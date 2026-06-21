@@ -1,0 +1,9 @@
+{
+  "id": "monster-hunter-rise",
+  "name": "Monster Hunter Rise",
+  "appid": 1446780,
+  "mods_dir": "",
+  "mods_dir_type": "game",
+  "modloader_ids": ["reframework-mhrise"],
+  "catalog": { "type": "nexus", "nexus_domain": "monsterhunterrise", "install_type": "zip_natives", "library_ids": ["134"] }
+}

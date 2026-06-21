@@ -664,6 +664,10 @@ class Plugin:
         "nexus.residentevil42023.14",  # Fluffy Mod Manager (desktop app, not an in-game mod)
         "nexus.residentevil42023.12",  # REFramework — installed via the Mod Loader tab (GitHub
                                        # source), but also mirrored on Nexus, so hide that listing
+        "nexus.monsterhunterrise.7",   # Fluffy Mod Manager 5000 (desktop app, not an in-game mod)
+        "nexus.monsterhunterrise.26",  # REFramework — installed via the Mod Loader tab (GitHub
+                                       # source), but also mirrored on Nexus, so hide that listing
+        "nexus.site.818",              # Fluffy Mod Manager 5000 (site-wide Nexus listing some mods require)
     }
 
     def _nexus_browse_denylist(self) -> set[str]:
