@@ -667,6 +667,8 @@ class Plugin:
         "nexus.monsterhunterrise.7",   # Fluffy Mod Manager 5000 (desktop app, not an in-game mod)
         "nexus.monsterhunterrise.26",  # REFramework — installed via the Mod Loader tab (GitHub
                                        # source), but also mirrored on Nexus, so hide that listing
+        "nexus.monsterhunterrise.181", # HunterPie v2 — external .NET overlay app, not an in-game
+                                       # mod; runs as a separate process (Moddy can't install/run it)
         "nexus.site.818",              # Fluffy Mod Manager 5000 (site-wide Nexus listing some mods require)
     }
 
