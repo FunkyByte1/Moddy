@@ -46,7 +46,7 @@ const Row: FC<{
   </Focusable>
 );
 
-export interface BrowsePagedFilter { installed: boolean; notInstalled: boolean; showNsfw: boolean; }
+export interface BrowsePagedFilter { installed: boolean; notInstalled: boolean; showNsfw: boolean; sortBy?: string; }
 
 const BrowsePagedTab: FC<{
   adapter: PagedVenueAdapter;
@@ -57,6 +57,7 @@ const BrowsePagedTab: FC<{
   ready?: boolean;              // default true; Nexus gates the first fetch on the NSFW seed
 }> = ({ adapter, game, onRefresh, filter, onFilterButton, ready = true }) => {
   const nsfw = filter?.showNsfw ?? false;
+  const sort = filter?.sortBy ?? '';
 
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -78,7 +79,7 @@ const BrowsePagedTab: FC<{
     (async () => {
       setLoading(true); setSelectedIndex(0);
       try {
-        const data = await adapter.fetchPage(game, debounced, 1, nsfw);
+        const data = await adapter.fetchPage(game, debounced, 1, nsfw, sort);
         if (!cancelled) { setItems(data); setPage(1); setHasMore(data.length >= PAGE_FULL); }
       } catch {
         if (!cancelled) {
@@ -89,14 +90,14 @@ const BrowsePagedTab: FC<{
       }
     })();
     return () => { cancelled = true; };
-  }, [adapter, game, debounced, nsfw, ready]);
+  }, [adapter, game, debounced, nsfw, sort, ready]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
       const next = page + 1;
-      const data = await adapter.fetchPage(game, debounced, next, nsfw);
+      const data = await adapter.fetchPage(game, debounced, next, nsfw, sort);
       const have = new Set(items.map(i => i.key));
       setItems(prev => [...prev, ...data.filter(i => !have.has(i.key))]);
       setPage(next);

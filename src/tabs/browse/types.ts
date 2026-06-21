@@ -40,7 +40,8 @@ export interface PagedVenueAdapter {
   installNotice?: string;              // Workshop: shown under the Install button (only when not installed)
                                        // so the user knows the action subscribes them via their Steam account
 
-  fetchPage(game: GameStatus, query: string, page: number, nsfw: boolean): Promise<BrowseItem[]>;
+  // `sort` is the venue's own sort key (Nexus); Workshop ignores it.
+  fetchPage(game: GameStatus, query: string, page: number, nsfw: boolean, sort: string): Promise<BrowseItem[]>;
   installedIds(game: GameStatus): Set<string>;
   detail(item: BrowseItem): BrowseDetail;
   uninstallId(game: GameStatus, item: BrowseItem): string; // recorded id used for uninstall + dependents

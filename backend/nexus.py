@@ -67,15 +67,30 @@ def _headers() -> dict:
 
 _NODE_FIELDS = "nodes { modId name summary uploader { name } pictureUrl version updatedAt } totalCount"
 
+# Browse sort keys → the (ModsSort field, SortDirection) the v2 GraphQL `mods` query accepts.
+# Shape verified live via introspection: mods(sort:[ModsSort!]); ModsSort fields include
+# endorsements/downloads/updatedAt/name, each a BaseSortValue{direction: ASC|DESC}.
+# "popularity" maps to endorsements DESC (Nexus's canonical popularity metric), matching the
+# Thunderstore tab's "Popularity" default.
+_SORTS = {
+    "popularity": ("endorsements", "DESC"),
+    "downloads": ("downloads", "DESC"),
+    "updated": ("updatedAt", "DESC"),
+    "name": ("name", "ASC"),
+}
+DEFAULT_SORT = "popularity"
 
-def _search_query(domain: str, term: str, count: int, offset: int, include_adult: bool = False) -> str:
+
+def _search_query(domain: str, term: str, count: int, offset: int,
+                  include_adult: bool = False, sort: str = DEFAULT_SORT) -> str:
     """Build the GraphQL mods-search query inline. Values are JSON-encoded so terms with
     quotes/backslashes can't break or inject into the query. The filter is built inline
     (not via variables) because that exact shape was verified live; `nameStemmed`/WILDCARD
     is the tokenized full-text search the website uses, omitted entirely for empty terms.
     Unless `include_adult` is set, adult-rated mods are excluded server-side (so pagination
     counts stay correct) via the `adultContent` BooleanFilter — verified live as the {value,op}
-    shape, not a bare boolean."""
+    shape, not a bare boolean. `sort` picks the order from the `_SORTS` whitelist (unknown
+    values fall back to the default) — the field/direction are never taken from user input."""
     parts = [f"gameDomainName:{{value:{json.dumps(domain)},op:EQUALS}}"]
     # The WILDCARD filter rejects 1-char terms ("Wildcard value must have 2 or more characters"),
     # which surfaced as a hard error mid-typing. Below 2 chars, skip the filter (show the unfiltered
@@ -85,8 +100,10 @@ def _search_query(domain: str, term: str, count: int, offset: int, include_adult
     if not include_adult:
         parts.append("adultContent:{value:false,op:EQUALS}")
     filter_str = ",".join(parts)
+    field, direction = _SORTS.get(sort, _SORTS[DEFAULT_SORT])
+    sort_str = f"[{{{field}:{{direction:{direction}}}}}]"
     return (
-        f"{{ mods(filter:{{{filter_str}}}, count:{count}, offset:{offset}) "
+        f"{{ mods(filter:{{{filter_str}}}, sort:{sort_str}, count:{count}, offset:{offset}) "
         f"{{ {_NODE_FIELDS} }} }}"
     )
 
@@ -105,10 +122,12 @@ def _node_to_item(domain: str, node: dict) -> catalog.CatalogItem:
     )
 
 
-def search(domain: str, query: str = "", page: int = 1, include_adult: bool = False) -> list[catalog.CatalogItem]:
+def search(domain: str, query: str = "", page: int = 1, include_adult: bool = False,
+           sort: str = DEFAULT_SORT) -> list[catalog.CatalogItem]:
     """A page of Nexus mods for a game domain, optionally filtered by a search term.
     Returns [] on error or when no API key is set. Server-side paginated (PAGE_SIZE).
-    Adult-rated mods are excluded unless `include_adult` is True."""
+    Adult-rated mods are excluded unless `include_adult` is True. `sort` selects the
+    server-side order (see `_SORTS`); unknown values fall back to the default."""
     query = (query or "").strip()
     offset = max(0, (page - 1) * PAGE_SIZE)
     try:
@@ -117,7 +136,7 @@ def search(domain: str, query: str = "", page: int = 1, include_adult: bool = Fa
         decky.logger.warning("Nexus search skipped: no API key configured")
         return []
 
-    gql = _search_query(domain, query, PAGE_SIZE, offset, include_adult)
+    gql = _search_query(domain, query, PAGE_SIZE, offset, include_adult, sort)
     data = fetch.post_json(GRAPHQL_URL, {"query": gql}, headers=headers)
     if not isinstance(data, dict):
         return []

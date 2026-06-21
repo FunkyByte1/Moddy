@@ -466,13 +466,15 @@ class Plugin:
 
     # ── Nexus Mods catalog ────────────────────────────────────────────────────
     async def get_nexus_catalog(self, appid: int, query: str = "", page: int = 1,
-                                include_adult: bool | None = None) -> list:
+                                include_adult: bool | None = None,
+                                sort: str = nexus.DEFAULT_SORT) -> list:
         """A page (~25 items) of the Nexus catalog for a game whose Browse source is Nexus,
         searched server-side by `query` via the v2 GraphQL API. Returns [] for non-Nexus
         games, on error, or when no Nexus API key is configured.
 
         `include_adult` is driven per-fetch by the Browse filter's "Show NSFW" toggle. When
-        the caller omits it, fall back to the `nexus_include_adult` setting key."""
+        the caller omits it, fall back to the `nexus_include_adult` setting key. `sort` picks
+        the server-side order from the Browse filter's "Sort By" dropdown."""
         game = registry.get_game_by_appid(appid)
         if not game or game.catalog.get("type") != "nexus":
             return []
@@ -482,8 +484,9 @@ class Plugin:
         # Adult mods are hidden by default; the Browse filter's NSFW toggle opts in per-fetch.
         if include_adult is None:
             include_adult = bool(settings.get_setting("nexus_include_adult", False))
-        results = nexus.search(domain, query, page, bool(include_adult))
-        return [it for it in results if it.get("full_name", "").lower() not in self._NEXUS_DENYLIST]
+        results = nexus.search(domain, query, page, bool(include_adult), sort)
+        deny = self._nexus_browse_denylist()
+        return [it for it in results if it.get("full_name", "").lower() not in deny]
 
     async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None,
                                 variant: str | None = None, installed: "list | None" = None):
@@ -540,7 +543,7 @@ class Plugin:
         cascade. Requirements install at latest; only the top-level mod honors an explicit version
         and variant. A failed requirement is best-effort (continue); a Premium-gated download aborts
         and surfaces "premium_required". Returns True/False/None/"premium_required"/needs-variant."""
-        provider = install_cascade.NexusProvider(self._NEXUS_DENYLIST)
+        provider = install_cascade.NexusProvider(self._nexus_browse_denylist())
         return await install_cascade.run_cascade(
             provider, game, install_dir, (domain, mod_id), version,
             seen=seen, installed=installed, top=top, variant=variant,
@@ -641,11 +644,29 @@ class Plugin:
         "thunderstore-lovely",  # Balatro injector — installed via the Mod Loader tab, not as a Mods/ plugin
     }
 
-    # Nexus mods (by `nexus.<domain>.<mod_id>` install id, lowercase) that are tools/managers, not
-    # game content — never install them as a requirement, and hide them from Browse.
+    # Nexus mods (by `nexus.<domain>.<mod_id>` install id, lowercase) that are tools/managers or
+    # loaders, not game content — never install them as a requirement, and hide them from Browse.
+    # Nexus-sourced modloaders (e.g. MHW's Stracker's Loader) are added automatically from the
+    # registry by _nexus_browse_denylist(); only list loaders/tools that AREN'T a registered Nexus
+    # modloader here (e.g. a loader distributed off-Nexus but mirrored on it).
     _NEXUS_DENYLIST = {
         "nexus.residentevil42023.14",  # Fluffy Mod Manager (desktop app, not an in-game mod)
+        "nexus.residentevil42023.12",  # REFramework — installed via the Mod Loader tab (GitHub
+                                       # source), but also mirrored on Nexus, so hide that listing
     }
+
+    def _nexus_browse_denylist(self) -> set[str]:
+        """The full set of Nexus install ids (nexus.<domain>.<mod_id>, lowercase) to keep out of
+        Browse AND out of the dependency cascade: the hand-curated _NEXUS_DENYLIST plus every game's
+        Nexus-sourced modloader, derived from the registry so a newly-added Nexus modloader is hidden
+        automatically (no second place to update)."""
+        ids = set(self._NEXUS_DENYLIST)
+        for g in registry.SUPPORTED_GAMES:
+            for ml in g.modloaders:
+                s = ml.source
+                if s.type == "nexus" and s.nexus_domain and s.mod_id:
+                    ids.add(f"nexus.{s.nexus_domain}.{s.mod_id}".lower())
+        return ids
 
     async def get_browse_denylist(self) -> list[str]:
         """Lowercase install ids the UI should treat as 'not a real dependency' — modloaders,
@@ -657,7 +678,7 @@ class Plugin:
         Implicit deps are unioned in only here, NOT into _BROWSE_DENYLIST: that set is what the
         install cascade uses to *skip* installs, and the modloader cores must still get installed."""
         implicit = {dep.lower() for g in registry.SUPPORTED_GAMES for dep in g.implicit_deps}
-        return sorted(self._BROWSE_DENYLIST | self._NEXUS_DENYLIST | implicit)
+        return sorted(self._BROWSE_DENYLIST | self._nexus_browse_denylist() | implicit)
 
     async def get_unresolved_dependencies(self, appid: int, full_name: str, with_deps: bool = True) -> list:
         """Declared dependencies of `full_name` that aren't in the catalog (so they can't be
