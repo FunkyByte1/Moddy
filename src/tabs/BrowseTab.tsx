@@ -460,15 +460,16 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     (detailRef.current?.querySelector('button, [tabindex]') as HTMLElement | null)?.focus();
   }, []);
 
-  // After submitting a search on the on-screen keyboard (Enter/R2 blurs the field), drop focus onto
-  // the first result so the user can navigate the list straight away instead of being left on
-  // nothing. Filtering here is synchronous, so by Enter the list already reflects the query; scroll
-  // to the top first to guarantee row 0 is rendered (virtualized), then focus its button next frame.
-  const focusFirstRow = useCallback(() => {
-    listRef.current?.scrollToItem(0);
-    requestAnimationFrame(() => {
-      (listOuterRef.current?.querySelector('button') as HTMLElement | null)?.focus();
-    });
+  // After submitting a search (Enter/R2), keep focus on the search field rather than jumping into the
+  // list. blur() (below) dismisses the on-screen keyboard; we then re-focus the input AFTER the
+  // dismiss finishes — a bare focus (no click) doesn't reopen it (see useAutoKeyboard), but
+  // re-focusing too soon (rAF) races the dismiss and the keyboard never closes, so wait a beat.
+  // Also avoids focus being stranded on nothing / the tab bar like the old "jump to first row".
+  const searchPanelRef = useRef<HTMLDivElement>(null);
+  const refocusSearch = useCallback(() => {
+    setTimeout(() => {
+      (searchPanelRef.current?.querySelector('input') as HTMLElement | null)?.focus();
+    }, 100);
   }, []);
 
   const itemData: RowData = useMemo(
@@ -539,14 +540,14 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
           flexDirection: 'column',
         }}
       >
-        <div style={{ padding: 8 }}>
+        <div ref={searchPanelRef} style={{ padding: 8 }}>
           <TextField
             label="Search"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            // Enter (R2 on the on-screen keyboard) dismisses the keyboard by blurring the field,
-            // then moves focus to the first result so the list is ready to navigate.
-            onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); focusFirstRow(); } }}
+            // Enter (R2 on the on-screen keyboard) closes the keyboard (blur) but keeps focus on the
+            // search field — re-focused next frame so it stays highlighted instead of stranding focus.
+            onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); refocusSearch(); } }}
           />
           <CatalogSourceLabel source={isBmi ? 'bmi' : 'thunderstore'} />
           <div style={{ marginTop: 4, fontSize: 11, color: 'var(--gpColorTextSecondary)' }}>

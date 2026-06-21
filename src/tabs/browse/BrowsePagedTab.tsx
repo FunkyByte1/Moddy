@@ -1,6 +1,6 @@
 import { ButtonItem, Focusable, PanelSection, PanelSectionRow, ScrollPanelGroup, Spinner, TextField } from '@decky/ui';
 import { toaster } from '@decky/api';
-import { FC, useState, useEffect, useMemo } from 'react';
+import { FC, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 
 import { GameStatus } from '../../types';
 import { useQueueFooterProps } from '../../components/DownloadQueueModal';
@@ -68,8 +68,16 @@ const BrowsePagedTab: FC<{
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  // Set when an on-screen-keyboard search is submitted; consumed once the matching fetch lands.
-  const [pendingSearchFocus, setPendingSearchFocus] = useState(false);
+  // After a search is submitted (Enter/R2), keep focus on the search field instead of jumping into
+  // the list. blur() (below) dismisses the on-screen keyboard; we then re-focus the input AFTER the
+  // dismiss has finished — a bare focus (no click) doesn't reopen it (see useAutoKeyboard), but
+  // re-focusing too soon (rAF) races the dismiss and the keyboard never closes, so wait a beat.
+  const searchPanelRef = useRef<HTMLDivElement>(null);
+  const refocusSearch = useCallback(() => {
+    setTimeout(() => {
+      (searchPanelRef.current?.querySelector('input') as HTMLElement | null)?.focus();
+    }, 100);
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 350);
@@ -134,17 +142,6 @@ const BrowsePagedTab: FC<{
   // Keep the selection in range when the install-status filter shrinks the list.
   useEffect(() => { setSelectedIndex(0); }, [filter?.installed, filter?.notInstalled]);
 
-  // After an on-screen-keyboard search is submitted (Enter/R2 blurred the field), move focus to the
-  // first result — otherwise focus is left on nothing and the user has to navigate back into the
-  // list by hand. Unlike the bulk tab, results here are fetched async, so wait until the fetch for
-  // the *latest* query has settled (debounced === search, not loading) before grabbing focus, so we
-  // don't focus a stale page mid-debounce.
-  useEffect(() => {
-    if (!pendingSearchFocus || loading || debounced !== search.trim()) return;
-    setPendingSearchFocus(false);
-    if (visible.length > 0) focusRowAfterLoad(0);
-  }, [pendingSearchFocus, loading, debounced, search, visible.length]);
-
   const selected = visible[Math.min(selectedIndex, visible.length - 1)] ?? null;
 
   const { setInstalling, isBusy, addPending, removePending } = useBrowseInstall(adapter.installModel);
@@ -170,9 +167,10 @@ const BrowsePagedTab: FC<{
       {...(adapter.hasFilter && onFilterButton ? { onSecondaryButton: onFilterButton, onSecondaryActionDescription: 'Filter' } : {})}
     >
       <Focusable style={{ width: LEFT_PANEL_WIDTH, borderRight: '1px solid var(--gpColorSeparator)', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: 8 }}>
+        <div ref={searchPanelRef} style={{ padding: 8 }}>
           <TextField label={adapter.searchLabel} value={search} onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); setPendingSearchFocus(true); } }} />
+            // Enter (R2) closes the keyboard (blur) but keeps focus on the search field.
+            onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); refocusSearch(); } }} />
           <CatalogSourceLabel source={adapter.sourceLabel} />
           <div style={{ marginTop: 6, minHeight: 16, fontSize: 11, color: 'var(--gpColorTextSecondary)' }}>
             {loading ? 'Loading…' : visible.length > 0 ? `${visible.length} mod${visible.length === 1 ? '' : 's'}` : ''}
