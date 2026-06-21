@@ -83,6 +83,34 @@ class NativesAtomicityTest(unittest.TestCase):
         self.assertTrue(self.exists("reframework/plugins/d2d.dll"))
         self.assertFalse(self.exists("reframework-d2d/reframework/plugins/d2d.dll"))
 
+    def test_bare_lua_script_wraps_into_autorun(self):
+        # Many REFramework script mods (e.g. nexus monsterhunterrise/1028) zip a single loose .lua
+        # with no reframework/ wrapper — the author expects you to drop it in reframework/autorun/.
+        # Previously this failed ("nothing to install"); now it's wrapped there.
+        res, mod = self._install({"Mod_Toggle.lua": b"lua", "README.txt": "x"}, "1.0.0")
+        self.assertTrue(res)
+        self.assertTrue(self.exists("reframework/autorun/mod_toggle.lua"))
+        self.assertFalse(self.exists("README.txt"))  # readme beside the script isn't installed
+        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["reframework/autorun/mod_toggle.lua"])
+
+    def test_loose_autorun_tree_wraps_into_reframework(self):
+        # A bare `autorun/` tree (script + companion data, no reframework/ parent) lands under
+        # reframework/autorun/, preserving the script's companion files.
+        res, mod = self._install({"autorun/MyMod.lua": b"lua", "autorun/MyMod/data.json": b"{}"}, "1.0.0")
+        self.assertTrue(res)
+        self.assertTrue(self.exists("reframework/autorun/mymod.lua"))
+        self.assertTrue(self.exists("reframework/autorun/mymod/data.json"))
+        self.assertEqual(
+            sorted(mods.get_installed_record(mod.id)["paths"]),
+            ["reframework/autorun/mymod.lua", "reframework/autorun/mymod/data.json"],
+        )
+
+    def test_unrecognized_archive_without_lua_still_fails(self):
+        # The autorun fallback is gated on a .lua being present, so a junk archive (no natives/,
+        # no reframework/, no .pak, no .lua) is still rejected rather than dumped into autorun/.
+        res, _ = self._install({"random.dat": b"x", "notes.txt": "y"}, "1.0.0")
+        self.assertFalse(res)
+
     def test_natives_and_reframework_both_merge(self):
         # A mod bundling both an asset tree and a plugin: both land in the game root.
         res, mod = self._install({
