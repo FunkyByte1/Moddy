@@ -67,6 +67,59 @@ def _save_store(store: dict) -> None:
             os.remove(tmp)
 
 
+# ── Vanilla-mode snapshot ─────────────────────────────────────────────────────
+# When a game is switched to "vanilla" (play unmodded) we disable every enabled mod and the
+# modloader, recording WHAT was enabled so switching back restores exactly that state — a mod the
+# user had individually disabled stays disabled. Stored under installed.json's own "vanilla" key,
+# keyed by appid, alongside (never clobbering) the "mods" and "modloaders" sections.
+
+def _read_full_store() -> dict:
+    try:
+        path = _get_store_path()
+        if os.path.isfile(path):
+            with open(path, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        decky.logger.error(f"Failed to read installed store: {e}")
+    return {}
+
+
+def get_vanilla_state(appid: int) -> dict | None:
+    """The snapshot captured when this game entered vanilla mode, or None if it isn't vanilla.
+    Shape: {"mods": [enabled mod ids], "modloader": <ml id or None>, "workshop": [fileids]}."""
+    return (_read_full_store().get("vanilla") or {}).get(str(appid))
+
+
+def is_game_vanilla(appid: int) -> bool:
+    return get_vanilla_state(appid) is not None
+
+
+def set_vanilla_state(appid: int, snapshot: dict | None) -> None:
+    """Persist (snapshot) or clear (None) a game's vanilla snapshot, preserving the rest of
+    installed.json. Atomic write."""
+    path = _get_store_path()
+    tmp = path + ".tmp"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        full = _read_full_store()
+        vanilla = full.get("vanilla") or {}
+        if snapshot is None:
+            vanilla.pop(str(appid), None)
+        else:
+            vanilla[str(appid)] = snapshot
+        if vanilla:
+            full["vanilla"] = vanilla
+        else:
+            full.pop("vanilla", None)
+        with open(tmp, "w") as f:
+            json.dump(full, f, indent=2)
+        os.replace(tmp, path)
+    except Exception as e:
+        decky.logger.error(f"Failed to save vanilla state: {e}")
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def get_installed_version(mod_id: str) -> str | None:
     store = _load_store()
     return store.get(mod_id, {}).get("version")

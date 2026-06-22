@@ -116,6 +116,19 @@ export interface GameStatus {
   requires_proton: boolean;
   current_compat_tool: string;
   installed_mods: InstalledMod[];
+  // True while the game is in "vanilla" (play-unmodded) mode — every mod + the modloader toggled
+  // off but kept on disk, ready to switch back.
+  vanilla: boolean;
+}
+
+export interface VanillaResult {
+  ok: boolean;
+  vanilla: boolean;
+  noop?: boolean;
+  mods_disabled?: number;
+  mods_enabled?: number;
+  modloader_id?: string | null;
+  workshop?: string[]; // Workshop fileids the client must flip (not file-based)
 }
 
 export const setLaunchOptions = (appid: number, options: string) => {
@@ -343,6 +356,25 @@ export const getModloaderReleases = callable<[appid: number], ModRelease[]>('get
 export const checkModloaderUpdate = callable<[appid: number], ModloaderUpdate | null>('check_modloader_update');
 export const cancelInstall = callable<[], void>('cancel_install');
 export const resetGame = callable<[appid: number], ResetResult>('reset_game');
+
+const _setGameVanillaMode = callable<[appid: number, vanilla: boolean], VanillaResult>('set_game_vanilla_mode');
+
+// Switch a game to/from unmodded without deleting anything. The backend toggles file-based mods and
+// the modloader and reports what to finish on the client: flip the modloader's launch options (so the
+// loader actually stops/starts injecting — and for SMAPI, this IS the off switch), and locally
+// enable/disable the Workshop items it returns (Steam owns those, not the filesystem).
+export const applyVanillaMode = async (game: GameStatus, vanilla: boolean): Promise<VanillaResult> => {
+  const res = await _setGameVanillaMode(game.appid, vanilla);
+  if (!res.ok && !res.noop) return res;
+  if (res.modloader_id && game.modloader_launch_options) {
+    if (vanilla) removeModloaderLaunchOptions(game.appid, game.modloader_launch_options);
+    else addModloaderLaunchOptions(game.appid, game.modloader_launch_options);
+  }
+  for (const fileid of res.workshop ?? []) {
+    setWorkshopItemDisabled(game.appid, fileid, vanilla); // disabled=true when going vanilla
+  }
+  return res;
+};
 const _installMod = callable<[appid: number, mod_id: string, version: string | null], boolean | null>('install_mod');
 // Workshop mods: subscribe via SteamClient first (an item's required items are resolved
 // and subscribed by installWorkshopTree), then record via the backend.

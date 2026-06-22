@@ -6,7 +6,7 @@ import DownloadQueuePill from './components/DownloadQueuePill';
 import { useQueueFooterProps, promptVariant } from './components/DownloadQueueModal';
 import { useDownloadQueue } from './downloadQueue';
 
-import { GameStatus, ModUpdate, getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, setGameToProton, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
+import { GameStatus, ModUpdate, getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, setGameToProton, applyVanillaMode, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
 import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
 import ProfilesTab from './tabs/ProfilesTab';
@@ -15,6 +15,7 @@ import BrowsePagedTab from './tabs/browse/BrowsePagedTab';
 import { nexusAdapter } from './tabs/browse/nexusAdapter';
 import { workshopAdapter } from './tabs/browse/workshopAdapter';
 import OptionsModal from './components/modals/OptionsModal';
+import VanillaView from './components/VanillaView';
 import ModLoaderModal from './components/modals/ModLoaderModal';
 import ResetGameModal from './components/modals/ResetGameModal';
 import SaveProfileModal from './components/modals/SaveProfileModal';
@@ -59,11 +60,21 @@ const ModPage: FC = () => {
   // not have flushed by the time refresh() re-reads it, so don't wait on the backend round-trip.
   const [protonApplied, setProtonApplied] = useState(false);
   const [settingProton, setSettingProton] = useState(false);
+  // Whole-page work (vanilla toggle, reset) shows a content-area spinner with this label and
+  // gates input by replacing the tabs/buttons — null when idle.
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
 
   const refresh = async () => {
-    const found = await getGameStatus(appid);
-    if (found) setGame(found);
-    setLoaded(true);
+    // Always reach setLoaded(true), even if the status call rejects — otherwise the page hangs
+    // forever on the "Loading…" spinner instead of falling through to a usable state.
+    try {
+      const found = await getGameStatus(appid);
+      if (found) setGame(found);
+    } catch (e) {
+      console.error('[Moddy] getGameStatus failed', e);
+    } finally {
+      setLoaded(true);
+    }
   };
 
   // Background download queue: enqueued installs finish out-of-band, so this page watches the
@@ -295,28 +306,71 @@ const ModPage: FC = () => {
         gameName={game.name}
         onConfirm={async (closeModal) => {
           closeModal();
-          toaster.toast({ title: 'Moddy', body: `Resetting ${game.name}…` });
-          const result = await resetGame(game.appid);
-          if (result.ok || result.mods_removed > 0 || result.modloader_removed) {
-            removeModloaderLaunchOptions(game.appid, game.modloader_launch_options);
-            setUpdates([]);
-            setSelectionMode(false);
-            // The modloader is gone now; drop the session "ready" override and any
-            // stale tab selection so the UI falls back to the Mod Loader tab instead
-            // of leaving the mod-management tabs mounted with no loader behind them.
-            setModloaderReadyOverride(false);
-            setSelectedTab(null);
+          if (busyLabel) return;  // a vanilla toggle / reset is already running — don't double-fire
+          // Spinner replaces the page while resetting (can take several seconds — many uninstalls);
+          // single completion toast, no leading "Resetting…" toast queued ahead of it. The finally
+          // clears the spinner even if the reset or refresh throws (otherwise the page is stranded).
+          setBusyLabel(`Resetting ${game.name}…`);
+          let result: Awaited<ReturnType<typeof resetGame>> | null = null;
+          try {
+            result = await resetGame(game.appid);
+            if (result.ok || result.mods_removed > 0 || result.modloader_removed) {
+              removeModloaderLaunchOptions(game.appid, game.modloader_launch_options);
+              setUpdates([]);
+              setSelectionMode(false);
+              // The modloader is gone now; drop the session "ready" override and any
+              // stale tab selection so the UI falls back to the Mod Loader tab instead
+              // of leaving the mod-management tabs mounted with no loader behind them.
+              setModloaderReadyOverride(false);
+              setSelectedTab(null);
+            }
+            await refresh();
+          } catch (e) {
+            console.error('[Moddy] reset failed', e);
+          } finally {
+            setBusyLabel(null);
           }
-          await refresh();
           toaster.toast({
             title: 'Moddy',
-            body: result.ok
+            body: result?.ok
               ? `${game.name} reset to its original state`
               : 'Reset finished with some errors — check the log',
           });
         }}
       />
     );
+  };
+
+  // Toggle the whole game between modded and vanilla (play-unmodded). Reversible and
+  // non-destructive — nothing is deleted, so no confirm modal; a toast + refresh is enough.
+  const handleToggleVanilla = async (close: () => void) => {
+    close();
+    if (busyLabel) return;
+    const goVanilla = !game.vanilla;
+    // Spinner replaces the page for the duration; a single toast fires on completion (a second,
+    // queued toast would just sit ~5s behind a leading one, looking like the work hung). The
+    // finally is essential: if the op or refresh throws, the spinner must still clear, or the
+    // page is stranded on it (Decky keeps this component mounted).
+    setBusyLabel(goVanilla ? `Switching ${game.name} to vanilla…` : `Re-enabling mods for ${game.name}…`);
+    let res: Awaited<ReturnType<typeof applyVanillaMode>> | null = null;
+    try {
+      res = await applyVanillaMode(game, goVanilla);
+      if (res.ok) {
+        setUpdates([]);
+        setSelectionMode(false);
+      }
+      await refresh();
+    } catch (e) {
+      console.error('[Moddy] vanilla toggle failed', e);
+    } finally {
+      setBusyLabel(null);
+    }
+    toaster.toast({
+      title: 'Moddy',
+      body: res?.ok
+        ? (goVanilla ? `${game.name} is now unmodded — launch to play vanilla` : `Mods re-enabled for ${game.name}`)
+        : 'Finished with some errors — check the log',
+    });
   };
 
   // Opens the loader-management controls (formerly their own tab) in a modal stacked
@@ -370,6 +424,8 @@ const ModPage: FC = () => {
         modloaderName={game.modloader_name}
         onResetGame={handleResetGame}
         canResetGame={game.installed_mods.length > 0 || game.modloader_installed}
+        onToggleVanilla={(game.vanilla || game.installed_mods.length > 0 || game.modloader_installed) ? handleToggleVanilla : undefined}
+        isVanilla={game.vanilla}
       />
     );
   };
@@ -551,14 +607,32 @@ const ModPage: FC = () => {
           </DialogButton>
         </div>
       )}
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <Tabs
-          autoFocusContents
-          activeTab={activeTab}
-          onShowTab={(tab: string) => setSelectedTab(tab)}
-          tabs={tabs}
+      {/* A whole-page operation (vanilla toggle / reset) shows a spinner in place of the content,
+          which both signals progress and freezes input until it completes. Otherwise: while vanilla,
+          the tab area is replaced by a dedicated screen — this intercepts before the tab logic, which
+          would otherwise show the Mod Loader *setup* tab (disabling the loader flips it to "not
+          ready"). The Options menu's "Re-enable Mods" stays available too. */}
+      {busyLabel ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+          <Spinner style={{ width: 32, height: 32 }} />
+          <span style={{ color: 'var(--gpColorTextSecondary)' }}>{busyLabel}</span>
+        </div>
+      ) : game.vanilla ? (
+        <VanillaView
+          gameName={game.name}
+          modCount={game.installed_mods.length}
+          onReEnable={() => handleToggleVanilla(() => {})}
         />
-      </div>
+      ) : (
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <Tabs
+            autoFocusContents
+            activeTab={activeTab}
+            onShowTab={(tab: string) => setSelectedTab(tab)}
+            tabs={tabs}
+          />
+        </div>
+      )}
     </div>
   );
 };

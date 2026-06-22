@@ -12,8 +12,10 @@ const OptionsModal: FC<{
   modloaderName?: string;
   onResetGame?: (closeModal: () => void) => void;
   canResetGame?: boolean;
+  onToggleVanilla?: (closeModal: () => void) => void;
+  isVanilla?: boolean;
   closeModal?: () => void;
-}> = ({ onCheckUpdates, onSaveProfile, canSaveProfile, onToggleSelectionMode, selectionMode, onRefreshCatalog, onManageModloader, modloaderName, onResetGame, canResetGame, closeModal }) => {
+}> = ({ onCheckUpdates, onSaveProfile, canSaveProfile, onToggleSelectionMode, selectionMode, onRefreshCatalog, onManageModloader, modloaderName, onResetGame, canResetGame, onToggleVanilla, isVanilla, closeModal }) => {
   const close = closeModal ?? (() => {});
   return (
     <ModalRoot closeModal={closeModal}>
@@ -36,6 +38,18 @@ const OptionsModal: FC<{
         {!canSaveProfile && (
           <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em', marginLeft: '4px', marginBottom: '8px' }}>
             Install at least one mod to save a profile.
+          </div>
+        )}
+        {onToggleVanilla && (
+          <div style={{ marginBottom: '8px' }}>
+            <ButtonItem layout="below" onClick={() => onToggleVanilla(close)}>
+              {isVanilla ? 'Re-enable Mods' : 'Play Unmodded (Vanilla)…'}
+            </ButtonItem>
+            <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em', marginLeft: '4px' }}>
+              {isVanilla
+                ? 'Turn your mods and mod loader back on.'
+                : 'Temporarily turn off all mods without deleting them — e.g. to play with friends.'}
+            </div>
           </div>
         )}
         <div style={{ marginBottom: '8px' }}>
