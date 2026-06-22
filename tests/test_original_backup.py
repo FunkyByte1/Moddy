@@ -11,7 +11,10 @@ import os
 import tempfile
 import unittest
 
-from _harness import mods, make_mod, make_game, reset_store, tree_snapshot
+from _harness import mods, make_mod, make_game, reset_store, tree_snapshot, stub_download
+import modloaders
+import github
+import registry
 
 
 def run(coro):
@@ -147,6 +150,53 @@ class SingleFileOriginalBackupTest(unittest.TestCase):
         mods.utils.download = boom
         run(mods.install_mod(self.game, self.install_dir, self.mod, url="http://x"))
         self.assertEqual(tree_snapshot(self.install_dir), before, "a cancelled install must not touch the stock file")
+
+
+class ModloaderOriginalBackupTest(unittest.TestCase):
+    """A proxy loader whose version.dll overwrites a game's OWN stock version.dll: the original is
+    preserved as .moddy-orig and restored on uninstall — the general path that replaced the bespoke
+    version.dll.deckhand_bak handling."""
+
+    def setUp(self):
+        reset_store()
+        self.install_dir = tempfile.mkdtemp(prefix="moddy-game-")
+        self.ml = registry.ModloaderInfo(
+            id="melon", name="melon",
+            source=registry.ModSource(type="github", owner="o", repo="r", asset="a.zip"),
+            files=["version.dll"], dirs=["MelonLoader"],
+        )
+        self.game = registry.GameProfile(id="g", name="G", appid=1, mods_dir="Mods", modloaders=[self.ml])
+        self._real_download = mods.utils.download
+        self._real_url = github.get_download_url_for_version
+        github.get_download_url_for_version = lambda *a, **k: "http://x"
+
+    def tearDown(self):
+        mods.utils.download = self._real_download
+        github.get_download_url_for_version = self._real_url
+
+    def at(self, rel):
+        return os.path.join(self.install_dir, rel)
+
+    def _install(self):
+        mods.utils.download = stub_download(writes={"version.dll": b"LOADER", "MelonLoader/net6/x.dll": b"L"})
+        return run(modloaders._install_github_modloader(self.game, self.install_dir, self.ml, "1.0.0"))
+
+    def test_stock_version_dll_preserved_and_restored(self):
+        write(self.at("version.dll"), b"STOCK")  # the game shipped its own version.dll
+        self.assertTrue(self._install())
+        self.assertEqual(read(self.at("version.dll")), b"LOADER")
+        self.assertEqual(read(self.at("version.dll" + mods._MODDY_ORIG_SUFFIX)), b"STOCK")
+
+        run(modloaders.uninstall_modloader(self.game, self.install_dir, "melon"))
+        self.assertEqual(read(self.at("version.dll")), b"STOCK", "uninstall must restore the game's version.dll")
+        self.assertFalse(os.path.exists(self.at("version.dll" + mods._MODDY_ORIG_SUFFIX)))
+        self.assertFalse(os.path.exists(self.at("MelonLoader")))
+
+    def test_no_stock_file_means_no_backup(self):
+        self.assertTrue(self._install())  # nothing shipped at version.dll
+        self.assertFalse(os.path.exists(self.at("version.dll" + mods._MODDY_ORIG_SUFFIX)))
+        run(modloaders.uninstall_modloader(self.game, self.install_dir, "melon"))
+        self.assertFalse(os.path.exists(self.at("version.dll")))
 
 
 if __name__ == "__main__":

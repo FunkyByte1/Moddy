@@ -85,6 +85,21 @@ def clear_modloader_version(modloader_id: str) -> None:
         _save_version_store(store)
 
 
+def _loader_is_foreign(game: GameProfile, install_dir: str):
+    """Build the is_foreign predicate a loader install hands to _StagedInstall. A destination file
+    is 'foreign' (a stock game file — e.g. a game's own version.dll that a proxy loader overwrites)
+    when no installed mod and no modloader has recorded placing it; the transaction then preserves
+    it as *.moddy-orig instead of dropping it on commit, and uninstall restores it. This is the
+    general path that replaces the old bespoke version.dll.deckhand_bak backup. Provenance is read
+    from the store, so a loader's OWN files (recorded by its prior install) are not mistaken for
+    stock on upgrade — only a genuine stock file at a fresh slot is captured."""
+    claimed = set(mods._claimed_paths_map(install_dir, mods.resolve_mods_path(game, install_dir)))
+    for _mid, rec in (_load_version_store() or {}).items():
+        for p in (rec.get("paths") or []):
+            claimed.add(os.path.normpath(os.path.join(install_dir, p)))
+    return lambda p: os.path.normpath(p) not in claimed
+
+
 def is_modloader_installed(game: GameProfile, install_dir: str, modloader_id: str) -> bool:
     ml = game.get_modloader(modloader_id)
     if not ml:
@@ -221,10 +236,13 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
                 if os.path.isdir(path):
                     shutil.rmtree(path)
         _remove_uninstall_artifacts(install_dir, ml)
-        # Restore backed up version.dll if present
-        bak = os.path.join(install_dir, "version.dll.deckhand_bak")
-        if os.path.isfile(bak):
-            os.rename(bak, os.path.join(install_dir, "version.dll"))
+        # Restore any stock game file this loader overwrote at install (e.g. a game's own
+        # version.dll a proxy loader replaced), preserved as *.moddy-orig — the general path that
+        # replaces the old bespoke version.dll.deckhand_bak restore.
+        restore_candidates = [os.path.join(install_dir, p) for p in tracked_paths] + \
+                             [os.path.join(install_dir, f) for f in ml.files]
+        mods._restore_originals(install_dir, mods.resolve_mods_path(game, install_dir),
+                                restore_candidates, modloader_id)
         clear_modloader_version(modloader_id)
         decky.logger.info(f"Uninstalled {modloader_id}")
         return True
@@ -349,13 +367,16 @@ async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, m
         # than replacing whole dirs, so updating BepInEx overwrites only its own files and leaves a
         # user's BepInEx/plugins/ intact (the old rmtree+copytree wiped them). Any failure rolls the
         # game dir back to its prior state.
-        with _StagedInstall(install_dir) as txn:
+        placed: list[str] = []
+        with _StagedInstall(install_dir, is_foreign=_loader_is_foreign(game, install_dir)) as txn:
             for root, _dirs, files in os.walk(inner_path):
                 for fn in files:
                     full = os.path.join(root, fn)
-                    txn.place(full, os.path.relpath(full, inner_path))
+                    rel = os.path.relpath(full, inner_path)
+                    txn.place(full, rel)
+                    placed.append(rel)
 
-        set_modloader_version(ml.id, resolved_version)
+        set_modloader_version(ml.id, resolved_version, paths=sorted(placed))
         decky.logger.info(f"{ml.name} {resolved_version} installed successfully")
         return True
     except utils.InstallCancelledError:
@@ -440,7 +461,7 @@ async def _install_nexus_modloader(game: GameProfile, install_dir: str, ml: Modl
         # nothing to load → the generic "Stracker's loader error" popup. Every placed path is tracked
         # so uninstall removes exactly these (never the shared nativePC tree wholesale).
         placed: list[str] = []
-        with _StagedInstall(install_dir) as txn:
+        with _StagedInstall(install_dir, is_foreign=_loader_is_foreign(game, install_dir)) as txn:
             for root, _dirs, files in os.walk(inner_path):
                 for fn in files:
                     full = os.path.join(root, fn)
@@ -539,7 +560,7 @@ async def _install_smapi_modloader(game: GameProfile, install_dir: str, ml: Modl
         # Merge the whole payload into the game folder, tracking each placed file so uninstall removes
         # exactly SMAPI's footprint and leaves the user's other mods under Mods/ intact.
         placed: list[str] = []
-        with _StagedInstall(install_dir) as txn:
+        with _StagedInstall(install_dir, is_foreign=_loader_is_foreign(game, install_dir)) as txn:
             for root, _dirs, files in os.walk(tmp_payload):
                 for fn in files:
                     full = os.path.join(root, fn)
@@ -604,21 +625,26 @@ async def _install_github_modloader(game: GameProfile, install_dir: str, ml: Mod
 
         # Place the loader's files and dirs into the game dir in one transaction. Its dirs (e.g.
         # MelonLoader/) are loader-owned, so retire them first for a clean replacement (no stale
-        # files from an old version); a failure rolls the game dir back to its prior state. This
-        # replaces the old bespoke .deckhand_bak backup/rollback dance.
-        with _StagedInstall(install_dir) as txn:
+        # files from an old version); a failure rolls the game dir back to its prior state. A stock
+        # game file the loader's proxy (e.g. version.dll) overwrites is preserved as *.moddy-orig,
+        # replacing the old bespoke .deckhand_bak backup/rollback dance.
+        placed: list[str] = []
+        with _StagedInstall(install_dir, is_foreign=_loader_is_foreign(game, install_dir)) as txn:
             for d in ml.dirs:
                 txn.retire(d)
             for f in ml.files:
                 txn.place(os.path.join(tmp_dir, f), f)
+                placed.append(f)
             for d in ml.dirs:
                 dsrc = os.path.join(tmp_dir, d)
                 for root, _dirs, files in os.walk(dsrc):
                     for fn in files:
                         full = os.path.join(root, fn)
-                        txn.place(full, os.path.relpath(full, tmp_dir))
+                        rel = os.path.relpath(full, tmp_dir)
+                        txn.place(full, rel)
+                        placed.append(rel)
 
-        set_modloader_version(ml.id, resolved_version)
+        set_modloader_version(ml.id, resolved_version, paths=sorted(placed))
         decky.logger.info(f"{ml.name} {resolved_version} installed successfully")
         return True
 
