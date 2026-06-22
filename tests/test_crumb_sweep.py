@@ -97,6 +97,19 @@ class InstallCrumbSweepTest(unittest.TestCase):
         mods.sweep_install_crumbs(self.game, self.install_dir)
         self.assertFalse(self.exists("BepInEx/plugins/Folder.moddy-new"))
 
+    def test_moddy_orig_is_never_swept(self):
+        # The durable stock backup is NOT a transient crumb: it must survive the sweep whether or
+        # not its primary (the modded file) is present. If the sweep treated it like .moddy-bak it
+        # would delete it on every startup, since the modded file is normally there.
+        touch(os.path.join(self.install_dir, "dinput8.dll"), b"mod")          # primary present
+        touch(os.path.join(self.install_dir, "dinput8.dll.moddy-orig"), b"STOCK")
+        touch(os.path.join(self.install_dir, "lonely.dll.moddy-orig"), b"STOCK2")  # primary absent
+        mods.sweep_install_crumbs(self.game, self.install_dir)
+        self.assertTrue(self.exists("dinput8.dll.moddy-orig"))
+        self.assertTrue(self.exists("lonely.dll.moddy-orig"))
+        with open(os.path.join(self.install_dir, "dinput8.dll"), "rb") as f:
+            self.assertEqual(f.read(), b"mod")  # primary untouched too
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -721,7 +721,7 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
             f"Unknown install_type '{mod.source.install_type}' for {mod.name}; refusing to install"
         )
         return False
-    return await _install_mod_file(game, mods_path, mod, version, url)
+    return await _install_mod_file(game, install_dir, mods_path, mod, version, url)
 
 
 def set_workshop_meta(game: GameProfile, fileid: str, name: str, thumbnail: str, description: str) -> bool:
@@ -763,7 +763,64 @@ async def install_synthetic_workshop(game: GameProfile, mod_id: str, fileid: str
 # The atomic file-placement primitive lives in install_txn so the modloader installers can share
 # it without importing this (much larger) module. Re-exported here since the installers below and
 # the test suite reference them as mods._StagedInstall etc.
-from install_txn import _STAGED_BAK_SUFFIX, _discard, _StagedInstall  # noqa: E402,F401
+from install_txn import _MODDY_ORIG_SUFFIX, _STAGED_BAK_SUFFIX, _discard, _StagedInstall  # noqa: E402,F401
+
+
+def _claimed_paths_map(install_dir: str, mods_path: str, exclude_mod_id: str | None = None) -> dict:
+    """Map every install-dir-absolute path Moddy has placed (per installed.json) to the mod_id
+    that claims it. Lets us tell a stock game file (unclaimed) from a Moddy-placed one, and spot
+    mod-vs-mod overwrites. `exclude_mod_id` drops one record (the mod being installed/uninstalled)
+    so its own paths don't count — e.g. on uninstall, to decide whether any OTHER mod still owns a
+    slot before restoring the stock original."""
+    out: dict[str, str] = {}
+    for mod_id, record in (_load_store() or {}).items():
+        if mod_id == exclude_mod_id:
+            continue
+        paths = record.get("paths")
+        if paths:
+            for p in paths:
+                out[os.path.normpath(os.path.join(install_dir, p))] = mod_id
+        else:
+            fn = record.get("filename")
+            if fn:
+                out[os.path.normpath(os.path.join(mods_path, fn))] = mod_id
+    return out
+
+
+def _overwrite_guard(install_dir: str, mods_path: str, mod: ModInfo, dest_rels: list):
+    """Build the `is_foreign` predicate a staged install passes to _StagedInstall, and log any
+    mod-vs-mod overwrite among `dest_rels` (warn-and-proceed: the last install wins; the stock
+    original, captured the first time any mod overwrote it, stays recoverable). is_foreign(p) is
+    True when no installed record claims p — i.e. p is a stock game file or user-placed — so the
+    transaction preserves it as *.moddy-orig on commit instead of discarding it. The mod's own
+    prior paths ARE claimed (not foreign), so an upgrade's displaced old version is dropped as
+    before, leaving the .v<ver>.bak version history to handle rollback."""
+    claimed = _claimed_paths_map(install_dir, mods_path)
+    for rel in dest_rels:
+        owner = claimed.get(os.path.normpath(os.path.join(install_dir, rel)))
+        if owner and owner != mod.id:
+            decky.logger.warning(
+                f"{mod.name}: overwrites {rel} already provided by '{owner}' — last install wins")
+    claimed_keys = set(claimed)
+    return lambda p: os.path.normpath(p) not in claimed_keys
+
+
+def _restore_originals(install_dir: str, mods_path: str, abs_paths: list, exclude_mod_id: str) -> None:
+    """On uninstall, move any durable *.moddy-orig stock backup back into place — but only for a
+    path no OTHER installed mod still claims (last-claim restore). A path still owned by another
+    mod keeps that mod's content; its stock original stays parked until the last owner goes."""
+    others = set(_claimed_paths_map(install_dir, mods_path, exclude_mod_id=exclude_mod_id))
+    for p in abs_paths:
+        durable = p + _MODDY_ORIG_SUFFIX
+        if not os.path.lexists(durable) or os.path.normpath(p) in others:
+            continue
+        try:
+            if os.path.lexists(p):
+                _discard(p)
+            os.replace(durable, p)
+            decky.logger.info(f"Restored original {os.path.relpath(p, install_dir)}")
+        except OSError as e:
+            decky.logger.warning(f"Could not restore original {p}: {e}")
 
 
 def _backup_version_dir(dst_dir: str, mod_id: str) -> None:
@@ -804,8 +861,10 @@ def _atomic_dir_swap(dst_dir: str, staged_dir: str) -> None:
         _discard(aside)
 
 
-async def _install_mod_file(game: GameProfile, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
-    """Install a single-file mod (DLL), backing up the previous version."""
+async def _install_mod_file(game: GameProfile, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
+    """Install a single-file mod (DLL), backing up the previous version. When mods_path is the
+    game root (mods_dir=""), the destination filename can collide with a stock game file; that
+    original is preserved durably as *.moddy-orig so uninstall/disable can restore vanilla."""
     dst = os.path.join(mods_path, mod.filename)
     tmp = dst + ".tmp"
     backed_up = None
@@ -814,12 +873,24 @@ async def _install_mod_file(game: GameProfile, mods_path: str, mod: ModInfo, ver
         await utils.download(url, tmp, game.appid)
 
         if os.path.isfile(dst):
+            claimed = _claimed_paths_map(install_dir, mods_path)
+            owner = claimed.get(os.path.normpath(dst))
+            if owner and owner != mod.id:
+                decky.logger.warning(
+                    f"{mod.name}: overwrites {mod.filename} already provided by '{owner}' — last install wins")
             old_version = get_installed_version(mod.id)
+            durable = dst + _MODDY_ORIG_SUFFIX
             if old_version and old_version != "latest":
                 bak = os.path.join(mods_path, f"{mod.filename}.v{old_version}.bak")
                 os.rename(dst, bak)
                 backed_up = bak
                 decky.logger.info(f"Backed up {mod.filename} as {os.path.basename(bak)}")
+            elif owner is None and not os.path.lexists(durable):
+                # A file Moddy never placed — a stock game file. Preserve it instead of deleting,
+                # so uninstall can put vanilla back. First capture wins (guarded by lexists).
+                os.rename(dst, durable)
+                backed_up = durable
+                decky.logger.info(f"Preserved original {mod.filename} as {os.path.basename(durable)}")
             else:
                 os.remove(dst)
 
@@ -1126,7 +1197,8 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
 
         # Commit: retire the previous install and place the new files all-or-nothing. retire runs
         # before place so a new file never displaces one this same transaction just wrote.
-        with _StagedInstall(install_dir) as txn:
+        is_foreign = _overwrite_guard(install_dir, mods_path, mod, [r for _s, r in placements])
+        with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
             for p in old_paths:
                 txn.retire(p)
             for staged_abs, install_rel in placements:
@@ -1199,7 +1271,8 @@ def _smapi_commit(install_dir: str, mods_path: str, extract_root: str, staging: 
 
     # Commit: retire the previous install (both the active and `.`-disabled form of each tracked
     # folder), then place the new payload all-or-nothing.
-    with _StagedInstall(install_dir) as txn:
+    is_foreign = _overwrite_guard(install_dir, mods_path, mod, [r for _s, r in placements])
+    with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
         for p in old_paths:
             txn.retire(p)
             txn.retire(_dotprefix_disabled(p))
@@ -1637,7 +1710,12 @@ async def _install_mod_loose_merge(
         # old pak (renamed to *.moddy-bak) drops out of the slot scan, so an upgrade reclaims its slot
         # instead of stacking a new number on top.
         paths: list[str] = []
-        with _StagedInstall(install_dir) as txn:
+        # .pak content lands in fresh numbered slots (never an overwrite); only the loose natives/
+        # files can collide, so the conflict scan covers those. Stock files (unclaimed) the merge
+        # displaces are preserved as *.moddy-orig on commit.
+        is_foreign = _overwrite_guard(install_dir, resolve_mods_path(game, install_dir), mod,
+                                      [r for _f, r in natives_placements])
+        with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
             for p in old_paths:
                 txn.retire(p)
             for full, rel in natives_placements:
@@ -1788,6 +1866,9 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
             if os.path.isdir(legacy):
                 shutil.rmtree(legacy)
                 decky.logger.info(f"Removed legacy {filename}/")
+            # Restore any stock game file this mod overwrote at install, for slots no other mod
+            # still claims. Done before the prune so the restored file keeps its parent dir.
+            _restore_originals(install_dir, mods_path, [os.path.join(install_dir, p) for p in paths], mod_id)
             # Per-file records (BepInEx merge / RE4 natives) leave empty dirs behind — prune
             # them, but only when empty so a shared folder another mod uses survives.
             _prune_empty_dirs(install_dir, paths)
@@ -1821,6 +1902,8 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
                 if f.startswith(prefix) and f.endswith(suffix):
                     os.remove(os.path.join(mods_path, f))
                     decky.logger.info(f"Removed backup {f}")
+            # Restore a stock game file this single-file mod overwrote (mods_dir = game root).
+            _restore_originals(install_dir, mods_path, [os.path.join(mods_path, filename)], mod_id)
         clear_installed_record(mod_id)
         return True
     except Exception as e:
@@ -2000,17 +2083,33 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
             decky.logger.error(f"Failed to toggle {mod_id}: {e}")
             return False
 
+    # Single-file mod (install_type "file"/""). Toggle parks the mod between <name> and <name>.bak.
+    # If the mod overwrote a stock game file (mods_dir = game root), a durable *.moddy-orig holds
+    # the original: disabling must put that original back in the slot the mod vacates, and enabling
+    # must re-stash it — otherwise "disabled" leaves a hole instead of vanilla.
+    live = os.path.join(mods_path, filename)
+    parked = live + ".bak"
+    durable = live + _MODDY_ORIG_SUFFIX
     try:
         if enable:
-            src = os.path.join(mods_path, filename + ".bak")
-            dst = os.path.join(mods_path, filename)
+            if not os.path.exists(parked):
+                decky.logger.error(f"Source file not found: {parked}")
+                return False
+            if os.path.exists(live):
+                # The slot holds the stock file we restored on disable — re-stash it (first
+                # capture wins: keep an existing .moddy-orig and just drop the live copy).
+                if not os.path.lexists(durable):
+                    os.replace(live, durable)
+                else:
+                    _discard(live)
+            os.rename(parked, live)
         else:
-            src = os.path.join(mods_path, filename)
-            dst = os.path.join(mods_path, filename + ".bak")
-        if not os.path.exists(src):
-            decky.logger.error(f"Source file not found: {src}")
-            return False
-        os.rename(src, dst)
+            if not os.path.exists(live):
+                decky.logger.error(f"Source file not found: {live}")
+                return False
+            os.rename(live, parked)
+            if os.path.lexists(durable):
+                os.replace(durable, live)  # stock back into the vacated slot
         decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename}")
         return True
     except Exception as e:

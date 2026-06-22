@@ -15,6 +15,15 @@ import decky
 # `*.moddy-bak` next to its live original is always disposable.
 _STAGED_BAK_SUFFIX = ".moddy-bak"
 
+# Suffix for the DURABLE backup of an original (stock) game file a mod overwrote. Unlike a
+# transient .moddy-bak — which is dropped on commit — a .moddy-orig is kept across the install
+# so uninstall/disable can restore the unmodded file. It is created only for displaced files
+# Moddy did not place (is_foreign), and only when one doesn't already exist (first capture wins,
+# so a second mod overwriting the same path can't clobber the true original). The startup sweep
+# deliberately never touches it: its primary (the modded file) is normally present, which would
+# make a sweep of crumb suffixes discard it.
+_MODDY_ORIG_SUFFIX = ".moddy-orig"
+
 
 def _discard(path: str) -> None:
     """Remove a file or a whole directory tree, best-effort (used to drop set-aside backups)."""
@@ -52,8 +61,14 @@ class _StagedInstall:
         set_installed_record(...)   # reached only if the commit succeeded
     """
 
-    def __init__(self, install_dir: str):
+    def __init__(self, install_dir: str, is_foreign=None):
         self.install_dir = install_dir
+        # Optional predicate is_foreign(abs_path) -> bool: True when the file already at a
+        # destination was NOT placed by Moddy (a stock game file or user-placed one). Such a
+        # displaced original is preserved durably as *.moddy-orig on commit instead of dropped,
+        # so the unmodded file can be restored later. Default None = treat everything as ours
+        # (drop displaced backups on commit), i.e. the prior behaviour, no regression.
+        self._is_foreign = is_foreign
         self._created: list[str] = []                 # abs paths of files we newly wrote
         self._displaced: list[tuple[str, str]] = []   # (abs original, abs backup) moved aside
         self._displaced_origins: set[str] = set()      # fast membership for the above
@@ -117,8 +132,20 @@ class _StagedInstall:
         return False  # never suppress the exception
 
     def _commit(self) -> None:
-        for _orig, bak in self._displaced:
-            _discard(bak)  # drop the set-aside original (file or retired directory)
+        for orig, bak in self._displaced:
+            # Preserve a stock game file we displaced so uninstall/disable can restore vanilla,
+            # rather than dropping it. Only for files Moddy didn't place, and only if no durable
+            # backup exists yet (first capture wins — a later mod overwriting the same path must
+            # not overwrite the true original with another mod's content).
+            if self._is_foreign is not None and self._is_foreign(orig):
+                durable = orig + _MODDY_ORIG_SUFFIX
+                if not os.path.lexists(durable):
+                    try:
+                        os.replace(bak, durable)
+                        continue
+                    except OSError as e:
+                        decky.logger.warning(f"staged-install: could not preserve original {orig}: {e}")
+            _discard(bak)  # ours (or already captured) — the set-aside original is disposable
 
     def _rollback(self) -> None:
         # 1. Remove the files we created (newest first).
