@@ -439,8 +439,9 @@ const InstalledTab: FC<{
           </div>
         )}
         {modEntries.length === 0 ? (
-          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', padding: '8px' }}>
-            {allEntries.length === 0 ? 'No mods installed' : 'No mods match the current filter'}
+          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', padding: '24px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', textAlign: 'center' }}>
+            <span style={{ fontSize: '2.6em', opacity: 0.55, lineHeight: 1 }}>∅</span>
+            <span>{allEntries.length === 0 ? 'No mods installed' : 'No mods match the current filter'}</span>
           </div>
         ) : modEntries.map((entry, i) => (
           <ModListItem key={entry.id} index={i} entry={entry} selected={i === selectedIndex}

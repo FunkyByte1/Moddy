@@ -183,12 +183,14 @@ const BrowsePagedTab: FC<{
               <div style={{ fontSize: 12 }}>Loading catalog…</div>
             </div>
           ) : items.length === 0 ? (
-            <div style={{ padding: 16, color: 'var(--gpColorTextSecondary)' }}>
-              {debounced ? 'No matches.' : adapter.emptyText}
+            <div style={{ padding: 24, color: 'var(--gpColorTextSecondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, textAlign: 'center' }}>
+              <span style={{ fontSize: '2.6em', opacity: 0.55, lineHeight: 1 }}>∅</span>
+              <span>{debounced ? 'No matches.' : adapter.emptyText}</span>
             </div>
           ) : visible.length === 0 ? (
-            <div style={{ padding: 16, color: 'var(--gpColorTextSecondary)' }}>
-              No mods match the filter.
+            <div style={{ padding: 24, color: 'var(--gpColorTextSecondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, textAlign: 'center' }}>
+              <span style={{ fontSize: '2.6em', opacity: 0.55, lineHeight: 1 }}>∅</span>
+              <span>No mods match the filter.</span>
             </div>
           ) : (
             <>

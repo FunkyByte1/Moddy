@@ -156,8 +156,9 @@ const ProfilesTab: FC<{
         onMenuActionDescription="Options"
       >
         {profiles.length === 0 ? (
-          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', padding: '8px' }}>
-            No profiles saved yet. Use Options → Save Current Mods as Profile to create one.
+          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', padding: '24px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', textAlign: 'center' }}>
+            <span style={{ fontSize: '2.6em', opacity: 0.55, lineHeight: 1 }}>∅</span>
+            <span>No profiles saved yet. Use Options → Save Current Mods as Profile to create one.</span>
           </div>
         ) : profiles.map((p, i) => {
           const enabledCount = p.mods.filter(m => m.enabled).length;

@@ -204,7 +204,12 @@ const ModPage: FC = () => {
         </div>
       );
     }
-    return <div style={{ padding: '16px' }}>Game not supported or not installed.</div>;
+    return (
+      <div style={{ padding: '24px', color: 'var(--gpColorTextSecondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px', textAlign: 'center', height: '100%' }}>
+        <span style={{ fontSize: '2.8em', opacity: 0.55, lineHeight: 1 }}>⊘</span>
+        <span>Game not supported or not installed.</span>
+      </div>
+    );
   }
 
   const handleCancelInstall = async () => {

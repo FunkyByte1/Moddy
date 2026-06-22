@@ -505,8 +505,9 @@ const BrowseTab: FC<Props> = ({ game, onRefresh, filter, onFilterButton, onCateg
     );
   } else if (filtered.length === 0) {
     listSlot = (
-      <div style={{ padding: 16, color: 'var(--gpColorTextSecondary)' }}>
-        No mods match.
+      <div style={{ padding: 24, color: 'var(--gpColorTextSecondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, textAlign: 'center' }}>
+        <span style={{ fontSize: '2.6em', opacity: 0.55, lineHeight: 1 }}>∅</span>
+        <span>No mods match.</span>
       </div>
     );
   } else {
