@@ -36,6 +36,7 @@ const workshopInstalledIds = (game: GameStatus): Set<string> =>
 export const workshopAdapter: PagedVenueAdapter = {
   id: 'workshop',
   searchLabel: 'Search Workshop',
+  catalogName: 'Workshop',
   sourceLabel: 'workshop',
   installModel: 'inline',
   hasFilter: false,

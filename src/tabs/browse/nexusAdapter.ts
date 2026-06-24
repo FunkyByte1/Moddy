@@ -27,14 +27,15 @@ export function nexusDetail(p: ThunderstorePackage): BrowseDetail {
 export const nexusAdapter: PagedVenueAdapter = {
   id: 'nexus',
   searchLabel: 'Search Nexus',
+  catalogName: 'Nexus',
   sourceLabel: 'nexus',
   installModel: 'queue',
   hasFilter: true,
   emptyText: 'Catalog unavailable — set your Nexus API key in the Moddy panel and check your network.',
 
-  async fetchPage(game, query, page, nsfw, sort) {
+  async fetchPage(game, query, page, filter) {
     // Adult content and sort order are both server-side, so they're part of the query.
-    const data = await getNexusCatalog(game.appid, query, page, nsfw, sort || 'popularity');
+    const data = await getNexusCatalog(game.appid, query, page, filter?.showNsfw ?? false, filter?.sortBy || 'popularity');
     return data.map(nexusItem);
   },
   installedIds(game) {

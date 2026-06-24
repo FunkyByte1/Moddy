@@ -7,7 +7,7 @@ import { useQueueFooterProps } from '../../components/DownloadQueueModal';
 import { CatalogSourceLabel } from '../../components/CatalogSource';
 import { centerInView } from '../../components/centerInView';
 import { useGamepadListFocus } from '../../components/useGamepadListFocus';
-import { BrowseItem, PagedVenueAdapter } from './types';
+import { BrowseItem, InstallContext, PagedVenueAdapter } from './types';
 import { BrowsePagedFilter, pagedVisible } from './pagedFilter';
 import { useBrowseInstall } from './useBrowseInstall';
 import { useBrowseUninstall } from './useBrowseUninstall';
@@ -53,12 +53,15 @@ const BrowsePagedTab: FC<{
   adapter: PagedVenueAdapter;
   game: GameStatus;
   onRefresh: () => Promise<void>;
-  filter?: BrowsePagedFilter;   // venues with hasFilter (Nexus)
+  filter?: BrowsePagedFilter;   // venues with hasFilter (Nexus, and Thunderstore in Phase 2)
   onFilterButton?: () => void;
+  onCategories?: (categories: string[]) => void; // Thunderstore bubbles its catalog categories to the filter modal
+  refreshKey?: number;          // bumped by "Refresh Catalog"; busts a client-paged venue's cache (Phase 2)
   ready?: boolean;              // default true; Nexus gates the first fetch on the NSFW seed
-}> = ({ adapter, game, onRefresh, filter, onFilterButton, ready = true }) => {
-  const nsfw = filter?.showNsfw ?? false;
-  const sort = filter?.sortBy ?? '';
+}> = ({ adapter, game, onRefresh, filter, onFilterButton, onCategories, refreshKey, ready = true }) => {
+  // Inputs that trigger a reset+refetch. Default keys on the server-side inputs (Nexus showNsfw/sort);
+  // a client-paged venue (Thunderstore) overrides via adapter.fetchKey to re-slice on any filter change.
+  const fetchKey = adapter.fetchKey?.(filter) ?? `${filter?.showNsfw ?? false}|${filter?.sortBy ?? ''}`;
 
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -90,25 +93,30 @@ const BrowsePagedTab: FC<{
     (async () => {
       setLoading(true); setSelectedIndex(0);
       try {
-        const data = await adapter.fetchPage(game, debounced, 1, nsfw, sort);
-        if (!cancelled) { setItems(data); setPage(1); setHasMore(data.length >= PAGE_FULL); }
+        const data = await adapter.fetchPage(game, debounced, 1, filter, refreshKey);
+        if (!cancelled) {
+          setItems(data); setPage(1); setHasMore(data.length >= PAGE_FULL);
+          // A client-paged venue (Thunderstore) surfaces its catalog categories to the filter modal
+          // once the catalog is loaded. Nexus/Workshop omit categories(), so this is a no-op.
+          if (adapter.categories && onCategories) onCategories(adapter.categories(game));
+        }
       } catch {
         if (!cancelled) {
-          toaster.toast({ title: 'Moddy', body: `Failed to load ${adapter.id === 'nexus' ? 'Nexus' : 'Workshop'} catalog` });
+          toaster.toast({ title: 'Moddy', body: `Failed to load ${adapter.catalogName} catalog` });
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [adapter, game, debounced, nsfw, sort, ready]);
+  }, [adapter, game, debounced, fetchKey, refreshKey, ready]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
       const next = page + 1;
-      const data = await adapter.fetchPage(game, debounced, next, nsfw, sort);
+      const data = await adapter.fetchPage(game, debounced, next, filter, refreshKey);
       const have = new Set(items.map(i => i.key));
       setItems(prev => [...prev, ...data.filter(i => !have.has(i.key))]);
       setPage(next);
@@ -144,9 +152,10 @@ const BrowsePagedTab: FC<{
 
   const selected = visible[Math.min(selectedIndex, visible.length - 1)] ?? null;
 
-  const { setInstalling, isBusy, addPending, removePending } = useBrowseInstall(adapter.installModel);
-  const handleInstall = (it: BrowseItem) =>
-    adapter.install(it, { game, onRefresh, setInstalling, addPending, removePending });
+  const { setInstalling, isBusy, addPending, removePending, pending, queuedRefs } = useBrowseInstall(adapter.installModel);
+  const buildCtx = (): InstallContext =>
+    ({ game, onRefresh, setInstalling, addPending, removePending, pending, queuedRefs });
+  const handleInstall = (it: BrowseItem) => adapter.install(it, buildCtx());
   const uninstall = useBrowseUninstall(game, onRefresh, setInstalling);
   const handleUninstall = (it: BrowseItem) => {
     const uid = adapter.uninstallId(game, it);
@@ -232,6 +241,9 @@ const BrowsePagedTab: FC<{
                 {detail.tags.length > 0 && (
                   <div style={{ fontSize: 11, color: 'var(--gpColorTextSecondary)', marginTop: 2 }}>{detail.tags.join(' · ')}</div>
                 )}
+                {detail.deprecated && (
+                  <div style={{ fontSize: 11, color: '#f8a623', marginTop: 4 }}>⚠ Deprecated</div>
+                )}
               </div>
             </div>
             <PanelSection>
@@ -246,6 +258,15 @@ const BrowsePagedTab: FC<{
                     : isInstalled(selected) ? 'Uninstall' : 'Install'}
                 </ButtonItem>
               </PanelSectionRow>
+              {/* Venue-supplied secondary actions for the selected item (e.g. Thunderstore's
+                  "Install with options…" when there are resolvable missing deps). [] for Nexus/Workshop. */}
+              {adapter.secondaryActions?.(selected, isInstalled(selected), buildCtx()).map(action => (
+                <PanelSectionRow key={action.label}>
+                  <ButtonItem layout="below" disabled={isBusy(selected.key)} onClick={() => action.run()}>
+                    {action.label}
+                  </ButtonItem>
+                </PanelSectionRow>
+              ))}
               {adapter.installNotice && !isInstalled(selected) && (
                 <PanelSectionRow>
                   <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em' }}>
