@@ -1,0 +1,10 @@
+{
+  "id": "valheim",
+  "name": "Valheim",
+  "appid": 892970,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "valheim",
+  "requires_proton": true,
+  "modloader_ids": ["bepinex-valheim"]
+}

@@ -804,6 +804,7 @@ class Plugin:
         "riskofthunder-bepinexpack",
         "bepinex-bepinexpack_peak",  # PEAK modloader — installed via the Mod Loader tab, not as a plugin
         "bepinex-bepinexpack_etg",  # Enter the Gungeon modloader — installed via the Mod Loader tab, not as a plugin
+        "denikson-bepinexpack_valheim",  # Valheim modloader — installed via the Mod Loader tab; mods declare it as a dep
         "ebkr-r2modman",
         "kesomannen-galemodmanager",
         "thunderstore-lovely",  # Balatro injector — installed via the Mod Loader tab, not as a Mods/ plugin

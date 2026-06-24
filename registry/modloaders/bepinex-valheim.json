@@ -1,0 +1,17 @@
+{
+  "id": "bepinex-valheim",
+  "name": "BepInEx (Valheim)",
+  "files": ["winhttp.dll", "doorstop_config.ini", ".doorstop_version"],
+  "dirs": ["BepInEx"],
+  "indicator": "BepInEx",
+  "ready_indicator": null,
+  "launch_options": "WINEDLLOVERRIDES=\"winhttp=n,b\" %command%",
+  "source": {
+    "type": "thunderstore",
+    "owner": "denikson",
+    "repo": "BepInExPack_Valheim",
+    "install_type": "zip_into_game"
+  },
+  "uninstall_files": ["start_game_bepinex.sh"],
+  "uninstall_dirs": ["doorstop_libs"]
+}
