@@ -159,11 +159,12 @@ const BrowsePagedTab: FC<{
   const uninstall = useBrowseUninstall(game, onRefresh, setInstalling);
   const handleUninstall = (it: BrowseItem) => {
     const uid = adapter.uninstallId(game, it);
-    uninstall({
-      uninstallId: uid, title: it.title, busyKey: it.key,
-      // Nexus/Workshop record deps as the full install id — match it directly.
-      dependents: game.installed_mods.filter(m => (m.meta?.dependencies ?? []).includes(uid)),
-    });
+    // Nexus/Workshop record deps as the full install id — match it directly. Thunderstore records
+    // version-suffixed full_names, so it supplies its own dependents() that version-strips.
+    const dependents = adapter.dependents
+      ? adapter.dependents(game, it)
+      : game.installed_mods.filter(m => (m.meta?.dependencies ?? []).includes(uid));
+    uninstall({ uninstallId: uid, title: it.title, busyKey: it.key, dependents });
   };
 
   const detail = selected ? adapter.detail(selected) : null;

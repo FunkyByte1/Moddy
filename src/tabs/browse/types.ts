@@ -1,4 +1,4 @@
-import { GameStatus } from '../../types';
+import { GameStatus, InstalledMod } from '../../types';
 import type { BrowsePagedFilter } from './pagedFilter';
 
 // Normalized list item every paged venue (Nexus, Workshop — and, after Phase 2, Thunderstore/BMI)
@@ -79,6 +79,11 @@ export interface PagedVenueAdapter {
   detail(item: BrowseItem): BrowseDetail;
   uninstallId(game: GameStatus, item: BrowseItem): string; // recorded id used for uninstall + dependents
   install(item: BrowseItem, ctx: InstallContext): void;
+
+  // Installed mods that declare this item as a dependency — surfaced as a warning before uninstall.
+  // Omitted → the component matches the recorded dependency id exactly (Nexus/Workshop). Thunderstore
+  // overrides because its recorded deps are version-suffixed full_names, which an exact match misses.
+  dependents?(game: GameStatus, item: BrowseItem): InstalledMod[];
 
   // Secondary actions for the selected item in its current install state (e.g. Thunderstore's
   // "Install with options…" when there are resolvable missing deps). Empty / omitted → none. Gets the
