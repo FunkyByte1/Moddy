@@ -6,7 +6,7 @@ import { stripVersion } from './modGraph';
  * their FULL transitive dependency tree — with Thunderstore version suffixes stripped and ids
  * lowercased. Cycle-guarded by the result set; a Map keeps the recursive lookups O(1).
  *
- * BrowseTab feeds this the in-flight installs (active queue jobs + just-clicked refs) to know which
+ * The Thunderstore catalog adapter feeds this the in-flight installs (active queue jobs + just-clicked refs) to know which
  * dependency ids are already being installed, so it doesn't re-prompt for them. The walk must be
  * transitive because the backend install cascade is: a dependency an in-flight mod pulls in
  * *transitively* (but a second mod declares directly) is still covered.

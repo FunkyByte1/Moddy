@@ -10,10 +10,10 @@ import { GameStatus, ModUpdate, getGameStatus, checkModUpdates, saveProfile, get
 import InstalledTab from './tabs/InstalledTab';
 import ModLoaderTab from './tabs/ModLoaderTab';
 import ProfilesTab from './tabs/ProfilesTab';
-import BrowseTab from './tabs/BrowseTab';
 import BrowsePagedTab from './tabs/browse/BrowsePagedTab';
 import { nexusAdapter } from './tabs/browse/nexusAdapter';
 import { workshopAdapter } from './tabs/browse/workshopAdapter';
+import { thunderstoreAdapter, bmiAdapter } from './tabs/browse/catalogAdapter';
 import OptionsModal from './components/modals/OptionsModal';
 import VanillaView from './components/VanillaView';
 import ModLoaderModal from './components/modals/ModLoaderModal';
@@ -490,17 +490,19 @@ const ModPage: FC = () => {
         onSecondaryActionDescription: 'Filter',
       },
     },
-    // Bulk-catalog Browse (Thunderstore/BMI): whole catalog filtered client-side.
+    // Thunderstore/BMI Browse: the whole catalog, client-paged through the shared paged tab (its
+    // adapter caches + filters + slices the catalog; the list is not virtualized).
     ...(game.catalog_type && game.catalog_type !== 'nexus' ? [{
       id: 'browse',
       title: 'Browse',
       content: (
-        <BrowseTab
+        <BrowsePagedTab
+          adapter={game.catalog_type === 'bmi' ? bmiAdapter : thunderstoreAdapter}
           game={game}
           onRefresh={refresh}
           filter={browseFilter}
           onFilterButton={handleBrowseFilterMenu}
-          onCategoriesChange={setBrowseCategories}
+          onCategories={setBrowseCategories}
           refreshKey={catalogRefreshKey}
         />
       ),
