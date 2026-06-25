@@ -1,0 +1,9 @@
+{
+  "id": "left-4-dead-2",
+  "name": "Left 4 Dead 2",
+  "appid": 550,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": ["steamworkshop"],
+  "library_workshop_ids": []
+}
