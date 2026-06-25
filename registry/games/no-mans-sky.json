@@ -1,0 +1,13 @@
+{
+  "id": "no-mans-sky",
+  "name": "No Man's Sky",
+  "appid": 275850,
+  "mods_dir": "GAMEDATA/MODS",
+  "mods_dir_type": "game",
+  "modloader_ids": ["nms-setup"],
+  "catalog": {
+    "type": "nexus",
+    "nexus_domain": "nomanssky",
+    "install_type": "zip_folder"
+  }
+}

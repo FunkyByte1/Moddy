@@ -1,0 +1,7 @@
+{
+  "id": "nms-setup",
+  "name": "No Man's Sky Mod Support",
+  "source": { "type": "setup" },
+  "indicator": "GAMEDATA/PCBANKS/DISABLEMODS.TXT.moddy-orig",
+  "setup": { "remove_files": ["GAMEDATA/PCBANKS/DISABLEMODS.TXT"] }
+}

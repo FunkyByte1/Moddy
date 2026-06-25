@@ -42,10 +42,10 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 - Monster Hunter World *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 - Monster Hunter Rise *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
+- No Man's Sky *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 - Slime Rancher 2 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 
 ### Planned:
-- No Man's Sky
 - Satisfactory
 - Vampire Survivors
 - and more :)

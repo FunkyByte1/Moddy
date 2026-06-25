@@ -106,6 +106,13 @@ def is_modloader_installed(game: GameProfile, install_dir: str, modloader_id: st
         return False
     if ml.native:
         return True  # platform-provided (e.g. Steam Workshop) — nothing to install
+    if ml.source.type == "setup":
+        # A setup loader places no files; "installed" = its version-store entry, while
+        # is_modloader_enabled tracks the live sentinel (indicator). Otherwise DISABLING it (which
+        # removes the sentinel, and a setup loader has no <indicator>.disabled form) would read as
+        # "not installed" — the Mod Loader tab would drop the toggle and offer to re-install, and
+        # Reset Game would skip uninstalling it (main.py gates uninstall on is_modloader_installed).
+        return get_modloader_version(modloader_id) is not None
     if not ml.indicator:
         return False
     return (
@@ -143,6 +150,7 @@ async def enable_modloader(game: GameProfile, install_dir: str, modloader_id: st
     if ml.native:
         return True
     try:
+        _apply_setup_removes(install_dir, ml)   # re-park setup files (e.g. NMS DISABLEMODS.TXT) on re-enable / leaving vanilla; no-op without a `setup` block
         for f in ml.files:
             src = os.path.join(install_dir, f + ".disabled")
             if os.path.isfile(src):
@@ -165,6 +173,7 @@ async def disable_modloader(game: GameProfile, install_dir: str, modloader_id: s
     if ml.native:
         return True
     try:
+        _restore_setup_removes(install_dir, ml)   # restore setup files (e.g. NMS DISABLEMODS.TXT) so mods stop loading on disable / entering vanilla; no-op without a `setup` block
         for f in ml.files:
             src = os.path.join(install_dir, f)
             if os.path.isfile(src):
@@ -236,6 +245,7 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
                 if os.path.isdir(path):
                     shutil.rmtree(path)
         _remove_uninstall_artifacts(install_dir, ml)
+        _restore_setup_removes(install_dir, ml)  # bring back a setup loader's parked file (e.g. NMS DISABLEMODS.TXT); the placed-paths/_restore_originals path can't, since it parks files it never "placed". No-op without a `setup` block
         # Restore any stock game file this loader overwrote at install (e.g. a game's own
         # version.dll a proxy loader replaced), preserved as *.moddy-orig — the general path that
         # replaces the old bespoke version.dll.deckhand_bak restore.
@@ -270,6 +280,8 @@ async def install_modloader(game: GameProfile, install_dir: str, modloader_id: s
         ok = await _install_thunderstore_modloader(game, install_dir, ml, version)
     elif ml.source.type == "nexus":
         ok = await _install_nexus_modloader(game, install_dir, ml, version)
+    elif ml.source.type == "setup":
+        ok = await _install_setup_modloader(game, install_dir, ml, version)
     else:
         decky.logger.error(f"Unsupported modloader source type: {ml.source.type}")
         return False
@@ -324,6 +336,70 @@ def _apply_config_files(install_dir: str, ml: ModloaderInfo) -> None:
             decky.logger.info(f"Applied config file {rel_path} for {ml.id}")
         except Exception as e:
             decky.logger.error(f"Failed to write config file {rel_path} for {ml.id}: {e}")
+
+
+def _setup_remove_files(ml: ModloaderInfo) -> list[str]:
+    """Game-dir-relative stock files a source.type=="setup" loader parks aside to enable mods.
+    Empty for every other loader, so the apply/restore calls below are no-ops elsewhere."""
+    return list((ml.setup or {}).get("remove_files", []) or [])
+
+
+def _apply_setup_removes(install_dir: str, ml: ModloaderInfo) -> None:
+    """ENABLE mods: park each declared stock file aside to <f>.moddy-orig (which doubles as the
+    loader's 'set up' indicator) and remove it from its live path — e.g. No Man's Sky only loads
+    GAMEDATA/MODS/ mods when GAMEDATA/PCBANKS/DISABLEMODS.TXT is absent. First-capture-wins: an
+    existing backup is never overwritten (so re-enabling after vanilla can't clobber the genuine
+    original). If the live file is absent, an empty sentinel is still written so the indicator
+    reliably reports 'set up'. No-op for loaders without a `setup` block."""
+    for rel in _setup_remove_files(ml):
+        live = os.path.join(install_dir, rel)
+        durable = live + mods._MODDY_ORIG_SUFFIX
+        os.makedirs(os.path.dirname(durable) or ".", exist_ok=True)
+        if os.path.lexists(durable):
+            # Genuine original already captured; just clear the live file if it reappeared
+            # (e.g. a game update regenerated DISABLEMODS.TXT).
+            if os.path.isfile(live):
+                os.remove(live)
+        elif os.path.isfile(live):
+            os.replace(live, durable)        # back up + remove in one atomic move
+        else:
+            open(durable, "w").close()       # no live file: empty sentinel still marks 'set up'
+
+
+def _restore_setup_removes(install_dir: str, ml: ModloaderInfo) -> None:
+    """DISABLE mods (inverse of _apply_setup_removes): restore each declared file from its
+    <f>.moddy-orig sentinel and drop the sentinel. A non-empty sentinel is the captured stock file
+    -> restored byte-exact. An empty sentinel (the stock file was blank, as NMS's DISABLEMODS.TXT
+    is, or never existed) -> leave an empty file in place so mods stay disabled. No sentinel ->
+    nothing to do. No-op for loaders without a `setup` block."""
+    for rel in _setup_remove_files(ml):
+        live = os.path.join(install_dir, rel)
+        durable = live + mods._MODDY_ORIG_SUFFIX
+        if not os.path.lexists(durable):
+            continue
+        if os.path.isfile(live):
+            os.remove(live)
+        if os.path.getsize(durable) > 0:
+            os.replace(durable, live)        # restore captured stock file exactly
+        else:
+            os.remove(durable)               # drop empty sentinel...
+            os.makedirs(os.path.dirname(live) or ".", exist_ok=True)
+            open(live, "w").close()          # ...and leave an empty file so mods stay disabled
+
+
+async def _install_setup_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> bool:
+    """A source.type=="setup" loader installs no files — it performs the declared host-side setup
+    (parking game files aside to enable mods). For NMS this parks GAMEDATA/PCBANKS/DISABLEMODS.TXT
+    so the game loads loose mods from GAMEDATA/MODS/. No tracked paths: uninstall restores via
+    _restore_setup_removes, not the placed-paths loop."""
+    try:
+        _apply_setup_removes(install_dir, ml)
+        set_modloader_version(ml.id, version or "setup")
+        decky.logger.info(f"Set up {ml.id}")
+        return True
+    except Exception as e:
+        decky.logger.error(f"Setup loader {ml.id} failed: {e}")
+        return False
 
 
 async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> bool:

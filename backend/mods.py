@@ -466,6 +466,8 @@ def mod_files_present(game: GameProfile, install_dir: str, record: dict) -> bool
     paths = record.get("paths")
     if install_type in ("zip_flat", "zip_natives", "zip_nativepc"):
         return _flat_mod_present(_flat_target_paths(install_dir, paths))
+    if install_type == "zip_folder":
+        return _zipfolder_present(install_dir, paths)
     if install_type == "zip_smapi":
         return _smapi_mod_present(_flat_target_paths(install_dir, paths))
     if install_type == "zip_dir" or paths:
@@ -693,6 +695,12 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             if not _smapi_mod_present(target_paths):
                 continue  # installed for a different game
             enabled = _smapi_mod_enabled(target_paths)
+        elif install_type == "zip_folder":
+            # Folder-per-mod data mod (NMS): one folder under GAMEDATA/MODS/. Present iff it's live
+            # there OR parked in the disabled-staging dir; enabled iff the live folder is on disk.
+            if not _zipfolder_present(install_dir, paths):
+                continue  # installed for a different game
+            enabled = _zipfolder_enabled(install_dir, paths)
         elif install_type == "zip_dir" or paths:
             target_dirs = [os.path.join(install_dir, p) for p in paths] if paths else [os.path.join(mods_path, filename)]
             if not any(_tracked_present(d) for d in target_dirs):
@@ -766,6 +774,8 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
         return await _install_mod_zip_nativepc(game, install_dir, mod, version, url, variant)
     if mod.source.install_type == "zip_smapi":
         return await _install_mod_zip_smapi(game, install_dir, mods_path, mod, version, url)
+    if mod.source.install_type == "zip_folder":
+        return await _install_mod_zip_folder(game, install_dir, mods_path, mod, version, url)
     # Guard: only the single-file installer is a safe default. An unrecognized install_type
     # must NOT silently fall through to it — that once dumped a raw mod archive into RE4's
     # game dir (the `nexus-<id>` file). Fail loudly instead.
@@ -1201,6 +1211,41 @@ def _smapi_mod_enabled(target_paths: list[str]) -> bool:
     return any(os.path.exists(p) for p in target_paths)
 
 
+# zip_folder (No Man's Sky) disabled mods are parked here, at the game root OUTSIDE GAMEDATA/MODS/.
+# The game scans GAMEDATA/MODS/ RECURSIVELY (device-confirmed), so an in-place `<mod>.disabled`
+# rename does NOT hide a mod — a disabled mod must physically leave the MODS/ tree.
+_FOLDER_DISABLED_DIR = ".moddy-disabled-mods"
+
+
+def _zipfolder_disabled_path(install_dir: str, active_rel: str) -> str:
+    """Where a disabled zip_folder mod is parked (game-root staging dir, outside MODS/)."""
+    return os.path.join(install_dir, _FOLDER_DISABLED_DIR, os.path.basename(active_rel.rstrip("/\\")))
+
+
+def _zipfolder_present(install_dir: str, paths: list[str] | None) -> bool:
+    """A zip_folder mod is present (for this game) if its folder is live in MODS/ (enabled) or parked
+    in the staging dir (disabled). Scopes a globally-keyed record to the game that actually holds it."""
+    for rel in (paths or []):
+        if os.path.isdir(os.path.join(install_dir, rel)) or os.path.isdir(_zipfolder_disabled_path(install_dir, rel)):
+            return True
+    return False
+
+
+def _zipfolder_enabled(install_dir: str, paths: list[str] | None) -> bool:
+    """Enabled iff the mod's folder is live under MODS/ (not parked in the disabled staging dir)."""
+    return any(os.path.isdir(os.path.join(install_dir, rel)) for rel in (paths or []))
+
+
+def _zipfolder_prune_staging(install_dir: str) -> None:
+    """Remove the disabled-staging dir if it's now empty (keeps the game root tidy)."""
+    staging = os.path.join(install_dir, _FOLDER_DISABLED_DIR)
+    try:
+        if os.path.isdir(staging) and not os.listdir(staging):
+            os.rmdir(staging)
+    except OSError:
+        pass
+
+
 async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
     """Install a flat-loader mod (e.g. MelonLoader): extract the archive's contents directly
     into the mods dir so DLLs sit at the top level where the loader scans, stripping a single
@@ -1361,6 +1406,103 @@ async def _install_mod_zip_smapi(game: GameProfile, install_dir: str, mods_path:
         await utils.download(url, tmp_archive, game.appid)
         extract_archive(tmp_archive, tmp_extract)
         return _smapi_commit(install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
+    except utils.InstallCancelledError:
+        decky.logger.info(f"Install of {mod.name} was cancelled")
+        return None
+    except Exception as e:
+        decky.logger.error(f"Failed to install {mod.name}: {e}")
+        return False
+    finally:
+        if os.path.exists(tmp_archive):
+            os.remove(tmp_archive)
+        for p in (tmp_extract, staging):
+            if os.path.exists(p):
+                shutil.rmtree(p)
+
+
+def _is_archive_junk(rel: str) -> bool:
+    """macOS zip cruft that must never be placed into a mod folder or counted when deciding whether
+    a single wrapper folder should be stripped: the `__MACOSX/` metadata tree, `.DS_Store`, and
+    AppleDouble `._*` resource forks. Nexus archives zipped on macOS routinely carry these."""
+    parts = rel.replace("\\", "/").split("/")
+    if "__MACOSX" in parts:
+        return True
+    base = parts[-1]
+    return base == ".DS_Store" or base.startswith("._")
+
+
+def _folder_commit(install_dir: str, mods_path: str, extract_root: str, staging: str,
+                   mod: ModInfo, version: str | None, old_paths: list) -> bool:
+    """Place an extracted archive as ONE folder <mods_dir>/<mod>/, transactionally. For folder-per-
+    mod games (No Man's Sky: each mod is its own folder under GAMEDATA/MODS/). Strips a single
+    redundant top-level wrapper dir so a wrapped mod doesn't nest twice. Format-agnostic — whatever
+    the archive holds (.pak, or unpacked .MBIN/.EXML) lands verbatim in the mod's folder. macOS zip
+    junk (__MACOSX/, .DS_Store, ._*) is dropped so it neither defeats the wrapper strip nor litters
+    the mod folder. Retires the previous install (active and `.disabled` form) and commits
+    all-or-nothing."""
+    import shutil
+    extract_root = os.path.normpath(extract_root)
+    # Strip a single redundant top-level wrapper folder (and only that). Ignore macOS junk siblings
+    # when deciding — a lone real wrapper riding next to __MACOSX/ or .DS_Store must still be stripped.
+    real_entries = [e for e in os.listdir(extract_root) if not _is_archive_junk(e)]
+    src_root = extract_root
+    if len(real_entries) == 1 and os.path.isdir(os.path.join(extract_root, real_entries[0])):
+        src_root = os.path.join(extract_root, real_entries[0])
+
+    folder = _safe_folder_name(mod.filename)   # one folder per mod, named for the mod (dot-stripped)
+    placements: list[tuple[str, str]] = []     # (staged abs, install-dir-relative dest)
+    for sub_root, _dirs, files in os.walk(src_root):
+        for fn in files:
+            src = os.path.join(sub_root, fn)
+            rel = os.path.relpath(src, src_root)
+            if _is_archive_junk(rel):
+                continue                       # don't copy macOS cruft into the mod folder
+            dest_rel = os.path.join(folder, rel)
+            staged_abs = os.path.join(staging, dest_rel)
+            os.makedirs(os.path.dirname(staged_abs), exist_ok=True)
+            shutil.copyfile(src, staged_abs)
+            placements.append((staged_abs, os.path.relpath(os.path.join(mods_path, dest_rel), install_dir)))
+    if not placements:
+        decky.logger.error(f"{mod.name}: archive had no files — refusing to install")
+        return False
+
+    top_rel = os.path.relpath(os.path.join(mods_path, folder), install_dir)
+    is_foreign = _overwrite_guard(install_dir, mods_path, mod, [r for _s, r in placements])
+    with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
+        for p in old_paths:
+            txn.retire(p)                      # retire() already sets aside <mod> AND <mod>.disabled
+            # A previously-disabled mod is parked outside MODS/ — retire that too so reinstalling
+            # over a disabled mod replaces it (and rolls back) instead of orphaning the parked copy.
+            txn.retire(os.path.join(_FOLDER_DISABLED_DIR, os.path.basename(p.rstrip("/\\"))))
+        for staged_abs, install_rel in placements:
+            txn.place(staged_abs, install_rel)
+
+    # Track the single top folder; toggling renames it to <mod>.disabled, so presence/enabled use
+    # the flat/.disabled helpers (_flat_mod_present / _smapi_mod_enabled).
+    set_installed_record(mod.id, version or "latest", mod.filename, paths=[top_rel], mod=mod)
+    decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — folder {folder}/ ({len(placements)} file(s))")
+    return True
+
+
+async def _install_mod_zip_folder(game: GameProfile, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
+    """Install a folder-per-mod data mod (No Man's Sky): download, extract (.zip/.7z/.rar via
+    extract_archive), and place the whole archive as one folder under GAMEDATA/MODS/<mod>/. See
+    _folder_commit. Disable = rename the folder to <mod>.disabled; uninstall removes both forms."""
+    import shutil
+    tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_tmp.archive")
+    tmp_extract = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_extract")
+    staging = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_folder_staging")
+    for p in (tmp_extract, staging):
+        if os.path.exists(p):
+            shutil.rmtree(p)
+    # Previous install's tracked folder — retired inside the commit transaction (not before the
+    # download), so a dead link or cancel can't destroy the old install before the new one is ready.
+    old_paths = (_load_store().get(mod.id) or {}).get("paths") or []
+    try:
+        decky.logger.info(f"Downloading {mod.name} from {url}")
+        await utils.download(url, tmp_archive, game.appid)
+        extract_archive(tmp_archive, tmp_extract)
+        return _folder_commit(install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
         return None
@@ -1907,6 +2049,8 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
                 cands = [full, full + ".disabled"]
                 if install_type == "zip_smapi":
                     cands.append(_dotprefix_disabled(full))
+                if install_type == "zip_folder":
+                    cands.append(_zipfolder_disabled_path(install_dir, relpath))  # a disabled mod is parked outside MODS/
                 for cand in cands:
                     if os.path.isdir(cand):
                         shutil.rmtree(cand)
@@ -1925,6 +2069,7 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
             # Per-file records (BepInEx merge / RE4 natives) leave empty dirs behind — prune
             # them, but only when empty so a shared folder another mod uses survives.
             _prune_empty_dirs(install_dir, paths)
+            _zipfolder_prune_staging(install_dir)  # tidy the NMS disabled-staging dir if now empty
             clear_installed_record(mod_id)
             # If a .pak mod was removed, close the numbering gap so the remaining pak mods keep
             # loading (and keep their relative load-order/priority).
@@ -2095,6 +2240,37 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
                 decky.logger.warning(f"No folders to {'enable' if enable else 'disable'} for {mod_id}")
                 return False
             decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} ({renamed} folder{'s' if renamed != 1 else ''})")
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to toggle {mod_id}: {e}")
+            return False
+
+    if install_type == "zip_folder":
+        # Folder-per-mod data mod (NMS): the game scans GAMEDATA/MODS/ RECURSIVELY (device-confirmed),
+        # so an in-place rename does NOT hide a mod. Disabling MOVES each tracked folder out of MODS/
+        # into a game-root staging dir; enabling moves it back.
+        import shutil
+        paths = record.get("paths") or []
+        moved = 0
+        try:
+            for rel in paths:
+                active = os.path.join(install_dir, rel)
+                parked = _zipfolder_disabled_path(install_dir, rel)
+                if enable:
+                    if os.path.isdir(parked) and not os.path.isdir(active):
+                        os.makedirs(os.path.dirname(active), exist_ok=True)
+                        shutil.move(parked, active)
+                        moved += 1
+                else:
+                    if os.path.isdir(active):
+                        os.makedirs(os.path.dirname(parked), exist_ok=True)
+                        shutil.move(active, parked)
+                        moved += 1
+            if moved == 0:
+                decky.logger.warning(f"No folders to {'enable' if enable else 'disable'} for {mod_id}")
+                return False
+            _zipfolder_prune_staging(install_dir)
+            decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} ({moved} folder{'s' if moved != 1 else ''})")
             return True
         except Exception as e:
             decky.logger.error(f"Failed to toggle {mod_id}: {e}")

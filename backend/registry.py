@@ -7,13 +7,13 @@ import decky
 
 @dataclass
 class ModSource:
-    type: str          # "github" | "github_source" | "thunderstore" | "url" | "steamworkshop" | "nexus"
+    type: str          # "github" | "github_source" | "thunderstore" | "url" | "steamworkshop" | "nexus" | "setup"
     owner: str = ""    # GitHub owner / Thunderstore author
     repo: str = ""     # GitHub repo / Thunderstore package name
     asset: str = ""    # Asset filename to download (for type="github")
     branch: str = "main"  # Branch to download (for type="github_source")
     url: str = ""      # Direct URL (for type="url")
-    install_type: str = "file"  # "file" | "zip_dir" | "zip_flat" | "zip_natives" | "zip_nativepc" | "zip_smapi" | "zip_into_game" | "steamworkshop" | "smapi_installer"
+    install_type: str = "file"  # "file" | "zip_dir" | "zip_flat" | "zip_folder" | "zip_natives" | "zip_nativepc" | "zip_smapi" | "zip_into_game" | "steamworkshop" | "smapi_installer"
     workshop_id: str = ""  # Steam Workshop published file id (for type="steamworkshop")
     nexus_domain: str = ""  # Nexus game domain slug, e.g. "slimerancher2" (for type="nexus")
     mod_id: str = ""        # Nexus mod id (for type="nexus"); file_id is resolved at install time
@@ -49,6 +49,7 @@ class ModloaderInfo:
     config_files: dict = field(default_factory=dict)      # post-install config to write, keyed by game-dir-relative path → key-value lines (e.g. REFramework's LooseFileLoader toggle)
     uninstall_files: list[str] = field(default_factory=list)  # extra files removed on uninstall but NOT installed (e.g. REFramework runtime logs)
     uninstall_dirs: list[str] = field(default_factory=list)   # extra dirs removed on uninstall but NOT installed (e.g. REFramework's runtime-generated reframework/ config dir)
+    setup: dict = field(default_factory=dict)                 # declarative host-side setup for a source.type=="setup" loader; setup.remove_files = game-dir-relative stock files parked aside to <f>.moddy-orig to ENABLE mods, restored to disable (e.g. NMS GAMEDATA/PCBANKS/DISABLEMODS.TXT)
 
 
 @dataclass
@@ -71,9 +72,12 @@ class GameProfile:
         return next((ml for ml in self.modloaders if ml.id == modloader_id), None)
 
     def uses_steam_workshop(self) -> bool:
-        """True if this game's mods are delivered via Steam Workshop subscriptions
-        (a native modloader) rather than files Moddy downloads into a mods folder."""
-        return any(ml.native for ml in self.modloaders)
+        """True if this game's mods are delivered via Steam Workshop subscriptions rather than
+        files Moddy downloads into a mods folder. Discriminated by the modloader's source type
+        ("steamworkshop"), NOT by `native`: other non-downloadable loaders (e.g. a source.type
+        "setup" loader that only parks a game file aside, like NMS) are native-ish but are still
+        file-on-disk mod games and must take the normal filesystem scan, not the Workshop path."""
+        return any(ml.source.type == "steamworkshop" for ml in self.modloaders)
 
     def mod_toggle_style(self) -> str:
         """How folder mods are enabled/disabled for this game, derived from its modloaders.
@@ -153,6 +157,7 @@ def _load_modloaders() -> dict[str, ModloaderInfo]:
                 config_files=dict(data.get("config_files", {})),
                 uninstall_files=list(data.get("uninstall_files", [])),
                 uninstall_dirs=list(data.get("uninstall_dirs", [])),
+                setup=dict(data.get("setup", {})),
             )
         except Exception as e:
             decky.logger.error(f"Failed to load modloader from {where}: {e}")
