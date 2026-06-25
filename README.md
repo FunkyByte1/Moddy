@@ -32,9 +32,12 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Risk of Rain 2
 - Balatro
 - PEAK
+- Valheim
 - Haste
 - Hand of Fate 2
 - Enter the Gungeon
+- Left 4 Dead 2
+- ROUNDS
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 - Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 - Monster Hunter World *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
@@ -43,7 +46,8 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 
 ### Planned:
 - No Man's Sky
-- Elden Ring
+- Satisfactory
+- Vampire Survivors
 - and more :)
 
 ## Mod Sources
