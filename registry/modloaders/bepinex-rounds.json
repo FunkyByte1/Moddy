@@ -1,0 +1,15 @@
+{
+  "id": "bepinex-rounds",
+  "name": "BepInEx (ROUNDS)",
+  "files": ["winhttp.dll", "doorstop_config.ini"],
+  "dirs": ["BepInEx"],
+  "indicator": "BepInEx",
+  "ready_indicator": null,
+  "launch_options": "WINEDLLOVERRIDES=\"winhttp=n,b\" %command%",
+  "source": {
+    "type": "thunderstore",
+    "owner": "BepInEx",
+    "repo": "BepInExPack_ROUNDS",
+    "install_type": "zip_into_game"
+  }
+}

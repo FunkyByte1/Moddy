@@ -1,0 +1,9 @@
+{
+  "id": "rounds",
+  "name": "ROUNDS",
+  "appid": 1557740,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "rounds",
+  "modloader_ids": ["bepinex-rounds"]
+}
