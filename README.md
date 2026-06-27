@@ -38,6 +38,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Enter the Gungeon
 - Left 4 Dead 2
 - ROUNDS
+- Satisfactory *(via [ficsit.app](https://ficsit.app))*
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 - Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 - Monster Hunter World *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
@@ -46,13 +47,12 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Slime Rancher 2 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 
 ### Planned:
-- Satisfactory
 - Vampire Survivors
 - and more :)
 
 ## Mod Sources
 
-Moddy downloads mods and mod loaders **directly from their original publishers** — GitHub, [Thunderstore](https://thunderstore.io), the [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index), [Nexus Mods](https://www.nexusmods.com), and the Steam Workshop — the same way other mod managers do. It does **not** host, redistribute, or modify any mod content; each mod's license is set by its author.
+Moddy downloads mods and mod loaders **directly from their original publishers** — GitHub, [Thunderstore](https://thunderstore.io), the [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index), [Nexus Mods](https://www.nexusmods.com), [ficsit.app](https://ficsit.app), and the Steam Workshop — the same way other mod managers do. It does **not** host, redistribute, or modify any mod content; each mod's license is set by its author.
 
 Nexus downloads use the official API with your own personal API key. Moddy currently supports **Premium accounts only** (free accounts can browse, but Nexus only returns download links to Premium members). Your key is stored only on your device and sent only to Nexus.
 

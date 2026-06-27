@@ -19,6 +19,7 @@ import registry
 import mods
 import thunderstore
 import nexus
+import ficsit
 import download_queue
 
 # Sentinel returned all the way up when a Nexus download is gated behind Premium (v1 can't serve
@@ -32,6 +33,18 @@ def _is_game_modloader(game, domain: str, mod_id) -> bool:
     cascade skips it — it's installed/managed by the modloader system."""
     for ml in game.modloaders:
         if ml.source.type == "nexus" and ml.source.nexus_domain == domain and str(ml.source.mod_id) == str(mod_id):
+            return True
+    return False
+
+
+def _is_game_ficsit_modloader(game, mod_reference: str) -> bool:
+    """True if `mod_reference` is this game's modloader sourced from ficsit (Satisfactory's SML).
+    Every Satisfactory mod declares SML as a dependency, but SML is the loader — installed/managed
+    by the modloader system — so the cascade skips it rather than installing it as a content mod."""
+    for ml in game.modloaders:
+        # Case-insensitive: ficsit mod_references are canonical, but a dependency could conceivably
+        # reference the loader with drifted casing (e.g. "Sml") — still skip it as the loader.
+        if ml.source.type == "ficsit" and ml.source.mod_reference.lower() == (mod_reference or "").lower():
             return True
     return False
 
@@ -220,6 +233,83 @@ class NexusProvider(ModProvider):
         )
         target_version = version or str(info.get("version", "") or "") or "latest"
         return InstallSpec(mod=mod, version=target_version, url=url)
+
+
+class FicsitProvider(ModProvider):
+    """ficsit.app (Satisfactory) provider. A `ref` is a mod_reference string (e.g. "RefinedPower").
+    Every mod declares SML (the loader) as a dependency — skipped here, since it's managed by the
+    modloader system — and may declare other ficsit mods, which are installed depth-first at latest.
+    Best-effort on deps (deps_fatal=False): a missing/failed requirement warns but doesn't abort, so
+    one flaky dependency can't block the rest of an install."""
+    deps_fatal = False
+
+    def __init__(self, denylist: set):
+        self.denylist = denylist
+
+    def key(self, ref) -> str:
+        # Original case (ficsit mod_references are case-sensitive); the store's lookups are
+        # case-insensitive (find_installed_record), so presence checks tolerate catalog-vs-record drift.
+        return f"ficsit.{ref}"
+
+    def find(self, game, ref):
+        mod = ficsit.get_mod(ref)
+        if not mod:
+            decky.logger.error(f"ficsit mod not found: {self.key(ref)}")
+            return None
+        return mod
+
+    def missing_result(self, ref, is_dependency, allow_missing):
+        return False  # logged in find(); ficsit has no "install anyway"
+
+    def dep_refs(self, game, item, ref):
+        out = []
+        for dep in ficsit.dependencies(item):
+            dref = dep.get("mod_id")
+            if not dref:
+                continue
+            # Optional deps aren't auto-installed (they're enhancements, not requirements).
+            if dep.get("optional"):
+                continue
+            # SML is every mod's dependency but it's the loader, managed by the modloader system.
+            if _is_game_ficsit_modloader(game, dref):
+                decky.logger.info(f"Skipping loader requirement ficsit.{dref} — managed as the loader")
+                continue
+            out.append((dref, dref))
+        return out
+
+    def build_install(self, game, item, ref, version):
+        key = self.key(ref)
+        win = ficsit.windows_version(item)
+        if not win or not win.get("version_id"):
+            # No Windows (Proton client) build for the latest version — can't install it on the Deck.
+            decky.logger.error(f"No installable Windows build for {key}")
+            return None
+        url = ficsit.download_url(win["version_id"])
+        authors = item.get("authors") or []
+        author = ((authors[0] or {}).get("user") or {}).get("username", "") if authors else ""
+        # Record real requirements (minus the loader); cosmetic — drives the "depended on by" warning.
+        dep_ids = [f"ficsit.{d['mod_id']}" for d in ficsit.dependencies(item)
+                   if d.get("mod_id") and not d.get("optional")
+                   and not _is_game_ficsit_modloader(game, d["mod_id"])]
+        mod = registry.ModInfo(
+            id=key,
+            name=item.get("name") or ref,
+            description=item.get("short_description", "") or "",
+            # The mod_reference is the exact on-disk folder name SML loads from (Mods/<ModRef>/).
+            filename=ref,
+            source=registry.ModSource(
+                type="ficsit",
+                install_type=game.catalog.get("install_type", "zip_smod"),
+                mod_reference=ref,
+            ),
+            author=author,
+            homepage=f"https://ficsit.app/mod/{item.get('id', '') or ''}",
+            thumbnail=item.get("logo", "") or "",
+            modloader=game.modloaders[0].id if game.modloaders else "",
+            dependencies=dep_ids,
+        )
+        # ficsit installs are always the latest version (no per-version pick); `version` is ignored.
+        return InstallSpec(mod=mod, version=win["version"], url=url)
 
 
 async def run_cascade(provider: ModProvider, game, install_dir, ref, version, *, seen, installed,

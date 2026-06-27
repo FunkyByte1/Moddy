@@ -437,7 +437,7 @@ export const installNexusMod =
 // inline paths and are not queued.)
 // 'needs_input' = parked mid-install awaiting a user choice (a Nexus variant). Workshop stays inline.
 export type QueueStatus = 'queued' | 'downloading' | 'needs_input' | 'done' | 'failed' | 'cancelled';
-export type QueueKind = 'thunderstore' | 'bmi' | 'nexus';
+export type QueueKind = 'thunderstore' | 'bmi' | 'nexus' | 'ficsit';
 export interface QueueJob {
   job_id: number;
   appid: number;
@@ -464,6 +464,13 @@ export const enqueueBmi =
   callable<[appid: number, mod_id: string, name: string, version: string | null], number>('enqueue_bmi');
 export const enqueueNexus =
   callable<[appid: number, full_name: string, name: string, version: string | null], number>('enqueue_nexus');
+// ficsit.app (Satisfactory) catalog — server-paginated/searched (~25 items per page), in the shared
+// ThunderstorePackage item shape. Anonymous (no API key); installs cascade dependencies server-side
+// and are drained by the same background queue as Nexus/Thunderstore (kind 'ficsit').
+export const getFicsitCatalog =
+  callable<[appid: number, query: string, page: number, sort: string], ThunderstorePackage[]>('get_ficsit_catalog');
+export const enqueueFicsit =
+  callable<[appid: number, full_name: string, name: string, version: string | null], number>('enqueue_ficsit');
 // Resume a job parked on a variant choice (status 'needs_input'); installs from the cached archive.
 export const resumeDownloadJob = callable<[job_id: number, variant: string], boolean>('resume_download_job');
 export const cancelDownloadJob = callable<[job_id: number], boolean>('cancel_download_job');

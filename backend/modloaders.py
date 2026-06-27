@@ -6,6 +6,7 @@ import decky
 import github
 import mods
 import nexus
+import ficsit
 import thunderstore
 import utils
 from install_txn import _StagedInstall
@@ -85,6 +86,62 @@ def clear_modloader_version(modloader_id: str) -> None:
         _save_version_store(store)
 
 
+# ── ficsit (Satisfactory / SML) loader: move-out enable/disable ───────────────
+# SML is a UE plugin folder under FactoryGame/Mods/. The game discovers any plugin folder there by
+# its `.uplugin`, so an in-place rename to Mods/SML.disabled does NOT stop it loading (the .uplugin
+# is still found inside). Disabling therefore MOVES the folder out to a game-root staging dir
+# (outside the Mods/ scan roots), mirroring how zip_smod mods are disabled. is_modloader_enabled
+# already reads correctly (the indicator — Mods/SML — is gone once parked); is_modloader_installed
+# and uninstall must additionally look at the parked copy.
+
+def _ficsit_loader_dir(ml: ModloaderInfo) -> str:
+    """The loader's mod-folder, game-dir-relative (e.g. 'FactoryGame/Mods/SML')."""
+    return (ml.dirs[0] if ml.dirs else ml.indicator) or ""
+
+
+def _ficsit_parked_dir(install_dir: str, ml: ModloaderInfo) -> str:
+    """Where a disabled ficsit loader is parked: game-root staging, outside the Mods/ scan roots
+    (the same staging dir zip_smod/zip_folder mods use), so SML genuinely stops loading."""
+    leaf = os.path.basename(_ficsit_loader_dir(ml).rstrip("/\\"))
+    return os.path.join(install_dir, mods._FOLDER_DISABLED_DIR, leaf)
+
+
+def _move_ficsit_loader(install_dir: str, ml: ModloaderInfo, enable: bool) -> bool:
+    active = os.path.join(install_dir, _ficsit_loader_dir(ml))
+    parked = _ficsit_parked_dir(install_dir, ml)
+    try:
+        if enable:
+            if os.path.isdir(parked) and not os.path.isdir(active):
+                os.makedirs(os.path.dirname(active), exist_ok=True)
+                shutil.move(parked, active)
+        else:
+            if os.path.isdir(active):
+                os.makedirs(os.path.dirname(parked), exist_ok=True)
+                shutil.move(active, parked)
+        mods._zipfolder_prune_staging(install_dir)
+        decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {ml.id}")
+        return True
+    except Exception as e:
+        decky.logger.error(f"Failed to {'enable' if enable else 'disable'} {ml.id}: {e}")
+        return False
+
+
+def _uninstall_ficsit_loader(install_dir: str, ml: ModloaderInfo) -> bool:
+    """Remove SML whether it's live (Mods/SML) or parked (disabled). Both forms are whole-folder, so
+    rmtree covers the tracked plugin files without the per-path loop."""
+    try:
+        for d in (os.path.join(install_dir, _ficsit_loader_dir(ml)), _ficsit_parked_dir(install_dir, ml)):
+            if os.path.isdir(d):
+                shutil.rmtree(d)
+        mods._zipfolder_prune_staging(install_dir)
+        clear_modloader_version(ml.id)
+        decky.logger.info(f"Uninstalled {ml.id}")
+        return True
+    except Exception as e:
+        decky.logger.error(f"Failed to uninstall {ml.id}: {e}")
+        return False
+
+
 def _loader_is_foreign(game: GameProfile, install_dir: str):
     """Build the is_foreign predicate a loader install hands to _StagedInstall. A destination file
     is 'foreign' (a stock game file — e.g. a game's own version.dll that a proxy loader overwrites)
@@ -106,6 +163,11 @@ def is_modloader_installed(game: GameProfile, install_dir: str, modloader_id: st
         return False
     if ml.native:
         return True  # platform-provided (e.g. Steam Workshop) — nothing to install
+    if ml.source.type == "ficsit":
+        # SML lives at Mods/SML when enabled, or parked in the disabled-staging dir — installed if
+        # either exists. (There's no <indicator>.disabled form: disabling moves the folder out.)
+        return (os.path.isdir(os.path.join(install_dir, _ficsit_loader_dir(ml)))
+                or os.path.isdir(_ficsit_parked_dir(install_dir, ml)))
     if ml.source.type == "setup":
         # A setup loader places no files; "installed" = its version-store entry, while
         # is_modloader_enabled tracks the live sentinel (indicator). Otherwise DISABLING it (which
@@ -149,6 +211,8 @@ async def enable_modloader(game: GameProfile, install_dir: str, modloader_id: st
         return False
     if ml.native:
         return True
+    if ml.source.type == "ficsit":
+        return _move_ficsit_loader(install_dir, ml, enable=True)  # move SML back into Mods/
     try:
         _apply_setup_removes(install_dir, ml)   # re-park setup files (e.g. NMS DISABLEMODS.TXT) on re-enable / leaving vanilla; no-op without a `setup` block
         for f in ml.files:
@@ -172,6 +236,8 @@ async def disable_modloader(game: GameProfile, install_dir: str, modloader_id: s
         return False
     if ml.native:
         return True
+    if ml.source.type == "ficsit":
+        return _move_ficsit_loader(install_dir, ml, enable=False)  # move SML out of Mods/ (scan roots)
     try:
         _restore_setup_removes(install_dir, ml)   # restore setup files (e.g. NMS DISABLEMODS.TXT) so mods stop loading on disable / entering vanilla; no-op without a `setup` block
         for f in ml.files:
@@ -221,6 +287,8 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
         return False
     if ml.native:
         return True
+    if ml.source.type == "ficsit":
+        return _uninstall_ficsit_loader(install_dir, ml)  # whole-folder removal (live or parked)
     try:
         # Loaders installed by merging a whole archive (Stracker's: dinput8.dll, loader.dll,
         # loader-config.json, nativePC/plugins/*) tracked every placed path — remove exactly those
@@ -280,6 +348,8 @@ async def install_modloader(game: GameProfile, install_dir: str, modloader_id: s
         ok = await _install_thunderstore_modloader(game, install_dir, ml, version)
     elif ml.source.type == "nexus":
         ok = await _install_nexus_modloader(game, install_dir, ml, version)
+    elif ml.source.type == "ficsit":
+        ok = await _install_ficsit_modloader(game, install_dir, ml, version)
     elif ml.source.type == "setup":
         ok = await _install_setup_modloader(game, install_dir, ml, version)
     else:
@@ -400,6 +470,91 @@ async def _install_setup_modloader(game: GameProfile, install_dir: str, ml: Modl
     except Exception as e:
         decky.logger.error(f"Setup loader {ml.id} failed: {e}")
         return False
+
+
+async def _install_ficsit_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> bool:
+    """Install SML (Satisfactory Mod Loader) from ficsit.app. SML is itself a ficsit mod (its
+    mod_reference is on ml.source.mod_reference) — a UE-plugin .smod whose loose files (SML.uplugin,
+    Binaries/Win64/*, Content/Paks/*) install into the loader's own folder, Mods/SML/ (ml.dirs[0]).
+    Unlike every other Moddy loader there is NO DLL proxy or WINEDLLOVERRIDES launch option: the game
+    loads plugins from Mods/ natively (it's force-Proton'd so the Win64 binaries run). Every placed
+    file is tracked so uninstall removes exactly SML's footprint. `version` is ignored — SML always
+    installs at its current ficsit version (file ids aren't user-selectable)."""
+    ref = ml.source.mod_reference
+    if not ref:
+        decky.logger.error(f"{ml.id}: ficsit source missing mod_reference")
+        return False
+    target_dir = _ficsit_loader_dir(ml)  # e.g. "FactoryGame/Mods/SML"
+    if not target_dir:
+        decky.logger.error(f"{ml.id}: ficsit loader has no dirs/indicator to install into")
+        return False
+
+    mod = ficsit.get_mod(ref)
+    win = ficsit.windows_version(mod) if mod else None
+    if not win or not win.get("version_id"):
+        decky.logger.error(f"{ml.name}: no installable Windows build found on ficsit.app ({ref})")
+        return False
+    url = ficsit.download_url(win["version_id"])
+    resolved_version = win["version"] or "latest"
+
+    tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_tmp.smod")
+    tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_extract")
+    # A prior disable parked SML outside Mods/. Note whether it was disabled coming in (parked exists,
+    # active doesn't) so we can restore that state after a successful update instead of silently
+    # re-enabling it. The parked copy is retired INSIDE the transaction below — NOT rmtree'd up front —
+    # so a failed download/extract can't destroy a working (installed-but-disabled) SML.
+    parked = _ficsit_parked_dir(install_dir, ml)
+    parked_rel = os.path.join(mods._FOLDER_DISABLED_DIR, os.path.basename(target_dir.rstrip("/\\")))
+    was_disabled = os.path.isdir(parked) and not os.path.isdir(os.path.join(install_dir, target_dir))
+    try:
+        decky.logger.info(f"Downloading {ml.name} {resolved_version} from ficsit.app")
+        await utils.download(url, tmp_archive, game.appid)
+
+        decky.logger.info(f"Extracting {ml.name}")
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
+        os.makedirs(tmp_dir)
+        mods.extract_archive(tmp_archive, tmp_dir)   # .smod is a PK zip
+
+        # Place every plugin file under Mods/SML/, tracking each path. Retire the old SML dir AND any
+        # parked (disabled) copy first — both inside the transaction — for a clean, all-or-nothing
+        # replacement: on failure they roll back (no data loss), on success they're dropped (no stale
+        # files, no coexisting active+parked SML). is_foreign is NOT used here: Mods/SML is a fresh,
+        # wholly Moddy-owned plugin folder (it overwrites no stock game file), so the displaced old dir
+        # must simply be dropped on commit — preserving it as *.moddy-orig would litter Mods/ with an
+        # SML.moddy-orig on every update.
+        placed: list[str] = []
+        with _StagedInstall(install_dir) as txn:
+            txn.retire(target_dir)
+            txn.retire(parked_rel)   # replace a disabled SML in place, rollback-safe (no up-front rmtree)
+            for root, _dirs, files in os.walk(tmp_dir):
+                for fn in files:
+                    full = os.path.join(root, fn)
+                    rel = os.path.join(target_dir, os.path.relpath(full, tmp_dir))
+                    txn.place(full, rel)
+                    placed.append(rel)
+        if not placed:
+            decky.logger.error(f"{ml.name}: archive contained no files")
+            return False
+
+        set_modloader_version(ml.id, resolved_version, paths=sorted(placed))
+        # Preserve the user's disabled state across an update: the new files committed to active
+        # Mods/SML, so re-park them if SML was disabled before.
+        if was_disabled:
+            _move_ficsit_loader(install_dir, ml, enable=False)
+        decky.logger.info(f"{ml.name} {resolved_version} installed successfully ({len(placed)} file(s))")
+        return True
+    except utils.InstallCancelledError:
+        decky.logger.info(f"{ml.name} installation was cancelled")
+        return False
+    except Exception as e:
+        decky.logger.error(f"{ml.name} installation failed: {e}")
+        return False
+    finally:
+        if os.path.exists(tmp_archive):
+            os.remove(tmp_archive)
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
 
 
 async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, ml: ModloaderInfo, version: str | None = None) -> bool:

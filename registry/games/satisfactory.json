@@ -1,0 +1,10 @@
+{
+  "id": "satisfactory",
+  "name": "Satisfactory",
+  "appid": 526870,
+  "mods_dir": "FactoryGame/Mods",
+  "mods_dir_type": "game",
+  "modloader_ids": ["sml"],
+  "requires_proton": true,
+  "catalog": { "type": "ficsit", "install_type": "zip_smod" }
+}

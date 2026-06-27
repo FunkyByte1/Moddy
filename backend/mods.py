@@ -153,6 +153,7 @@ def set_installed_record(
             "workshop_id": mod.source.workshop_id,
             "nexus_domain": mod.source.nexus_domain,
             "mod_id": mod.source.mod_id,
+            "mod_reference": mod.source.mod_reference,
         }
         record["meta"] = {
             "name": mod.name,
@@ -695,9 +696,10 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             if not _smapi_mod_present(target_paths):
                 continue  # installed for a different game
             enabled = _smapi_mod_enabled(target_paths)
-        elif install_type == "zip_folder":
-            # Folder-per-mod data mod (NMS): one folder under GAMEDATA/MODS/. Present iff it's live
-            # there OR parked in the disabled-staging dir; enabled iff the live folder is on disk.
+        elif install_type in ("zip_folder", "zip_smod"):
+            # Folder-per-mod data mod (NMS GAMEDATA/MODS/; Satisfactory FactoryGame/Mods/): one folder
+            # under the mods dir. Present iff it's live there OR parked in the disabled-staging dir;
+            # enabled iff the live folder is on disk.
             if not _zipfolder_present(install_dir, paths):
                 continue  # installed for a different game
             enabled = _zipfolder_enabled(install_dir, paths)
@@ -776,6 +778,8 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
         return await _install_mod_zip_smapi(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_folder":
         return await _install_mod_zip_folder(game, install_dir, mods_path, mod, version, url)
+    if mod.source.install_type == "zip_smod":
+        return await _install_mod_zip_smod(game, install_dir, mods_path, mod, version, url)
     # Guard: only the single-file installer is a safe default. An unrecognized install_type
     # must NOT silently fall through to it — that once dumped a raw mod archive into RE4's
     # game dir (the `nexus-<id>` file). Fail loudly instead.
@@ -1432,24 +1436,33 @@ def _is_archive_junk(rel: str) -> bool:
 
 
 def _folder_commit(install_dir: str, mods_path: str, extract_root: str, staging: str,
-                   mod: ModInfo, version: str | None, old_paths: list) -> bool:
-    """Place an extracted archive as ONE folder <mods_dir>/<mod>/, transactionally. For folder-per-
-    mod games (No Man's Sky: each mod is its own folder under GAMEDATA/MODS/). Strips a single
-    redundant top-level wrapper dir so a wrapped mod doesn't nest twice. Format-agnostic — whatever
-    the archive holds (.pak, or unpacked .MBIN/.EXML) lands verbatim in the mod's folder. macOS zip
-    junk (__MACOSX/, .DS_Store, ._*) is dropped so it neither defeats the wrapper strip nor litters
-    the mod folder. Retires the previous install (active and `.disabled` form) and commits
-    all-or-nothing."""
+                   mod: ModInfo, version: str | None, old_paths: list, folder: str | None = None) -> bool:
+    """Place an extracted archive as ONE folder <mods_dir>/<folder>/, transactionally. For folder-per-
+    mod games (No Man's Sky: each mod is its own folder under GAMEDATA/MODS/; Satisfactory: each mod
+    is a UE plugin folder under FactoryGame/Mods/). Format-agnostic — whatever the archive holds
+    (.pak, unpacked .MBIN/.EXML, or a UE plugin's Content/Binaries) lands verbatim in the mod's
+    folder. macOS zip junk (__MACOSX/, .DS_Store, ._*) is dropped so it neither defeats the wrapper
+    strip nor litters the mod folder. Retires the previous install (active and `.disabled` form) and
+    commits all-or-nothing.
+
+    `folder` is the destination subfolder under mods_path (it may contain a separator, e.g.
+    Satisfactory's "GameFeatures/<ModRef>"). When None, it's derived from the mod's name and a single
+    redundant top-level wrapper dir is stripped; when given, the archive's files go directly under it
+    (the caller already determined the exact layout, e.g. from the .uplugin)."""
     import shutil
     extract_root = os.path.normpath(extract_root)
-    # Strip a single redundant top-level wrapper folder (and only that). Ignore macOS junk siblings
-    # when deciding — a lone real wrapper riding next to __MACOSX/ or .DS_Store must still be stripped.
-    real_entries = [e for e in os.listdir(extract_root) if not _is_archive_junk(e)]
-    src_root = extract_root
-    if len(real_entries) == 1 and os.path.isdir(os.path.join(extract_root, real_entries[0])):
-        src_root = os.path.join(extract_root, real_entries[0])
-
-    folder = _safe_folder_name(mod.filename)   # one folder per mod, named for the mod (dot-stripped)
+    if folder is None:
+        # Strip a single redundant top-level wrapper folder (and only that). Ignore macOS junk
+        # siblings when deciding — a lone real wrapper next to __MACOSX/ or .DS_Store still strips.
+        real_entries = [e for e in os.listdir(extract_root) if not _is_archive_junk(e)]
+        src_root = extract_root
+        if len(real_entries) == 1 and os.path.isdir(os.path.join(extract_root, real_entries[0])):
+            src_root = os.path.join(extract_root, real_entries[0])
+        folder = _safe_folder_name(mod.filename)   # one folder per mod, named for the mod (dot-stripped)
+    else:
+        # Caller supplied the exact destination subfolder — the archive's loose files belong directly
+        # under it (no wrapper strip; a UE plugin's root holds <ModRef>.uplugin + Content/ + Binaries/).
+        src_root = extract_root
     placements: list[tuple[str, str]] = []     # (staged abs, install-dir-relative dest)
     for sub_root, _dirs, files in os.walk(src_root):
         for fn in files:
@@ -1503,6 +1516,83 @@ async def _install_mod_zip_folder(game: GameProfile, install_dir: str, mods_path
         await utils.download(url, tmp_archive, game.appid)
         extract_archive(tmp_archive, tmp_extract)
         return _folder_commit(install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
+    except utils.InstallCancelledError:
+        decky.logger.info(f"Install of {mod.name} was cancelled")
+        return None
+    except Exception as e:
+        decky.logger.error(f"Failed to install {mod.name}: {e}")
+        return False
+    finally:
+        if os.path.exists(tmp_archive):
+            os.remove(tmp_archive)
+        for p in (tmp_extract, staging):
+            if os.path.exists(p):
+                shutil.rmtree(p)
+
+
+def _smod_plugin_root(extract_root: str, mod: ModInfo) -> "tuple[str, str] | None":
+    """Locate the UE plugin inside an extracted .smod and decide where it installs, mirroring
+    ficsit-cli. Returns (target_subfolder, plugin_root_dir): the Mods/ subfolder — the ModReference,
+    or "GameFeatures/<ModRef>" when the `.uplugin` sets `GameFeature: true` (the game/SML scan both
+    roots) — and the directory that actually holds the plugin's loose files (the archive root, or a
+    wrapper dir if the .smod nested one). The ModReference is the `.uplugin` filename stem, which is
+    what the folder MUST be named to load. Returns None when the archive has no `.uplugin` anywhere
+    (a malformed .smod we refuse rather than silently mis-install). os.walk is top-down so a uplugin
+    at the archive root wins over any nested one."""
+    found = None
+    for root, _dirs, files in os.walk(extract_root):
+        for fn in files:
+            rel = os.path.relpath(os.path.join(root, fn), extract_root)
+            if fn.lower().endswith(".uplugin") and not _is_archive_junk(rel):
+                found = (root, fn)
+                break
+        if found:
+            break
+    if not found:
+        return None
+    plugin_root, uplugin = found
+    ref = _safe_folder_name(uplugin[: -len(".uplugin")]) or _safe_folder_name(mod.filename)
+    game_feature = False
+    try:
+        # UE writes UTF-8; some .uplugin files carry a BOM — utf-8-sig handles both and drops the
+        # locale dependency (a decode/parse failure would silently lose the GameFeature flag).
+        with open(os.path.join(plugin_root, uplugin), encoding="utf-8-sig") as f:
+            game_feature = bool(json.load(f).get("GameFeature", False))
+    except Exception as e:
+        decky.logger.warning(f"{mod.name}: could not read .uplugin GameFeature flag ({e}); using Mods/{ref}")
+    folder = os.path.join("GameFeatures", ref) if game_feature else ref
+    return folder, plugin_root
+
+
+async def _install_mod_zip_smod(game: GameProfile, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
+    """Install a Satisfactory mod (.smod) — an SML/UE plugin. The .smod is a zip of the plugin's
+    loose files (<ModRef>.uplugin, Content/, Binaries/Win64/, …); it's extracted into one folder
+    under FactoryGame/Mods/, named for the mod's ModReference (or Mods/GameFeatures/<ModRef>/ when the
+    uplugin sets GameFeature). Reuses the folder-per-mod machinery (NMS): one tracked top folder,
+    move-out disable (SML scans Mods/ + Mods/GameFeatures/, so a disabled mod must leave those roots),
+    uninstall removes both forms. See _folder_commit / _smod_plugin_root."""
+    import shutil
+    tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_tmp.smod")
+    tmp_extract = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_extract")
+    staging = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_smod_staging")
+    for p in (tmp_extract, staging):
+        if os.path.exists(p):
+            shutil.rmtree(p)
+    # Previous install's tracked folder — retired inside the commit transaction (not before the
+    # download), so a dead link or cancel can't destroy the old install before the new one is ready.
+    old_paths = (_load_store().get(mod.id) or {}).get("paths") or []
+    try:
+        decky.logger.info(f"Downloading {mod.name} from {url}")
+        await utils.download(url, tmp_archive, game.appid)
+        extract_archive(tmp_archive, tmp_extract)   # .smod is a PK zip
+        target = _smod_plugin_root(tmp_extract, mod)
+        if target is None:
+            decky.logger.error(f"{mod.name}: .smod contained no .uplugin — refusing to install")
+            return False
+        folder, plugin_root = target
+        # plugin_root is where the loose plugin files actually live (archive root, or a wrapper dir);
+        # passing it as extract_root lands them directly under Mods/<folder>/, never nested.
+        return _folder_commit(install_dir, mods_path, plugin_root, staging, mod, version, old_paths, folder=folder)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
         return None
@@ -2049,8 +2139,8 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
                 cands = [full, full + ".disabled"]
                 if install_type == "zip_smapi":
                     cands.append(_dotprefix_disabled(full))
-                if install_type == "zip_folder":
-                    cands.append(_zipfolder_disabled_path(install_dir, relpath))  # a disabled mod is parked outside MODS/
+                if install_type in ("zip_folder", "zip_smod"):
+                    cands.append(_zipfolder_disabled_path(install_dir, relpath))  # a disabled mod is parked outside the scan roots
                 for cand in cands:
                     if os.path.isdir(cand):
                         shutil.rmtree(cand)
@@ -2245,10 +2335,11 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
             decky.logger.error(f"Failed to toggle {mod_id}: {e}")
             return False
 
-    if install_type == "zip_folder":
-        # Folder-per-mod data mod (NMS): the game scans GAMEDATA/MODS/ RECURSIVELY (device-confirmed),
-        # so an in-place rename does NOT hide a mod. Disabling MOVES each tracked folder out of MODS/
-        # into a game-root staging dir; enabling moves it back.
+    if install_type in ("zip_folder", "zip_smod"):
+        # Folder-per-mod mod (NMS GAMEDATA/MODS/; Satisfactory FactoryGame/Mods/ + Mods/GameFeatures/):
+        # the loader discovers any plugin folder under its scan roots, so an in-place `.disabled`
+        # rename does NOT hide a mod (the .uplugin inside is still found). Disabling MOVES each tracked
+        # folder out into a game-root staging dir (outside the scan roots); enabling moves it back.
         import shutil
         paths = record.get("paths") or []
         moved = 0

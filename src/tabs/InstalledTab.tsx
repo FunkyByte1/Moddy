@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef, FC } from 'react';
 
 import {
   GameStatus, ModInfo, ModUpdate,
-  installMod, installThunderstoreMod, uninstallMod, toggleMod,
+  installMod, installThunderstoreMod, enqueueFicsit, uninstallMod, toggleMod,
   getModReleases, getBackedUpVersions, deleteModVersion, getBrowseDenylist,
 } from '../types';
 import { useQueueFooterProps } from '../components/DownloadQueueModal';
@@ -99,17 +99,25 @@ const InstalledTab: FC<{
   const selectedEntry = modEntries[Math.min(selectedIndex, modEntries.length - 1)];
 
 
-  // Version changes / updates re-download through the Thunderstore install path
-  // (the only catalog with versioned releases surfaced here).
+  // Version changes / updates re-download through the right backend. ficsit (Satisfactory) installs
+  // always fetch the latest via the background queue (no version pinning), so they route to
+  // enqueueFicsit and return null — handlers treat null as "in-flight", refreshing while the queue +
+  // ModPage queue-watcher report the real outcome. Everything else uses the Thunderstore path (the
+  // only other catalog with versioned releases surfaced here).
   const installVersion = (id: string, version: string | null) =>
-    installThunderstoreMod(game.appid, id, version);
+    id.toLowerCase().startsWith('ficsit.')
+      ? enqueueFicsit(game.appid, id, metaName(id), null).then(() => null)
+      : installThunderstoreMod(game.appid, id, version);
 
-  // Install a missing dependency through the right backend: Workshop deps subscribe via
-  // installMod (synthetic ids), Thunderstore deps download via installThunderstoreMod.
+  // Install a missing dependency through the right backend: Workshop deps subscribe via installMod
+  // (synthetic ids), ficsit deps enqueue via enqueueFicsit, Thunderstore deps download via
+  // installThunderstoreMod.
   const installDep = (id: string) =>
     /^workshop\.\d+\.\d+$/.test(id)
       ? installMod(game.appid, id, null)
-      : installThunderstoreMod(game.appid, id, null);
+      : id.toLowerCase().startsWith('ficsit.')
+        ? enqueueFicsit(game.appid, id, metaName(id), null).then(() => null)
+        : installThunderstoreMod(game.appid, id, null);
 
   // Library mods nothing installed relies on anymore. Surfaced as an on-demand cleanup chip rather
   // than auto-prompted after every removal — removing a mod no longer interrupts with an orphan modal.

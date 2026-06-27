@@ -7,16 +7,17 @@ import decky
 
 @dataclass
 class ModSource:
-    type: str          # "github" | "github_source" | "thunderstore" | "url" | "steamworkshop" | "nexus" | "setup"
+    type: str          # "github" | "github_source" | "thunderstore" | "url" | "steamworkshop" | "nexus" | "setup" | "ficsit"
     owner: str = ""    # GitHub owner / Thunderstore author
     repo: str = ""     # GitHub repo / Thunderstore package name
     asset: str = ""    # Asset filename to download (for type="github")
     branch: str = "main"  # Branch to download (for type="github_source")
     url: str = ""      # Direct URL (for type="url")
-    install_type: str = "file"  # "file" | "zip_dir" | "zip_flat" | "zip_folder" | "zip_natives" | "zip_nativepc" | "zip_smapi" | "zip_into_game" | "steamworkshop" | "smapi_installer"
+    install_type: str = "file"  # "file" | "zip_dir" | "zip_flat" | "zip_folder" | "zip_smod" | "zip_natives" | "zip_nativepc" | "zip_smapi" | "zip_into_game" | "steamworkshop" | "smapi_installer"
     workshop_id: str = ""  # Steam Workshop published file id (for type="steamworkshop")
     nexus_domain: str = ""  # Nexus game domain slug, e.g. "slimerancher2" (for type="nexus")
     mod_id: str = ""        # Nexus mod id (for type="nexus"); file_id is resolved at install time
+    mod_reference: str = ""  # ficsit.app mod_reference, e.g. "SML"/"RefinedPower" (for type="ficsit"); version id is resolved at install time
 
 
 @dataclass
@@ -110,6 +111,7 @@ def _parse_source(s: dict) -> ModSource:
         workshop_id=str(s.get("workshop_id", "")),
         nexus_domain=s.get("nexus_domain", ""),
         mod_id=str(s.get("mod_id", "")),
+        mod_reference=s.get("mod_reference", ""),
     )
 
 

@@ -14,6 +14,7 @@ import github
 import thunderstore
 import bmi
 import nexus
+import ficsit
 # Imported as `settings` for readability, but the file is app_settings.py: a bare module
 # named `settings` collides with decky_loader's own `settings` module (which wins on the
 # import path), so `import settings` would silently resolve to the wrong module.
@@ -257,6 +258,13 @@ class Plugin:
         installed = modloaders.get_modloader_version(ml.id)
         if not installed:
             return None
+        if ml.source.type == "ficsit":
+            # SML is itself a ficsit mod; check its latest version (it commonly needs updating right
+            # after a Satisfactory game update, which breaks the old loader).
+            latest = ficsit.get_latest(ml.source.mod_reference)
+            if not latest or latest["version"] == installed:
+                return None
+            return {"installed": installed, "latest": latest["version"]}
         if ml.source.type != "github":
             return None
         latest = github.get_latest_release(ml.source.owner, ml.source.repo)
@@ -375,6 +383,11 @@ class Plugin:
                 if not nexus_domain or not nexus_mod_id:
                     continue
                 latest = nexus.get_latest(nexus_domain, nexus_mod_id)
+            elif source_type == "ficsit":
+                mod_reference = source.get("mod_reference", "")
+                if not mod_reference:
+                    continue
+                latest = ficsit.get_latest(mod_reference)
             else:
                 continue
             if latest and latest["version"] != installed_version:
@@ -714,6 +727,58 @@ class Plugin:
             installed.append(spec.mod.id)
         return res
 
+    # ── ficsit.app (Satisfactory) catalog ──────────────────────────────────────
+    async def get_ficsit_catalog(self, appid: int, query: str = "", page: int = 1,
+                                 sort: str = ficsit.DEFAULT_SORT) -> list:
+        """A page (~25 items) of the ficsit.app catalog for a game whose Browse source is ficsit
+        (Satisfactory), searched server-side by `query` via the anonymous GraphQL API (no API key).
+        Returns [] for non-ficsit games or on error. The Satisfactory Mod Loader (SML) is filtered
+        out — it's installed via the Mod Loader tab, and every mod declares it as a dependency."""
+        game = registry.get_game_by_appid(appid)
+        if not game or game.catalog.get("type") != "ficsit":
+            return []
+        results = ficsit.search(query, page, sort)
+        deny = self._ficsit_browse_denylist()
+        return [it for it in results if it.get("full_name", "").lower() not in deny]
+
+    async def install_ficsit_mod(self, appid: int, full_name: str, version: str | None = None,
+                                 installed: "list | None" = None):
+        """Install a ficsit mod by its `ficsit.<mod_reference>` catalog id, recursively installing its
+        (non-loader, non-optional) ficsit dependencies first via the shared cascade. SML — every mod's
+        dependency — is skipped (managed by the modloader system). Returns True=success, False=failed,
+        None=cancelled. `installed` collects the ids freshly installed this run (the queue passes the
+        job's list so a cancel/failure rolls them back)."""
+        game = registry.get_game_by_appid(appid)
+        if not game or game.catalog.get("type") != "ficsit":
+            return False
+        install_dir = steam.find_game_install_dir(appid)
+        if not install_dir:
+            return False
+        ref = ficsit.parse_id(full_name)
+        if not ref:
+            decky.logger.error(f"Bad ficsit install id: {full_name}")
+            return False
+        if installed is None:
+            installed = []
+        provider = install_cascade.FicsitProvider(self._ficsit_browse_denylist())
+        res = await install_cascade.run_cascade(
+            provider, game, install_dir, ref, version, seen=set(), installed=installed, top=True,
+        )
+        if (res is None or res is False) and installed:
+            await self._rollback_installs(game, install_dir, installed)
+        return res
+
+    def _ficsit_browse_denylist(self) -> set[str]:
+        """Lowercase ficsit install ids (ficsit.<mod_reference>) to keep out of Browse and the
+        dependency cascade: every game's ficsit-sourced modloader (Satisfactory's SML), derived from
+        the registry so a newly-added ficsit loader is hidden automatically (no second place to update)."""
+        ids: set[str] = set()
+        for g in registry.SUPPORTED_GAMES:
+            for ml in g.modloaders:
+                if ml.source.type == "ficsit" and ml.source.mod_reference:
+                    ids.add(f"ficsit.{ml.source.mod_reference}".lower())
+        return ids
+
     # ── Plugin settings (account-global; e.g. the Nexus API key) ───────────────
     async def get_setting(self, key: str):
         return settings.get_setting(key)
@@ -855,7 +920,8 @@ class Plugin:
         Implicit deps are unioned in only here, NOT into _BROWSE_DENYLIST: that set is what the
         install cascade uses to *skip* installs, and the modloader cores must still get installed."""
         implicit = {dep.lower() for g in registry.SUPPORTED_GAMES for dep in g.implicit_deps}
-        return sorted(self._BROWSE_DENYLIST | self._nexus_browse_denylist() | implicit)
+        return sorted(self._BROWSE_DENYLIST | self._nexus_browse_denylist()
+                      | self._ficsit_browse_denylist() | implicit)
 
     async def get_unresolved_dependencies(self, appid: int, full_name: str, with_deps: bool = True) -> list:
         """Declared dependencies of `full_name` that aren't in the catalog (so they can't be
@@ -1137,6 +1203,17 @@ class Plugin:
             # captured at enqueue) so it works even if the install dir wasn't known when enqueued.
             rollback=lambda job: self._rollback_job(appid, job.installed),
             cleanup=(lambda: mods.discard_natives_cache(f"nexus-{mod_id}")) if mod_id else None,
+        )
+
+    async def enqueue_ficsit(self, appid: int, full_name: str, name: str,
+                             version: str | None = None) -> int:
+        """Queue a ficsit (Satisfactory) install. Like Nexus it cascades dependencies server-side;
+        unlike Nexus there's no Premium gate or variant prompt, so the run is a plain install whose
+        freshly-placed ids the queue rolls back on cancel/failure."""
+        return await download_queue.enqueue(
+            appid, name or full_name, full_name, "ficsit",
+            run=lambda job: self.install_ficsit_mod(appid, full_name, version, installed=job.installed),
+            rollback=lambda job: self._rollback_job(appid, job.installed),
         )
 
     async def _rollback_job(self, appid: int, ids: list) -> None:

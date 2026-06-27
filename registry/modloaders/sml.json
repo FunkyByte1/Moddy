@@ -1,0 +1,7 @@
+{
+  "id": "sml",
+  "name": "Satisfactory Mod Loader",
+  "dirs": ["FactoryGame/Mods/SML"],
+  "indicator": "FactoryGame/Mods/SML",
+  "source": { "type": "ficsit", "mod_reference": "SML", "install_type": "zip_smod" }
+}

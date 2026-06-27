@@ -14,6 +14,7 @@ import BrowsePagedTab from './tabs/browse/BrowsePagedTab';
 import { nexusAdapter } from './tabs/browse/nexusAdapter';
 import { workshopAdapter } from './tabs/browse/workshopAdapter';
 import { thunderstoreAdapter, bmiAdapter } from './tabs/browse/catalogAdapter';
+import { ficsitAdapter } from './tabs/browse/ficsitAdapter';
 import OptionsModal from './components/modals/OptionsModal';
 import VanillaView from './components/VanillaView';
 import ModLoaderModal from './components/modals/ModLoaderModal';
@@ -492,7 +493,7 @@ const ModPage: FC = () => {
     },
     // Thunderstore/BMI Browse: the whole catalog, client-paged through the shared paged tab (its
     // adapter caches + filters + slices the catalog; the list is not virtualized).
-    ...(game.catalog_type && game.catalog_type !== 'nexus' ? [{
+    ...(game.catalog_type && game.catalog_type !== 'nexus' && game.catalog_type !== 'ficsit' ? [{
       id: 'browse',
       title: 'Browse',
       content: (
@@ -534,6 +535,20 @@ const ModPage: FC = () => {
         onMenuActionDescription: 'Options',
         onSecondaryButton: handleNexusFilterMenu,
         onSecondaryActionDescription: 'Filter',
+      },
+    }] : []),
+    // ficsit.app (Satisfactory): server-paginated like Nexus, but anonymous + no NSFW/sort filter
+    // (v1), so it renders filter-less like the Workshop tab.
+    ...(game.catalog_type === 'ficsit' ? [{
+      id: 'browse',
+      title: 'Browse',
+      content: (
+        <BrowsePagedTab adapter={ficsitAdapter} game={game} onRefresh={refresh} />
+      ),
+      footer: {
+        ...queueFooter,
+        onMenuButton: handleOptionsMenu,
+        onMenuActionDescription: 'Options',
       },
     }] : []),
     ...(game.modloader === 'steamworkshop' ? [{
