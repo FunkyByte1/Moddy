@@ -23,165 +23,23 @@ import utils
 import steamworkshop_browse
 import download_queue
 import install_cascade
+import plugin_game_status
+import plugin_install_denylists
+import plugin_install_common
+import plugin_nexus_install
+import plugin_thunderstore_install
+import plugin_ficsit_install
+import plugin_frameworks
+import plugin_game_lifecycle
+import plugin_diagnostics
 
-
-def _catalog_for_game(game: "registry.GameProfile") -> list[dict]:
-    """The Browse catalog backing a game (BMI or Thunderstore), or [] if none / on error.
-    Served from the same on-disk cache the Browse tab uses, so this is cheap to reuse."""
-    try:
-        if game.catalog.get("type") == "bmi" and game.catalog.get("repo"):
-            return bmi.get_bmi_catalog(game.catalog["repo"], game.catalog.get("branch", "main"))
-        if game.thunderstore_community:
-            return thunderstore.get_community_catalog(game.thunderstore_community)
-    except Exception as e:
-        decky.logger.warning(f"Could not load catalog for {game.id}: {e}")
-    return []
-
-
-def _cached_catalog_for_game(game: "registry.GameProfile") -> "list[dict] | None":
-    """The game's Browse catalog from cache ONLY — never fetches. None when not yet cached, so
-    the status path can skip library classification and warm the catalog in the background instead
-    of blocking on a multi-second network fetch (the cause of the ModPage blank-page wait)."""
-    try:
-        if game.catalog.get("type") == "bmi" and game.catalog.get("repo"):
-            return bmi.get_cached_bmi_catalog(game.catalog["repo"], game.catalog.get("branch", "main"))
-        if game.thunderstore_community:
-            return thunderstore.get_cached_community_catalog(game.thunderstore_community)
-    except Exception as e:
-        decky.logger.warning(f"Could not load cached catalog for {game.id}: {e}")
-    return None
-
-
-def _library_full_names(packages: "list[dict]", lib_cats: list[str]) -> set[str]:
-    """Lowercased catalog full_names whose categories mark them as libraries."""
-    if not lib_cats:
-        return set()
-    lib_set = {c.lower() for c in lib_cats}
-    names: set[str] = set()
-    for p in packages:
-        if any(c.lower() in lib_set for c in p.get("categories", [])):
-            names.add(p.get("full_name", "").lower())
-    names.discard("")
-    return names
-
-
-# Catalogs currently being warmed in the background (keyed by community / repo), so repeated
-# status calls for the same game don't stack duplicate fetches.
-_warming_catalogs: "set[str]" = set()
-
-
-def _schedule_catalog_warm(game: "registry.GameProfile") -> None:
-    """Fetch a game's Browse catalog in the background (off the event loop), then emit
-    `game_status_stale` so the UI re-pulls and library mods get classified. Used by the
-    status path when the catalog isn't cached yet, to keep that path instant. Deduped per
-    catalog. No-op if there's no running loop (shouldn't happen — callers are async handlers)."""
-    key = game.thunderstore_community or game.catalog.get("repo") or game.id
-    if key in _warming_catalogs:
-        return
-    _warming_catalogs.add(key)
-
-    async def _run() -> None:
-        try:
-            await asyncio.to_thread(_catalog_for_game, game)
-        except Exception as e:  # noqa: BLE001 — a failed warm just leaves mods unclassified
-            decky.logger.warning(f"Background catalog warm failed for {game.id}: {e}")
-        finally:
-            _warming_catalogs.discard(key)
-        try:
-            await decky.emit("game_status_stale", game.appid)
-        except Exception:  # noqa: BLE001
-            pass
-
-    try:
-        asyncio.create_task(_run())
-    except RuntimeError:
-        _warming_catalogs.discard(key)
-
-
-def _build_game_status(game: "registry.GameProfile", libraries: "list[str] | None" = None,
-                       *, blocking_catalog: bool = True) -> dict:
-    """Build the install/mod-status dict for one supported game. Pass `libraries` (a
-    pre-parsed Steam library list) when building many games at once so libraryfolders.vdf
-    is read once for the whole batch rather than once per game.
-
-    With `blocking_catalog=False` the library classification reads the Browse catalog from
-    cache only (never fetching), so the call can't block on the network — installed mods come
-    back unclassified if the catalog isn't cached yet. The latency-sensitive single-game status
-    path uses this and warms the catalog out-of-band; the full-list path keeps the fetch."""
-    install_dir = steam.find_game_install_dir(game.appid, libraries)
-
-    # Use the first modloader defined for the game
-    ml = game.modloaders[0] if game.modloaders else None
-    ml_id = ml.id if ml else None
-
-    modloader_installed = bool(
-        install_dir and ml_id and
-        modloaders.is_modloader_installed(game, install_dir, ml_id)
-    )
-    modloader_enabled = bool(
-        install_dir and ml_id and
-        modloaders.is_modloader_enabled(game, install_dir, ml_id)
-    )
-    modloader_ready = bool(
-        install_dir and ml_id and
-        modloaders.is_modloader_ready(game, install_dir, ml_id)
-    )
-    installed_mods_list = mods.get_installed_mods(game, install_dir) if install_dir else []
-
-    # Flag library mods so the UI can hide them from the mod lists by default.
-    # A mod is a library if its catalog entry carries a library category
-    # ("Libraries" on Thunderstore, "API" on BMI) or it's a declared framework
-    # (Steamodded, Talisman) — both are infrastructure for other mods, not things
-    # users browse for directly. The catalog lookup is skipped when there are no
-    # installed mods to classify, so it never runs for unmodded games.
-    lib_cats = registry.library_categories(game)
-    framework_ids = {fw.get("id", k).lower() for k, fw in game.frameworks.items()}
-    if installed_mods_list and lib_cats:
-        packages = _catalog_for_game(game) if blocking_catalog else _cached_catalog_for_game(game)
-    else:
-        packages = []
-    lib_names = _library_full_names(packages or [], lib_cats)
-    # Nexus has no library categories, so library Nexus mods are listed per game (catalog.library_ids).
-    nexus_lib_ids = registry.nexus_library_ids(game)
-    workshop = game.uses_steam_workshop()
-    for im in installed_mods_list:
-        # Workshop mods carry is_library on their record (from the game's
-        # library_workshop_ids); don't clobber it with catalog logic.
-        if workshop:
-            continue
-        idl = im["id"].lower()
-        im["is_library"] = idl in lib_names or idl in framework_ids or idl in nexus_lib_ids
-
-    return {
-        "id": game.id,
-        "name": game.name,
-        "appid": game.appid,
-        "modloader": ml_id or "",
-        "modloader_name": ml.name if ml else "",
-        "modloader_launch_options": ml.launch_options if ml else "",
-        "modloader_needs_first_launch": bool(ml and ml.ready_indicator),
-        # Frameworks bundled with the loader (e.g. Steamodded) — shown on the Mod Loader tab.
-        "modloader_bundled": [fw.get("name", k) for k, fw in game.bundled_frameworks()],
-        "thunderstore_community": game.thunderstore_community,
-        # Which Browse catalog backs this game: "bmi", "thunderstore", "nexus", or "" (Steam Workshop).
-        "catalog_type": game.catalog.get("type") or ("thunderstore" if game.thunderstore_community else ""),
-        # Catalog categories the UI treats as "library" (hidden by default).
-        "library_categories": lib_cats,
-        "installed": install_dir is not None,
-        "install_dir": install_dir or "",
-        "modloader_installed": modloader_installed,
-        "modloader_enabled": modloader_enabled,
-        "modloader_ready": modloader_ready,
-        # Games with a native Linux build whose Windows-built mods only load under Proton. When
-        # set, the UI shows a "force Proton" prompt unless a compat tool is already configured.
-        # current_compat_tool is only read (config.vdf) for these games, never for the whole list.
-        "requires_proton": game.requires_proton,
-        "current_compat_tool": steam.get_compat_tool(game.appid) if game.requires_proton else "",
-        "installed_mods": installed_mods_list,
-        # In "vanilla" (play-unmodded) mode every mod + the modloader are toggled off but kept on
-        # disk; the UI shows a banner and offers a one-tap switch back.
-        "vanilla": mods.is_game_vanilla(game.appid),
-    }
+# Re-export the moved game-status helpers so existing `main._build_game_status(...)` call sites
+# (and tests) keep resolving after the verbatim move into plugin_game_status.
+_build_game_status = plugin_game_status._build_game_status
+_catalog_for_game = plugin_game_status._catalog_for_game
+_cached_catalog_for_game = plugin_game_status._cached_catalog_for_game
+_library_full_names = plugin_game_status._library_full_names
+_schedule_catalog_warm = plugin_game_status._schedule_catalog_warm
 
 
 class Plugin:
@@ -194,7 +52,7 @@ class Plugin:
         """Return all supported games with current install and mod status."""
         # Parse the Steam library list once for the whole batch instead of per game.
         libraries = steam.find_steam_libraries()
-        return [_build_game_status(game, libraries) for game in registry.SUPPORTED_GAMES]
+        return [plugin_game_status._build_game_status(game, libraries) for game in registry.SUPPORTED_GAMES]
 
     async def get_game_status(self, appid: int) -> dict | None:
         """Return install/mod status for a single supported game (or None if unsupported).
@@ -210,11 +68,11 @@ class Plugin:
         # page for seconds (notably RoR2's large Thunderstore catalog). If the catalog isn't cached
         # yet, classification is skipped now and warmed out-of-band; `game_status_stale` then tells
         # the UI to re-pull so library mods get hidden once it lands.
-        status = _build_game_status(game, blocking_catalog=False)
+        status = plugin_game_status._build_game_status(game, blocking_catalog=False)
         if (status["installed"] and status["installed_mods"]
                 and registry.library_categories(game)
-                and _cached_catalog_for_game(game) is None):
-            _schedule_catalog_warm(game)
+                and plugin_game_status._cached_catalog_for_game(game) is None):
+            plugin_game_status._schedule_catalog_warm(game)
         return status
 
     async def install_modloader(self, appid: int, version: str | None = None) -> "bool | str":
@@ -231,7 +89,7 @@ class Plugin:
             # Bundled frameworks (e.g. Steamodded) ship with the loader since nearly every
             # mod needs them. Best-effort: a framework hiccup doesn't fail the loader install.
             for key, _fw in game.bundled_frameworks():
-                await self._ensure_framework(game, install_dir, key)
+                await plugin_frameworks.ensure_framework(game, install_dir, key)
         return ok
 
     async def get_modloader_version(self, appid: int) -> str | None:
@@ -530,9 +388,9 @@ class Plugin:
         # Frameworks first (best-effort — a framework failure is logged but doesn't abort
         # the mod install, matching the Thunderstore dependency behaviour).
         if item.get("requires_steamodded"):
-            await self._ensure_framework(game, install_dir, "steamodded")
+            await plugin_frameworks.ensure_framework(game, install_dir, "steamodded")
         if item.get("requires_talisman"):
-            await self._ensure_framework(game, install_dir, "talisman")
+            await plugin_frameworks.ensure_framework(game, install_dir, "talisman")
 
         latest = item.get("latest", {})
         url = latest.get("download_url")
@@ -576,7 +434,7 @@ class Plugin:
         if include_adult is None:
             include_adult = bool(settings.get_setting("nexus_include_adult", False))
         results = nexus.search(domain, query, page, bool(include_adult), sort)
-        deny = self._nexus_browse_denylist()
+        deny = plugin_install_denylists.nexus_browse_denylist()
         lib_ids = registry.nexus_library_ids(game)
         out = []
         for it in results:
@@ -599,67 +457,7 @@ class Plugin:
         {"needs_variant": True, "variants": [...]} so the UI can ask which to install.
         `installed` collects the ids freshly installed this run (the queue passes the job's list so
         a parked-then-cancelled install can be rolled back); a cancel/failure rolls it back here."""
-        game = registry.get_game_by_appid(appid)
-        if not game or game.catalog.get("type") != "nexus":
-            return False
-        install_dir = steam.find_game_install_dir(appid)
-        if not install_dir:
-            return False
-        parsed = nexus.parse_id(full_name)
-        if not parsed:
-            decky.logger.error(f"Bad Nexus install id: {full_name}")
-            return False
-        domain, mod_id = parsed
-        if installed is None:
-            installed = []
-
-        # Multi-file picker (SMAPI / Stardew AND Palworld): a Nexus page can list several installable
-        # files — alternate versions, platform variants (Steam vs GamePass/Xbox/Epic), or optional
-        # add-ons. The `variant` channel carries the user's pick (comma-joined file ids from the
-        # checklist). For Palworld most popular mods are multi-file (x2/x5/x10 tiers, Steam/GamePass),
-        # so picking is the norm; non-Steam-platform files are dropped first (the Deck runs the Steam
-        # build, so a GamePass io-store pak won't load), which also auto-resolves a Steam/GamePass pair
-        # to the single Steam file. (RE4/MHW archive-payload variants use zip_natives — they have no
-        # selectable_files step and flow through the cascade below.)
-        install_type = game.catalog.get("install_type")
-        if install_type in ("zip_smapi", "zip_palworld"):
-            if variant is None:
-                files = nexus.selectable_files(domain, mod_id)
-                if install_type == "zip_palworld":
-                    files = self._palworld_pick_files(files)
-                if len(files) > 1:
-                    return {
-                        "needs_variant": True,
-                        "multi_select": True,  # the UI shows a checklist, not a single-pick list
-                        "variants": [{"id": f["file_id"], "label": self._nexus_file_label(f)}
-                                     for f in files],
-                    }
-                if install_type == "zip_palworld" and len(files) == 1:
-                    variant = str(files[0]["file_id"])  # the single (Steam) file — install it, not "primary"
-                # else 0–1 files: nothing to choose — fall through to the normal cascade (is_primary picks).
-            if variant is not None:
-                file_ids = [x for x in variant.split(",") if x]
-                res = await self._install_nexus_multifile(
-                    game, install_dir, domain, mod_id, version, file_ids, seen=set(), installed=installed,
-                )
-                if (res is None or res is False) and installed:
-                    await self._rollback_installs(game, install_dir, installed)
-                return res
-
-        # No "N of M" pre-pass for Nexus: unlike Thunderstore's in-memory catalog, requirement
-        # resolution is an uncached GraphQL call, so a pre-pass would double those calls — and a
-        # rate-limited second call (the one that actually drives the cascade) could return nothing,
-        # silently skipping requirements. The per-package sub-label + percent still show.
-        res = await self._install_nexus_recursive(
-            game, install_dir, domain, mod_id, version, seen=set(), variant=variant, top=True,
-            installed=installed,
-        )
-        # Roll back on cancel (None) or failure (False) — but NOT when parking for a variant choice
-        # (a dict), which is resolved later. Requirements installed before the park are in
-        # `installed`, so a subsequent cancel-at-prompt still rolls them back (via the queue hook).
-        if (res is None or res is False) and installed:
-            await self._rollback_installs(game, install_dir, installed)
-        return res
+        return await plugin_nexus_install.install_nexus_mod(appid, full_name, version, variant, installed)
 
     async def _install_nexus_recursive(
         self,
@@ -677,10 +475,8 @@ class Plugin:
         cascade. Requirements install at latest; only the top-level mod honors an explicit version
         and variant. A failed requirement is best-effort (continue); a Premium-gated download aborts
         and surfaces "premium_required". Returns True/False/None/"premium_required"/needs-variant."""
-        provider = install_cascade.NexusProvider(self._nexus_browse_denylist())
-        return await install_cascade.run_cascade(
-            provider, game, install_dir, (domain, mod_id), version,
-            seen=seen, installed=installed, top=top, variant=variant,
+        return await plugin_nexus_install._install_nexus_recursive(
+            game, install_dir, domain, mod_id, version, seen, variant=variant, top=top, installed=installed,
         )
 
     async def _install_nexus_multifile(self, game, install_dir, domain, mod_id, version, file_ids, *,
@@ -690,97 +486,23 @@ class Plugin:
         the chosen files downloaded and placed together under the one mod id (e.g. Stardew Valley
         Expanded's main download + its optional alternate farm). Returns
         True/False/None/"premium_required"."""
-        provider = install_cascade.NexusProvider(self._nexus_browse_denylist())
-        ref = (domain, mod_id)
-        item = provider.find(game, ref)
-        if item is None:
-            return False
-        seen.add(provider.key(ref))  # a requirement that lists this mod back can't re-pull it
-
-        # 1) Requirements first (depth-first). Best-effort: a failed requirement warns but the mod
-        #    still installs (matches NexusProvider.deps_fatal=False).
-        for dep_ref, dep_label in provider.dep_refs(game, item, ref):
-            dep_res = await install_cascade.run_cascade(
-                provider, game, install_dir, dep_ref, None,
-                seen=seen, installed=installed, is_dependency=True,
-            )
-            if dep_res == install_cascade.PREMIUM_REQUIRED:
-                return install_cascade.PREMIUM_REQUIRED
-            if dep_res is None:
-                return None
-            if dep_res is False:
-                decky.logger.warning(f"Dependency {dep_label} did not install (continuing)")
-                await download_queue.note_warning(f"Couldn't install dependency: {dep_label}")
-
-        # 2) Resolve a download URL for each chosen file (Premium-gated like any Nexus download).
-        urls: list[str] = []
-        for fid in file_ids:
-            try:
-                url = nexus.get_download_url(domain, mod_id, fid)
-            except nexus.PremiumRequired:
-                return install_cascade.PREMIUM_REQUIRED
-            if url:
-                urls.append(url)
-        if not urls:
-            decky.logger.error(f"nexus.{domain}.{mod_id}: no downloadable files among {file_ids}")
-            return False
-
-        # 3) Reuse the provider to build the ModInfo (id/meta/recorded deps), then install all chosen
-        #    files combined into that one record.
-        spec = provider.build_install(game, item, ref, None)
-        if spec == install_cascade.PREMIUM_REQUIRED:
-            return install_cascade.PREMIUM_REQUIRED
-        if spec is None:
-            return False
-        was_fresh = not mods.installed_files_present(game, install_dir, provider.key(ref))
-        await download_queue.note_item(spec.mod.name)
-        if spec.mod.source.install_type == "zip_palworld":
-            res = await mods.install_palworld_files(game, install_dir, spec.mod, version or spec.version, urls)
-        else:
-            res = await mods.install_smapi_files(game, install_dir, spec.mod, version or spec.version, urls)
-        if res is True and was_fresh and installed is not None:
-            installed.append(spec.mod.id)
-        return res
-
-    # Nexus file names that mark a non-Steam platform build (the Deck runs the Steam version, so a
-    # GamePass/Xbox/Epic io-store pak won't load). Substring match, case-insensitive.
-    _PW_NON_STEAM_MARKERS = (
-        "game pass", "gamepass", "game-pass", "(xbox", "xbox app", "(epic", "epic games",
-        "io store", "io-store", "iostore", "(ms ", "(microsoft", "windows store", "(gp)", "(wsa",
-    )
-
-    @staticmethod
-    def _pw_is_iostore_version(f: dict) -> bool:
-        """A GamePass io-store build is often distinguished only by its VERSION, not its name —
-        e.g. DekMCM uploads `1.9` (Steam) and `1.9io` (GamePass) with the identical name "DekMCM".
-        Treat a version ending in `io` (or containing io-store) as GamePass so the Deck skips it."""
-        v = (f.get("version", "") or "").lower().replace(" ", "").replace("-", "").replace("_", "")
-        return v.endswith("io") or "iostore" in v
+        return await plugin_nexus_install._install_nexus_multifile(
+            game, install_dir, domain, mod_id, version, file_ids, seen=seen, installed=installed,
+        )
 
     def _palworld_pick_files(self, files: list) -> list:
         """Drop clearly-non-Steam-platform files from a Palworld mod's selectable list — by name
         marker (GamePass/Xbox/Epic) OR by an io-store version (`…io`). The Deck runs the Steam build,
         so those won't load; dropping them also auto-collapses a Steam/GamePass pair to the one Steam
         file (no picker). If filtering would remove everything, keep all (best-effort)."""
-        kept = [f for f in files
-                if not any(m in (f.get("name", "") or "").lower() for m in self._PW_NON_STEAM_MARKERS)
-                and not self._pw_is_iostore_version(f)]
-        return kept or files
+        return plugin_nexus_install.palworld_pick_files(files)
 
     @staticmethod
     def _nexus_file_label(f: dict) -> str:
         """Picker label for one selectable Nexus file: name + version (when the version isn't already
         in the name) + category/recommended flags. Surfacing the version disambiguates same-NAMED
         files (e.g. a mod's Steam vs GamePass uploads, or two tiers sharing a display name)."""
-        label = f.get("name", "") or ""
-        ver = (f.get("version", "") or "").strip()
-        if ver and ver.lower() not in label.lower():
-            label += f" (v{ver})"
-        if f.get("category") == "OPTIONAL":
-            label += " (optional)"
-        if f.get("is_primary"):
-            label += " — recommended"
-        return label
+        return plugin_nexus_install._nexus_file_label(f)
 
     # ── ficsit.app (Satisfactory) catalog ──────────────────────────────────────
     async def get_ficsit_catalog(self, appid: int, query: str = "", page: int = 1,
@@ -793,7 +515,7 @@ class Plugin:
         if not game or game.catalog.get("type") != "ficsit":
             return []
         results = ficsit.search(query, page, sort)
-        deny = self._ficsit_browse_denylist()
+        deny = plugin_install_denylists.ficsit_browse_denylist()
         return [it for it in results if it.get("full_name", "").lower() not in deny]
 
     async def install_ficsit_mod(self, appid: int, full_name: str, version: str | None = None,
@@ -803,36 +525,7 @@ class Plugin:
         dependency — is skipped (managed by the modloader system). Returns True=success, False=failed,
         None=cancelled. `installed` collects the ids freshly installed this run (the queue passes the
         job's list so a cancel/failure rolls them back)."""
-        game = registry.get_game_by_appid(appid)
-        if not game or game.catalog.get("type") != "ficsit":
-            return False
-        install_dir = steam.find_game_install_dir(appid)
-        if not install_dir:
-            return False
-        ref = ficsit.parse_id(full_name)
-        if not ref:
-            decky.logger.error(f"Bad ficsit install id: {full_name}")
-            return False
-        if installed is None:
-            installed = []
-        provider = install_cascade.FicsitProvider(self._ficsit_browse_denylist())
-        res = await install_cascade.run_cascade(
-            provider, game, install_dir, ref, version, seen=set(), installed=installed, top=True,
-        )
-        if (res is None or res is False) and installed:
-            await self._rollback_installs(game, install_dir, installed)
-        return res
-
-    def _ficsit_browse_denylist(self) -> set[str]:
-        """Lowercase ficsit install ids (ficsit.<mod_reference>) to keep out of Browse and the
-        dependency cascade: every game's ficsit-sourced modloader (Satisfactory's SML), derived from
-        the registry so a newly-added ficsit loader is hidden automatically (no second place to update)."""
-        ids: set[str] = set()
-        for g in registry.SUPPORTED_GAMES:
-            for ml in g.modloaders:
-                if ml.source.type == "ficsit" and ml.source.mod_reference:
-                    ids.add(f"ficsit.{ml.source.mod_reference}".lower())
-        return ids
+        return await plugin_ficsit_install.install_ficsit_mod(appid, full_name, version, installed)
 
     # ── Plugin settings (account-global; e.g. the Nexus API key) ───────────────
     async def get_setting(self, key: str):
@@ -848,125 +541,15 @@ class Plugin:
         into a browser upload), falling back to the user's home, and returns the full
         path. Deliberately excludes settings.json so the Nexus API key never leaves
         the device."""
-        import glob
-        import time
-        import zipfile
-        try:
-            log_dir = decky.DECKY_PLUGIN_LOG_DIR
-            home = getattr(decky, "DECKY_USER_HOME", None) or decky.HOME
-            desktop = os.path.join(home, "Desktop")
-            dest_dir = desktop if os.path.isdir(desktop) else home
-            ts = time.strftime("%Y%m%d-%H%M%S")
-            dest = os.path.join(dest_dir, f"moddy-logs-{ts}.zip")
-
-            # System info, so reports carry version/env without us having to ask for it.
-            info = [
-                f"Moddy {getattr(decky, 'DECKY_PLUGIN_VERSION', '?')}",
-                f"Decky {getattr(decky, 'DECKY_VERSION', '?')}",
-                f"Platform: {sys.platform}",
-                f"Exported: {ts}",
-                "",
-                "Supported games:",
-            ]
-            for game in registry.SUPPORTED_GAMES:
-                install_dir = steam.find_game_install_dir(game.appid)
-                state = "installed" if install_dir else "not installed"
-                info.append(f"  - {game.name} ({game.appid}): {state}")
-
-            log_files = [p for p in glob.glob(os.path.join(log_dir, "*")) if os.path.isfile(p)]
-            with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
-                zf.writestr("moddy-info.txt", "\n".join(info) + "\n")
-                for path in log_files:
-                    zf.write(path, arcname=os.path.join("logs", os.path.basename(path)))
-
-            decky.logger.info(f"Exported {len(log_files)} log file(s) to {dest}")
-            return dest
-        except Exception as e:
-            decky.logger.error(f"Log export failed: {e}")
-            return None
-
-    async def _ensure_framework(self, game: "registry.GameProfile", install_dir: str, key: str) -> bool:
-        """Install a framework mod (e.g. Steamodded, Talisman) into the Mods folder if it
-        isn't already present. Frameworks are declared per-game under `frameworks` in the
-        game JSON and downloaded as GitHub branch archives into Mods/<filename>/."""
-        fw = game.frameworks.get(key)
-        if not fw:
-            decky.logger.warning(f"No framework config '{key}' for {game.id}")
-            return False
-        fw_id = fw.get("id", key)
-        if mods.get_installed_record(fw_id) is not None:
-            return True  # already installed
-        src = fw.get("source", {})
-        owner, repo = src.get("owner", ""), src.get("repo", "")
-        if not owner or not repo:
-            decky.logger.warning(f"Framework '{key}' for {game.id} has no GitHub source")
-            return False
-        url = github.get_source_url(owner, repo, src.get("branch", "main"))
-        mod = registry.ModInfo(
-            id=fw_id,
-            name=fw.get("name", key),
-            description=fw.get("description", ""),
-            filename=fw.get("filename", fw_id),
-            source=registry.ModSource(type="url", url=url, install_type="zip_dir"),
-            author=owner,
-            homepage=f"https://github.com/{owner}/{repo}",
-            modloader=game.modloaders[0].id if game.modloaders else "",
-        )
-        decky.logger.info(f"Installing framework {fw.get('name', key)} for {game.id}")
-        return bool(await mods.install_mod(game, install_dir, mod, version="latest", url=url))
+        return await plugin_diagnostics.export_logs()
 
     # Thunderstore packages that should never be installed as plugins via Browse —
     # modloaders (already provided by Mod Loader tab) and desktop mod-manager apps.
     # Case-insensitive comparison. Frontend uses get_browse_denylist() to keep these
-    # off the Browse list too.
-    _BROWSE_DENYLIST = {
-        "bbepis-bepinexpack",
-        "riskofthunder-bepinexpack",
-        "bepinex-bepinexpack_peak",  # PEAK modloader — installed via the Mod Loader tab, not as a plugin
-        "bepinex-bepinexpack_etg",  # Enter the Gungeon modloader — installed via the Mod Loader tab, not as a plugin
-        "denikson-bepinexpack_valheim",  # Valheim modloader — installed via the Mod Loader tab; mods declare it as a dep
-        "bepinex-bepinexpack_rounds",  # ROUNDS modloader — installed via the Mod Loader tab; mods declare it as a dep
-        "ebkr-r2modman",
-        "kesomannen-galemodmanager",
-        "thunderstore-lovely",  # Balatro injector — installed via the Mod Loader tab, not as a Mods/ plugin
-    }
-
-    # Nexus mods (by `nexus.<domain>.<mod_id>` install id, lowercase) that are tools/managers or
-    # loaders, not game content — never install them as a requirement, and hide them from Browse.
-    # Nexus-sourced modloaders (e.g. MHW's Stracker's Loader) are added automatically from the
-    # registry by _nexus_browse_denylist(); only list loaders/tools that AREN'T a registered Nexus
-    # modloader here (e.g. a loader distributed off-Nexus but mirrored on it).
-    _NEXUS_DENYLIST = {
-        "nexus.residentevil42023.14",  # Fluffy Mod Manager (desktop app, not an in-game mod)
-        "nexus.residentevil42023.12",  # REFramework — installed via the Mod Loader tab (GitHub
-                                       # source), but also mirrored on Nexus, so hide that listing
-        "nexus.monsterhunterrise.7",   # Fluffy Mod Manager 5000 (desktop app, not an in-game mod)
-        "nexus.monsterhunterrise.26",  # REFramework — installed via the Mod Loader tab (GitHub
-                                       # source), but also mirrored on Nexus, so hide that listing
-        "nexus.monsterhunterrise.181", # HunterPie v2 — external .NET overlay app, not an in-game
-                                       # mod; runs as a separate process (Moddy can't install/run it)
-        "nexus.stardewvalley.2400",    # SMAPI — installed via the Mod Loader tab (GitHub source), but
-                                       # also mirrored on Nexus where ~every mod lists it as a required
-                                       # mod; hide that listing and skip it as a dependency (it has no
-                                       # manifest.json, so zip_smapi would reject it anyway)
-        "nexus.site.818",              # Fluffy Mod Manager 5000 (site-wide Nexus listing some mods require)
-        "nexus.palworld.1121",         # UE4SS Prepackaged — the loader, installed via the Mod Loader
-                                       # tab (GitHub Okaetsu/RE-UE4SS), also listed on Nexus; hide it
-        "nexus.palworld.3405",         # RE-UE4SS (Experimental) Linux — same loader, another listing
-    }
-
-    def _nexus_browse_denylist(self) -> set[str]:
-        """The full set of Nexus install ids (nexus.<domain>.<mod_id>, lowercase) to keep out of
-        Browse AND out of the dependency cascade: the hand-curated _NEXUS_DENYLIST plus every game's
-        Nexus-sourced modloader, derived from the registry so a newly-added Nexus modloader is hidden
-        automatically (no second place to update)."""
-        ids = set(self._NEXUS_DENYLIST)
-        for g in registry.SUPPORTED_GAMES:
-            for ml in g.modloaders:
-                s = ml.source
-                if s.type == "nexus" and s.nexus_domain and s.mod_id:
-                    ids.add(f"nexus.{s.nexus_domain}.{s.mod_id}".lower())
-        return ids
+    # off the Browse list too. The canonical set lives in plugin_install_denylists; this class
+    # attribute aliases it so tests can instance-shadow it (self._BROWSE_DENYLIST = ...) and the
+    # thunderstore cascade delegators read self._BROWSE_DENYLIST.
+    _BROWSE_DENYLIST = plugin_install_denylists._BROWSE_DENYLIST
 
     async def get_browse_denylist(self) -> list[str]:
         """Lowercase install ids the UI should treat as 'not a real dependency' — modloaders,
@@ -978,8 +561,8 @@ class Plugin:
         Implicit deps are unioned in only here, NOT into _BROWSE_DENYLIST: that set is what the
         install cascade uses to *skip* installs, and the modloader cores must still get installed."""
         implicit = {dep.lower() for g in registry.SUPPORTED_GAMES for dep in g.implicit_deps}
-        return sorted(self._BROWSE_DENYLIST | self._nexus_browse_denylist()
-                      | self._ficsit_browse_denylist() | implicit)
+        return sorted(self._BROWSE_DENYLIST | plugin_install_denylists.nexus_browse_denylist()
+                      | plugin_install_denylists.ficsit_browse_denylist() | implicit)
 
     async def get_unresolved_dependencies(self, appid: int, full_name: str, with_deps: bool = True) -> list:
         """Declared dependencies of `full_name` that aren't in the catalog (so they can't be
@@ -990,12 +573,14 @@ class Plugin:
         if not game or not game.thunderstore_community:
             return []
         unresolved: list[str] = []
-        self._resolve_thunderstore_plan(game, full_name, None, with_deps, set(), [], unresolved)
+        plugin_thunderstore_install._resolve_thunderstore_plan(
+            game, full_name, None, with_deps, set(), [], unresolved, None, plugin_install_denylists._BROWSE_DENYLIST)
         if unresolved:
             # Could be a stale catalog — pull a fresh copy and re-resolve before reporting.
             thunderstore.refresh_community_catalog(game.thunderstore_community)
             unresolved = []
-            self._resolve_thunderstore_plan(game, full_name, None, with_deps, set(), [], unresolved)
+            plugin_thunderstore_install._resolve_thunderstore_plan(
+                game, full_name, None, with_deps, set(), [], unresolved, None, plugin_install_denylists._BROWSE_DENYLIST)
         return unresolved
 
     async def install_thunderstore_mod(
@@ -1009,30 +594,7 @@ class Plugin:
         allow_missing=True installs the mod even if a declared dependency isn't in the catalog
         (it's skipped instead of failing — the UI's "install anyway").
         Returns True=success, False=failed, None=cancelled."""
-        game = registry.get_game_by_appid(appid)
-        if not game or not game.thunderstore_community:
-            return False
-        install_dir = steam.find_game_install_dir(appid)
-        if not install_dir:
-            return False
-        # Size the cascade up front (mod + deps that aren't already installed) so the UI can show
-        # "N of M". Cheap — resolves against the in-memory catalog, no downloads.
-        plan: list[str] = []
-        self._resolve_thunderstore_plan(game, full_name, version, with_deps, set(), plan, [], install_dir)
-        await download_queue.note_total(len(plan))
-        # Atomic cancel: track the packages this run freshly installs so a cancel mid-cascade can
-        # undo them, leaving the system as if the install never started. Updates of already-present
-        # mods aren't tracked (a cancelled download leaves the prior version intact).
-        installed_this_run: list[str] = []
-        result = await self._install_thunderstore_recursive(
-            game, install_dir, full_name, version, seen=set(), with_deps=with_deps,
-            installed_this_run=installed_this_run, allow_missing=allow_missing,
-        )
-        # Roll back on cancel (None) or hard failure (False) — either way the install didn't
-        # complete, so leave no partial trace.
-        if not result and installed_this_run:
-            await self._rollback_installs(game, install_dir, installed_this_run)
-        return result
+        return await plugin_thunderstore_install.install_thunderstore_mod(appid, full_name, version, with_deps, allow_missing)
 
     def _resolve_thunderstore_plan(
         self, game: "registry.GameProfile", full_name: str, version: str | None,
@@ -1040,22 +602,8 @@ class Plugin:
     ) -> None:
         """Size the Thunderstore cascade (depth-first packages it will download, into `plan`) and
         collect declared deps not in the catalog (into `unresolved`), via the shared dry-run walk."""
-        provider = install_cascade.ThunderstoreProvider(self._BROWSE_DENYLIST)
-        install_cascade.collect_plan(
-            provider, game, full_name, version=version, with_deps=with_deps,
-            seen=seen, plan=plan, unresolved=unresolved, install_dir=install_dir,
-        )
-
-    async def _rollback_installs(self, game: "registry.GameProfile", install_dir: str, ids: list) -> None:
-        """Undo a cancelled install: uninstall the mods it freshly installed, newest first (so a
-        mod is removed before the dependencies it sits on). Pre-existing mods aren't in this list,
-        so a shared dependency installed by an earlier job is left untouched."""
-        for mod_id in reversed(ids):
-            try:
-                await mods.uninstall_mod(game, install_dir, mod_id)
-                decky.logger.info(f"Rolled back {mod_id} after cancelled install")
-            except Exception as e:
-                decky.logger.warning(f"Rollback of {mod_id} failed: {e}")
+        plugin_thunderstore_install._resolve_thunderstore_plan(
+            game, full_name, version, with_deps, seen, plan, unresolved, install_dir, self._BROWSE_DENYLIST)
 
     async def _install_thunderstore_recursive(
         self,
@@ -1072,12 +620,10 @@ class Plugin:
         """Install a Thunderstore mod plus its dependencies (depth-first), via the shared cascade.
         Already-installed deps and denylisted packages are skipped; a failed/missing dependency
         aborts (unless allow_missing skips a missing one). Returns True/False/None."""
-        provider = install_cascade.ThunderstoreProvider(self._BROWSE_DENYLIST)
-        return await install_cascade.run_cascade(
-            provider, game, install_dir, full_name, version,
-            seen=seen, installed=installed_this_run, with_deps=with_deps,
-            allow_missing=allow_missing, is_dependency=is_dependency,
-        )
+        return await plugin_thunderstore_install._install_thunderstore_recursive(
+            game, install_dir, full_name, version, seen, with_deps=with_deps,
+            installed_this_run=installed_this_run, allow_missing=allow_missing,
+            is_dependency=is_dependency, denylist=self._BROWSE_DENYLIST)
 
     async def reset_game(self, appid: int) -> dict:
         """Reset a game to its unmodded state: uninstall every tracked mod, then every
@@ -1086,55 +632,7 @@ class Plugin:
         Order matters — mods are removed before the modloader so their install records
         get cleared while their files still exist (uninstalling the modloader wipes the
         whole BepInEx/ tree, which would orphan those records)."""
-        import shutil
-        game = registry.get_game_by_appid(appid)
-        if not game:
-            return {"ok": False, "mods_removed": 0, "modloader_removed": False}
-        install_dir = steam.find_game_install_dir(appid)
-        if not install_dir:
-            return {"ok": False, "mods_removed": 0, "modloader_removed": False}
-
-        mods_removed = 0
-        failures = 0
-        for entry in mods.get_installed_mods(game, install_dir):
-            if await mods.uninstall_mod(game, install_dir, entry["id"]):
-                mods_removed += 1
-            else:
-                failures += 1
-
-        modloader_removed = False
-        for ml in game.modloaders:
-            if not modloaders.is_modloader_installed(game, install_dir, ml.id):
-                continue
-            if await modloaders.uninstall_modloader(game, install_dir, ml.id):
-                modloader_removed = True
-            else:
-                failures += 1
-
-        # Clean up an orphaned mods directory (e.g. MelonLoader's Mods/ folder, which
-        # lives outside the modloader dir and so survives its uninstall). For BepInEx
-        # this path sits under BepInEx/ and is already gone — the guard makes it a no-op.
-        # CRITICAL: never rmtree when the "mods dir" IS the game root (mods_dir="", e.g. RE4) —
-        # that would delete the entire game. Such games keep mods as tracked loose/.pak files
-        # (already removed by the per-mod uninstall loop above), so there's no dir to orphan.
-        try:
-            mods_path = mods.resolve_mods_path(game, install_dir)
-            if os.path.isdir(mods_path) and os.path.normpath(mods_path) != os.path.normpath(install_dir):
-                shutil.rmtree(mods_path)
-                decky.logger.info(f"Removed orphaned mods dir {mods_path}")
-        except Exception as e:
-            decky.logger.error(f"Failed to remove mods dir during reset: {e}")
-            failures += 1
-
-        decky.logger.info(
-            f"Reset {game.name}: removed {mods_removed} mod(s), "
-            f"modloader_removed={modloader_removed}, failures={failures}"
-        )
-        return {
-            "ok": failures == 0,
-            "mods_removed": mods_removed,
-            "modloader_removed": modloader_removed,
-        }
+        return await plugin_game_lifecycle.reset_game(appid)
 
     async def is_game_vanilla(self, appid: int) -> bool:
         """Whether the game is currently in vanilla (play-unmodded) mode."""
@@ -1150,79 +648,7 @@ class Plugin:
         (Steam owns them), so they're reported back as `workshop` fileids for the frontend to flip
         via SteamClient; `modloader_id` is returned when the loader was toggled so the frontend can
         add/remove its launch options. Returns a summary dict."""
-        game = registry.get_game_by_appid(appid)
-        if not game:
-            return {"ok": False, "vanilla": vanilla}
-        install_dir = steam.find_game_install_dir(appid)
-        if not install_dir:
-            return {"ok": False, "vanilla": vanilla}
-
-        failures = 0
-        if vanilla:
-            if mods.is_game_vanilla(appid):
-                return {"ok": True, "vanilla": True, "noop": True}
-            snapshot_mods: list[str] = []
-            workshop: list[str] = []
-            for entry in mods.get_installed_mods(game, install_dir):
-                if not entry.get("enabled", True):
-                    continue
-                rec = mods.get_installed_record(entry["id"]) or {}
-                if (rec.get("source") or {}).get("type") == "steamworkshop":
-                    fileid = (rec.get("source") or {}).get("workshop_id")
-                    if fileid:
-                        workshop.append(fileid)
-                    continue
-                snapshot_mods.append(entry["id"])
-
-            disabled = 0
-            for mod_id in snapshot_mods:
-                if await mods.toggle_mod(game, install_dir, mod_id, False):
-                    disabled += 1
-                else:
-                    failures += 1
-
-            modloader_id = None
-            if game.modloaders:
-                ml = game.modloaders[0]
-                if modloaders.is_modloader_enabled(game, install_dir, ml.id):
-                    if await modloaders.disable_modloader(game, install_dir, ml.id):
-                        modloader_id = ml.id
-                    else:
-                        failures += 1
-
-            mods.set_vanilla_state(appid, {"mods": snapshot_mods, "modloader": modloader_id, "workshop": workshop})
-            decky.logger.info(f"{game.name} → vanilla: disabled {disabled} mod(s), modloader={modloader_id}, {len(workshop)} workshop")
-            return {
-                "ok": failures == 0, "vanilla": True,
-                "mods_disabled": disabled, "modloader_id": modloader_id, "workshop": workshop,
-            }
-
-        # Leaving vanilla — restore the recorded state.
-        snap = mods.get_vanilla_state(appid)
-        if snap is None:
-            return {"ok": True, "vanilla": False, "noop": True}
-
-        modloader_id = snap.get("modloader")
-        if modloader_id and game.get_modloader(modloader_id):
-            if not await modloaders.enable_modloader(game, install_dir, modloader_id):
-                failures += 1
-
-        enabled = 0
-        for mod_id in snap.get("mods", []):
-            # Skip a mod that was uninstalled while vanilla — its record is gone.
-            if mods.get_installed_record(mod_id) is None:
-                continue
-            if await mods.toggle_mod(game, install_dir, mod_id, True):
-                enabled += 1
-            else:
-                failures += 1
-
-        mods.set_vanilla_state(appid, None)
-        decky.logger.info(f"{game.name} → modded: re-enabled {enabled} mod(s), modloader={modloader_id}")
-        return {
-            "ok": failures == 0, "vanilla": False,
-            "mods_enabled": enabled, "modloader_id": modloader_id, "workshop": snap.get("workshop", []),
-        }
+        return await plugin_game_lifecycle.set_game_vanilla_mode(appid, vanilla)
 
     async def cancel_install(self) -> None:
         utils.cancel_install()
@@ -1278,7 +704,7 @@ class Plugin:
         game = registry.get_game_by_appid(appid)
         install_dir = steam.find_game_install_dir(appid) if game else None
         if game and install_dir and ids:
-            await self._rollback_installs(game, install_dir, ids)
+            await plugin_install_common.rollback_installs(game, install_dir, ids)
 
     async def resume_download_job(self, job_id: int, variant: str) -> bool:
         return await download_queue.resume(job_id, variant)
