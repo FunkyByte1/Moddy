@@ -3,12 +3,14 @@ import { toaster } from '@decky/api';
 
 import {
   GameStatus, ThunderstorePackage,
+} from '../../types';
+import {
   getThunderstoreCatalog, getBmiCatalog, getBrowseDenylist,
   enqueueThunderstore, enqueueBmi, getUnresolvedDependencies,
-} from '../../types';
+} from '../../lib/api';
 import DependencyChecklistModal from '../../components/modals/DependencyChecklistModal';
-import { transitiveCatalogDeps } from '../../browseDeps';
-import { stripVersion } from '../../modGraph';
+import { transitiveCatalogDeps } from '../../lib/browseDeps';
+import { stripVersion } from '../../lib/modGraph';
 import { BrowsePagedFilter } from './pagedFilter';
 import { BrowseItem, BrowseDetail, InstallContext, PagedVenueAdapter } from './types';
 

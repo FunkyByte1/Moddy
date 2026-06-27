@@ -2,7 +2,7 @@ import { ButtonItem, ConfirmModal, PanelSection, PanelSectionRow, TextField, Tog
 import { FC, useState, useEffect, useRef } from 'react';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 
-import { getSetting, setSetting, NEXUS_API_KEY, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
+import { getSetting, setSetting, NEXUS_API_KEY, NSFW_ENABLED, NSFW_DEFAULT_ON } from '../lib/api';
 
 // Account-global gate for NSFW content. Off by default; when on, each game's Browse
 // filter gains a "Show NSFW" checkbox (itself off by default) — a deliberate two-step

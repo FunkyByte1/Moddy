@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildModGraph, stripVersion } from './modGraph';
-import type { InstalledMod } from './types';
+import type { InstalledMod } from '../types';
 
 // Build an installed mod with the fields the graph reads (id, enabled, meta.dependencies).
 const mod = (id: string, deps: string[] = [], enabled = true): InstalledMod => ({

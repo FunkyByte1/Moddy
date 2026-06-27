@@ -1,9 +1,10 @@
 import { showModal } from '@decky/ui';
 
-import { GameStatus, InstalledMod, uninstallMod } from './types';
+import { GameStatus, InstalledMod } from '../types';
+import { uninstallMod } from './api';
 import { modDisplayName } from './modName';
 import { stripVersion } from './modGraph';
-import UnusedLibrariesModal from './components/modals/UnusedLibrariesModal';
+import UnusedLibrariesModal from '../components/modals/UnusedLibrariesModal';
 
 // Forward dependency edges among *installed* mods, keyed/valued by lowercase id.
 // Built from installed mods' recorded meta deps, dropping edges to modloader-provided

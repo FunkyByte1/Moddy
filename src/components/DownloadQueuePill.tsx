@@ -1,7 +1,7 @@
 import { Focusable } from '@decky/ui';
 import { FC } from 'react';
 
-import { useGameDownloadQueue, summarize } from '../downloadQueue';
+import { useGameDownloadQueue, summarize } from '../lib/downloadQueue';
 import { openDownloadQueue } from './DownloadQueueModal';
 
 // At-a-glance queue indicator in the ModPage header. Shows what's downloading now for THIS game +

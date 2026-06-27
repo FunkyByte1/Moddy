@@ -2,11 +2,12 @@ import { ButtonItem, Navigation, PanelSection, PanelSectionRow, staticClasses } 
 import { definePlugin, routerHook, toaster } from '@decky/api';
 import { useState, useEffect } from 'react';
 
-import contextMenuPatch, { LibraryContextMenu } from './contextMenuPatch';
-import ModPage from './ModPage';
-import SettingsPage from './SettingsPage';
-import { GameStatus, getSupportedAppids, getSupportedGames, exportLogs, cancelDownloadJob, clearFinishedDownloads } from './types';
-import { initDownloadQueue, teardownDownloadQueue, useDownloadQueue, summarize, isActiveStatus, jobStatusText } from './downloadQueue';
+import contextMenuPatch, { LibraryContextMenu } from './lib/contextMenuPatch';
+import ModPage from './pages/ModPage';
+import SettingsPage from './pages/SettingsPage';
+import { GameStatus } from './types';
+import { getSupportedAppids, getSupportedGames, exportLogs, cancelDownloadJob, clearFinishedDownloads } from './lib/api';
+import { initDownloadQueue, teardownDownloadQueue, useDownloadQueue, summarize, isActiveStatus, jobStatusText } from './lib/downloadQueue';
 import { promptVariant } from './components/DownloadQueueModal';
 
 // Bundles Moddy's logs into a zip on the Deck's Desktop so testers can attach it to a

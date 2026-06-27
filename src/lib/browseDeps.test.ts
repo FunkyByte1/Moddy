@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { transitiveCatalogDeps } from './browseDeps';
-import type { ThunderstorePackage } from './types';
+import type { ThunderstorePackage } from '../types';
 
 // transitiveCatalogDeps walks the catalog dependency tree from a set of root refs. BrowseTab uses it
 // over in-flight installs so it doesn't re-prompt for deps already being installed (the recursive

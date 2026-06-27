@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 
-import { useDownloadQueue, isActiveStatus } from '../../downloadQueue';
+import { useDownloadQueue, isActiveStatus } from '../../lib/downloadQueue';
 
 // Shared install busy-state for every browse tab (paged Nexus/Workshop + bulk Thunderstore/BMI).
 // Queue venues show an optimistic `pending` mark on click that hands off to the real download-queue

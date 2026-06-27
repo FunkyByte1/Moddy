@@ -4,14 +4,16 @@ import { useState, useEffect, FC } from 'react';
 
 import {
   GameStatus, Profile, ProfileMod,
+} from '../types';
+import {
   getProfiles, renameProfile, deleteProfile,
   toggleMod,
-} from '../types';
+} from '../lib/api';
 import ApplyProfileModal from '../components/modals/ApplyProfileModal';
 import RenameProfileModal from '../components/modals/RenameProfileModal';
 import DeleteProfileModal from '../components/modals/DeleteProfileModal';
 import { useQueueFooterProps } from '../components/DownloadQueueModal';
-import { modDisplayName } from '../modName';
+import { modDisplayName } from '../lib/modName';
 
 const formatDate = (iso: string): string => {
   try {

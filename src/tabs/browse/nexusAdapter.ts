@@ -1,6 +1,7 @@
 import { toaster } from '@decky/api';
 
-import { ThunderstorePackage, getNexusCatalog, enqueueNexus } from '../../types';
+import { ThunderstorePackage } from '../../types';
+import { getNexusCatalog, enqueueNexus } from '../../lib/api';
 import { BrowseItem, BrowseDetail, PagedVenueAdapter } from './types';
 
 // Nexus catalog items reuse the ThunderstorePackage shape (the backend emits one CatalogItem type).

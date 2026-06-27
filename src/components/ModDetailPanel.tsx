@@ -9,7 +9,7 @@ import { FC } from 'react';
 import { GameStatus, ModInfo, ModUpdate } from '../types';
 import { ModEntry } from './ModEntry';
 import { useQueueFooterProps } from './DownloadQueueModal';
-import { SHOW_VERSION_OPTIONS } from '../featureFlags';
+import { SHOW_VERSION_OPTIONS } from '../lib/featureFlags';
 
 const ModDetailPanel: FC<{
   entry: ModEntry;

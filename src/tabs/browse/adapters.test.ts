@@ -5,7 +5,7 @@ import { workshopItem, workshopDetail, fmtSubs } from './workshopAdapter';
 import type { ThunderstorePackage, WorkshopCatalogItem } from '../../types';
 
 // The adapters' pure mappers normalize each venue's payload into the shared BrowseItem/BrowseDetail.
-// (importing the adapters pulls in @decky, mocked in test/setup.ts.)
+// (importing the adapters pulls in @decky, mocked in vitest-setup/setup.ts.)
 
 const tsPkg = (over: Partial<ThunderstorePackage> = {}): ThunderstorePackage => ({
   full_name: 'Owner-Mod', name: 'Mod', owner: 'Owner', date_updated: '2025-03-04T00:00:00Z',

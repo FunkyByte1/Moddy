@@ -4,9 +4,11 @@ import { useState, useEffect, useMemo, useCallback, useRef, FC } from 'react';
 
 import {
   GameStatus, ModInfo, ModUpdate,
+} from '../types';
+import {
   installMod, installThunderstoreMod, enqueueFicsit, uninstallMod, toggleMod,
   getModReleases, getBackedUpVersions, deleteModVersion, getBrowseDenylist,
-} from '../types';
+} from '../lib/api';
 import { useQueueFooterProps } from '../components/DownloadQueueModal';
 import { ModEntry } from '../components/ModEntry';
 import ModDetailPanel from '../components/ModDetailPanel';
@@ -16,10 +18,10 @@ import VersionPickerModal from '../components/modals/VersionPickerModal';
 import DeleteVersionModal from '../components/modals/DeleteVersionModal';
 import DependentsModal from '../components/modals/DependentsModal';
 import DependencyInstallModal from '../components/modals/DependencyInstallModal';
-import { findUnusedLibraries, showUnusedLibrariesCleanup } from '../orphanCleanup';
-import { modDisplayName } from '../modName';
-import { buildModGraph } from '../modGraph';
-import { SHOW_VERSION_OPTIONS } from '../featureFlags';
+import { findUnusedLibraries, showUnusedLibrariesCleanup } from '../lib/orphanCleanup';
+import { modDisplayName } from '../lib/modName';
+import { buildModGraph } from '../lib/modGraph';
+import { SHOW_VERSION_OPTIONS } from '../lib/featureFlags';
 
 const InstalledTab: FC<{
   game: GameStatus;

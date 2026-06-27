@@ -1,4 +1,4 @@
-import { InstalledMod } from './types';
+import { InstalledMod } from '../types';
 
 // Thunderstore deps are recorded as versioned full_names ("Owner-Mod-1.2.3"); dropping the trailing
 // version segment yields the install id ("Owner-Mod"). Hyphen-free ids (a Workshop

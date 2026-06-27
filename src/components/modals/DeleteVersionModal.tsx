@@ -1,6 +1,6 @@
 import { ButtonItem, ConfirmModal, ModalRoot, showModal } from '@decky/ui';
 import { FC } from 'react';
-import { SHOW_VERSION_OPTIONS } from '../../featureFlags';
+import { SHOW_VERSION_OPTIONS } from '../../lib/featureFlags';
 
 const DeleteVersionModal: FC<{
   modName: string;

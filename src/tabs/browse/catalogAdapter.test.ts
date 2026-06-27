@@ -4,7 +4,7 @@ import type { ThunderstorePackage } from '../../types';
 
 // The Thunderstore/BMI adapters' pure helpers: normalize the catalog payload and reproduce
 // BrowseTab's client-side filter/sort/category pipeline. (Importing the adapter pulls in @decky,
-// mocked in test/setup.ts.)
+// mocked in vitest-setup/setup.ts.)
 
 const pkg = (
   over: Partial<ThunderstorePackage> & { description?: string; deps?: string[]; version?: string } = {},

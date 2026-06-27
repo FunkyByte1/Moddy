@@ -1,4 +1,4 @@
-import { InstalledMod } from './types';
+import { InstalledMod } from '../types';
 
 /**
  * The human-facing display name for an installed mod: the catalog/meta name when we

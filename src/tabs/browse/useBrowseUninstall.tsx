@@ -1,9 +1,10 @@
 import { showModal } from '@decky/ui';
 import { toaster } from '@decky/api';
 
-import { GameStatus, InstalledMod, uninstallMod, toggleMod } from '../../types';
+import { GameStatus, InstalledMod } from '../../types';
+import { uninstallMod, toggleMod } from '../../lib/api';
 import DependentsModal from '../../components/modals/DependentsModal';
-import { modDisplayName } from '../../modName';
+import { modDisplayName } from '../../lib/modName';
 
 export interface UninstallTarget {
   uninstallId: string;        // recorded id to uninstall (Nexus/TS full_name, Workshop workshop.<…>)

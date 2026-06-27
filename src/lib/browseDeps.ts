@@ -1,4 +1,4 @@
-import { ThunderstorePackage } from './types';
+import { ThunderstorePackage } from '../types';
 import { stripVersion } from './modGraph';
 
 /**

@@ -2,29 +2,30 @@ import { Tabs, showModal, DialogButton, Spinner } from '@decky/ui';
 import { toaster, addEventListener, removeEventListener } from '@decky/api';
 import { useState, useEffect, useRef, FC } from 'react';
 
-import DownloadQueuePill from './components/DownloadQueuePill';
-import { useQueueFooterProps, promptVariant } from './components/DownloadQueueModal';
-import { useDownloadQueue } from './downloadQueue';
+import DownloadQueuePill from '../components/DownloadQueuePill';
+import { useQueueFooterProps, promptVariant } from '../components/DownloadQueueModal';
+import { useDownloadQueue } from '../lib/downloadQueue';
 
-import { GameStatus, ModUpdate, getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, setGameToProton, applyVanillaMode, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from './types';
-import InstalledTab from './tabs/InstalledTab';
-import ModLoaderTab from './tabs/ModLoaderTab';
-import ProfilesTab from './tabs/ProfilesTab';
-import BrowsePagedTab from './tabs/browse/BrowsePagedTab';
-import { nexusAdapter } from './tabs/browse/nexusAdapter';
-import { workshopAdapter } from './tabs/browse/workshopAdapter';
-import { thunderstoreAdapter, bmiAdapter } from './tabs/browse/catalogAdapter';
-import { ficsitAdapter } from './tabs/browse/ficsitAdapter';
-import OptionsModal from './components/modals/OptionsModal';
-import VanillaView from './components/VanillaView';
-import ModLoaderModal from './components/modals/ModLoaderModal';
-import ResetGameModal from './components/modals/ResetGameModal';
-import SaveProfileModal from './components/modals/SaveProfileModal';
-import SaveProfilePickerModal from './components/modals/SaveProfilePickerModal';
-import OverwriteProfileModal from './components/modals/OverwriteProfileModal';
-import InstalledFilterModal, { InstalledFilter, defaultInstalledFilter } from './components/modals/InstalledFilterModal';
-import BrowseFilterModal, { BrowseFilter, defaultBrowseFilter } from './components/modals/BrowseFilterModal';
-import NexusFilterModal, { NexusFilter, defaultNexusFilter } from './components/modals/NexusFilterModal';
+import { GameStatus, ModUpdate } from '../types';
+import { getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, setGameToProton, applyVanillaMode, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from '../lib/api';
+import InstalledTab from '../tabs/InstalledTab';
+import ModLoaderTab from '../tabs/ModLoaderTab';
+import ProfilesTab from '../tabs/ProfilesTab';
+import BrowsePagedTab from '../tabs/browse/BrowsePagedTab';
+import { nexusAdapter } from '../tabs/browse/nexusAdapter';
+import { workshopAdapter } from '../tabs/browse/workshopAdapter';
+import { thunderstoreAdapter, bmiAdapter } from '../tabs/browse/catalogAdapter';
+import { ficsitAdapter } from '../tabs/browse/ficsitAdapter';
+import OptionsModal from '../components/modals/OptionsModal';
+import VanillaView from '../components/VanillaView';
+import ModLoaderModal from '../components/modals/ModLoaderModal';
+import ResetGameModal from '../components/modals/ResetGameModal';
+import SaveProfileModal from '../components/modals/SaveProfileModal';
+import SaveProfilePickerModal from '../components/modals/SaveProfilePickerModal';
+import OverwriteProfileModal from '../components/modals/OverwriteProfileModal';
+import InstalledFilterModal, { InstalledFilter, defaultInstalledFilter } from '../components/modals/InstalledFilterModal';
+import BrowseFilterModal, { BrowseFilter, defaultBrowseFilter } from '../components/modals/BrowseFilterModal';
+import NexusFilterModal, { NexusFilter, defaultNexusFilter } from '../components/modals/NexusFilterModal';
 
 // Module-level so a parked job's picker auto-pops only once for its whole lifetime, even if the
 // page unmounts/remounts (job ids are monotonic, never reused). Prevents duplicate stacked pickers.
@@ -214,7 +215,7 @@ const ModPage: FC = () => {
   }
 
   const handleCancelInstall = async () => {
-    const { cancelInstall } = await import('./types');
+    const { cancelInstall } = await import('../lib/api');
     await cancelInstall();
     setInstalling(false);
     setProgress(0);

@@ -2,8 +2,9 @@ import { ModalRoot, DialogButton, Focusable } from '@decky/ui';
 import { showModal } from '@decky/ui';
 import { FC, useEffect, useRef } from 'react';
 
-import { QueueJob, cancelDownloadJob, clearDownloadJob, clearFinishedDownloads, resumeDownloadJob } from '../types';
-import { useDownloadQueue, useGameDownloadQueue, summarize, isActiveStatus, jobStatusText } from '../downloadQueue';
+import { QueueJob } from '../types';
+import { cancelDownloadJob, clearDownloadJob, clearFinishedDownloads, resumeDownloadJob } from '../lib/api';
+import { useDownloadQueue, useGameDownloadQueue, summarize, isActiveStatus, jobStatusText } from '../lib/downloadQueue';
 import VariantModal from './modals/VariantModal';
 import FileChoiceModal from './modals/FileChoiceModal';
 

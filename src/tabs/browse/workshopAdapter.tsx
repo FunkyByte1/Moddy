@@ -3,8 +3,10 @@ import { toaster } from '@decky/api';
 
 import {
   GameStatus, WorkshopCatalogItem,
-  getWorkshopCatalog, getWorkshopRequiredItems, installWorkshopTree, workshopModId, fileIdForMod,
 } from '../../types';
+import {
+  getWorkshopCatalog, getWorkshopRequiredItems, installWorkshopTree, workshopModId, fileIdForMod,
+} from '../../lib/api';
 import DependencyInstallModal from '../../components/modals/DependencyInstallModal';
 import { BrowseItem, BrowseDetail, PagedVenueAdapter } from './types';
 

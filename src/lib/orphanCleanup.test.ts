@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { findUnusedLibraries } from './orphanCleanup';
-import type { GameStatus, InstalledMod } from './types';
+import type { GameStatus, InstalledMod } from '../types';
 
 // findUnusedLibraries answers: "which LIBRARY mods does nothing installed rely on right now?" — the
 // input for the Installed tab's cleanup chip. A library is used if some non-library mod (or another
 // used library, transitively) depends on it; everything else is unused, including libraries nothing
 // ever depended on. Disabled mods still count as consumers. Importing orphanCleanup.tsx pulls in
-// @decky/ui (mocked in test/setup.ts).
+// @decky/ui (mocked in vitest-setup/setup.ts).
 
 const mod = (
   id: string,

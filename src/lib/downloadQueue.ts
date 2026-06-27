@@ -11,7 +11,8 @@
 
 import { useMemo, useSyncExternalStore } from 'react';
 import { addEventListener, removeEventListener } from '@decky/api';
-import { QueueJob, getDownloadQueue } from './types';
+import { QueueJob } from '../types';
+import { getDownloadQueue } from './api';
 
 let jobs: QueueJob[] = [];
 const listeners = new Set<() => void>();

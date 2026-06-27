@@ -4,7 +4,7 @@ import type { ModEntry } from '../ModEntry';
 
 // installedMatchesFilter decides whether a mod row shows under the Installed-tab filter. Three rules
 // applied in order: hideLibraries, then onlyUpdates, then the enabled/disabled visibility toggles.
-// (importing the modal pulls in @decky/ui, mocked in test/setup.ts.)
+// (importing the modal pulls in @decky/ui, mocked in vitest-setup/setup.ts.)
 
 const entry = (
   { enabled = true, hasUpdate = false, isLibrary = false } = {},

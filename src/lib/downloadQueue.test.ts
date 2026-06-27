@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { isActiveStatus, jobStatusText, summarize } from './downloadQueue';
-import type { QueueJob } from './types';
+import type { QueueJob } from '../types';
 
 // Importing downloadQueue pulls in ./types (which imports @decky/api at module load), so this also
-// proves the @decky mock in test/setup.ts works end-to-end.
+// proves the @decky mock in vitest-setup/setup.ts works end-to-end.
 
 const job = (over: Partial<QueueJob>): QueueJob => ({
   job_id: 1, appid: 1, name: 'Mod', ref: 'Owner-Mod', kind: 'thunderstore',

@@ -13,12 +13,14 @@ import { useState, useEffect, FC } from 'react';
 
 import {
   GameStatus, ModRelease, ModloaderUpdate,
+} from '../types';
+import {
   installModloader, uninstallModloader, getModloaderUninstallImpact, enableModloader, disableModloader,
   cancelInstall, getModloaderVersion, getModloaderReleases, checkModloaderUpdate,
   addModloaderLaunchOptions, removeModloaderLaunchOptions,
-} from '../types';
+} from '../lib/api';
 import FirstLaunchModal from '../components/modals/FirstLaunchModal';
-import { SHOW_VERSION_OPTIONS } from '../featureFlags';
+import { SHOW_VERSION_OPTIONS } from '../lib/featureFlags';
 
 // Version picker for modloader
 const ModloaderVersionPickerModal: FC<{

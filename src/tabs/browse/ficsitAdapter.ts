@@ -1,6 +1,7 @@
 import { toaster } from '@decky/api';
 
-import { ThunderstorePackage, getFicsitCatalog, enqueueFicsit } from '../../types';
+import { ThunderstorePackage } from '../../types';
+import { getFicsitCatalog, enqueueFicsit } from '../../lib/api';
 import { BrowseItem, BrowseDetail, PagedVenueAdapter } from './types';
 
 // ficsit.app (Satisfactory) catalog items reuse the shared ThunderstorePackage shape (the backend
