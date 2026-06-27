@@ -1,0 +1,16 @@
+{
+  "id": "ue4ss-palworld",
+  "name": "UE4SS (Palworld)",
+  "files": ["Pal/Binaries/Win64/dwmapi.dll"],
+  "dirs": ["Pal/Binaries/Win64/ue4ss"],
+  "indicator": "Pal/Binaries/Win64/dwmapi.dll",
+  "launch_options": "WINEDLLOVERRIDES=\"dwmapi=n,b\" %command%",
+  "source": {
+    "type": "github",
+    "owner": "Okaetsu",
+    "repo": "RE-UE4SS",
+    "asset": "UE4SS-Palworld.zip",
+    "install_type": "zip_into_game",
+    "base_dir": "Pal/Binaries/Win64"
+  }
+}

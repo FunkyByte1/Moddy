@@ -324,10 +324,12 @@ def primary_file_id(domain: str, mod_id: str) -> str | None:
 
 def selectable_files(domain: str, mod_id: str) -> list[dict]:
     """The files on a mod page a user might actually install — MAIN + OPTIONAL, excluding old
-    versions / archived / miscellaneous. Each: {file_id (str), name, category, is_primary, size}.
-    Sorted primary-first, then MAIN before OPTIONAL, then by name. Empty / single-element means
+    versions / archived / miscellaneous. Each: {file_id (str), name, version, category, is_primary,
+    size}. Sorted primary-first, then MAIN before OPTIONAL, then by name. Empty / single-element means
     there's no real choice to make; >1 is when the file picker is worth showing (e.g. Stardew Valley
-    Expanded's main download + its optional alternate farms)."""
+    Expanded's main download + its optional alternate farms, or a Palworld mod's x2/x5/x10 tiers).
+    `version` is the Nexus file version — surfaced because some mods upload same-NAMED files that
+    differ only by version (e.g. Palworld's `1.9` Steam vs `1.9io` GamePass)."""
     out: list[dict] = []
     for f in get_files(domain, mod_id):
         cat = (f.get("category_name") or "").upper()
@@ -339,6 +341,7 @@ def selectable_files(domain: str, mod_id: str) -> list[dict]:
         out.append({
             "file_id": str(fid),
             "name": f.get("name") or f.get("file_name") or str(fid),
+            "version": str(f.get("version", "") or ""),
             "category": cat,
             "is_primary": bool(f.get("is_primary")),
             "size": f.get("size_kb") or f.get("size") or 0,

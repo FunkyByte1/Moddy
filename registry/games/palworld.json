@@ -1,0 +1,15 @@
+{
+  "id": "palworld",
+  "name": "Palworld",
+  "appid": 1623730,
+  "mods_dir": "Pal/Content/Paks/~mods",
+  "mods_dir_type": "game",
+  "modloader_ids": [
+    "ue4ss-palworld"
+  ],
+  "catalog": {
+    "type": "nexus",
+    "nexus_domain": "palworld",
+    "install_type": "zip_palworld"
+  }
+}

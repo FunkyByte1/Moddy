@@ -855,6 +855,51 @@ async def _install_github_modloader(game: GameProfile, install_dir: str, ml: Mod
         with zipfile.ZipFile(tmp_zip, "r") as z:
             z.extractall(tmp_dir)
 
+        if ml.source.base_dir:
+            # Merge the ENTIRE archive under install_dir/<base_dir>/ — the zip's root contents install
+            # into a game subdir, not the game root (UE4SS: dwmapi.dll + ue4ss/ at the zip root →
+            # Pal/Binaries/Win64/). ml.files/dirs are full game-dir-relative paths (used by
+            # indicator/enable/disable/uninstall). On UPDATE we retire only the loader's OWN previously-
+            # placed files (the tracked paths), NOT the whole base_dir tree: Win64/ue4ss/Mods/ also holds
+            # the user's Lua mods, so wholesale-retiring it would wipe them. is_foreign is NOT used: the
+            # loader's files are wholly Moddy-owned, so the displaced old files are dropped on commit,
+            # not littered as *.moddy-orig.
+            # Verify the archive ships what we expect, by BASENAME (base_dir archives carry ml.files/
+            # dirs' contents at the zip root, not under their full game-relative path). Aborts cleanly
+            # before the transaction if a future release restructured/renamed the payload — better than
+            # committing a proxy with no runtime and reporting success.
+            if ml.files and not os.path.isfile(os.path.join(tmp_dir, os.path.basename(ml.files[0]))):
+                raise Exception(f"Expected proxy file missing from zip: {os.path.basename(ml.files[0])}")
+            for d in ml.dirs:
+                dn = os.path.basename(d.rstrip("/\\"))
+                if not os.path.isdir(os.path.join(tmp_dir, dn)):
+                    raise Exception(f"Expected directory missing from zip: {dn}")
+            # Preserve the user's disabled state across an update: re-disable after committing. First
+            # un-park (rename ue4ss.disabled → ue4ss) so the retire/place act on the tracked (enabled)
+            # paths in place — otherwise the tracked-path retire would miss the parked files and leave
+            # an orphaned ue4ss.disabled/.
+            was_disabled = (is_modloader_installed(game, install_dir, ml.id)
+                            and not is_modloader_enabled(game, install_dir, ml.id))
+            if was_disabled:
+                await enable_modloader(game, install_dir, ml.id)
+            placed: list[str] = []
+            with _StagedInstall(install_dir) as txn:
+                for rel in get_modloader_paths(ml.id):   # retire only the prior install's own files
+                    txn.retire(rel)
+                for f in ml.files:
+                    txn.retire(f)
+                for root, _dirs, files in os.walk(tmp_dir):
+                    for fn in files:
+                        full = os.path.join(root, fn)
+                        rel = os.path.join(ml.source.base_dir, os.path.relpath(full, tmp_dir))
+                        txn.place(full, rel)
+                        placed.append(rel)
+            set_modloader_version(ml.id, resolved_version, paths=sorted(placed))
+            if was_disabled:
+                await disable_modloader(game, install_dir, ml.id)
+            decky.logger.info(f"{ml.name} {resolved_version} installed under {ml.source.base_dir} ({len(placed)} file(s))")
+            return True
+
         # Verify expected files
         for f in ml.files:
             if not os.path.isfile(os.path.join(tmp_dir, f)):

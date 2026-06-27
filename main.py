@@ -613,27 +613,31 @@ class Plugin:
         if installed is None:
             installed = []
 
-        # Multi-file picker (SMAPI / Stardew): a Nexus page can list several installable files — the
-        # main mod plus optional add-ons (e.g. Stardew Valley Expanded + its alternate farms). For
-        # zip_smapi games the `variant` channel carries the user's file pick (comma-joined file ids
-        # from the picker). The non-zip_smapi variant flow (RE4/MHW archive-payload variants) is
-        # unchanged — it has no selectable_files step and flows through the cascade below.
-        if game.catalog.get("install_type") == "zip_smapi":
+        # Multi-file picker (SMAPI / Stardew AND Palworld): a Nexus page can list several installable
+        # files — alternate versions, platform variants (Steam vs GamePass/Xbox/Epic), or optional
+        # add-ons. The `variant` channel carries the user's pick (comma-joined file ids from the
+        # checklist). For Palworld most popular mods are multi-file (x2/x5/x10 tiers, Steam/GamePass),
+        # so picking is the norm; non-Steam-platform files are dropped first (the Deck runs the Steam
+        # build, so a GamePass io-store pak won't load), which also auto-resolves a Steam/GamePass pair
+        # to the single Steam file. (RE4/MHW archive-payload variants use zip_natives — they have no
+        # selectable_files step and flow through the cascade below.)
+        install_type = game.catalog.get("install_type")
+        if install_type in ("zip_smapi", "zip_palworld"):
             if variant is None:
                 files = nexus.selectable_files(domain, mod_id)
+                if install_type == "zip_palworld":
+                    files = self._palworld_pick_files(files)
                 if len(files) > 1:
                     return {
                         "needs_variant": True,
                         "multi_select": True,  # the UI shows a checklist, not a single-pick list
-                        "variants": [{
-                            "id": f["file_id"],
-                            "label": f["name"]
-                                     + (" (optional)" if f["category"] == "OPTIONAL" else "")
-                                     + (" — recommended" if f["is_primary"] else ""),
-                        } for f in files],
+                        "variants": [{"id": f["file_id"], "label": self._nexus_file_label(f)}
+                                     for f in files],
                     }
-                # 0–1 files: nothing to choose — fall through to the normal cascade (is_primary picks).
-            else:
+                if install_type == "zip_palworld" and len(files) == 1:
+                    variant = str(files[0]["file_id"])  # the single (Steam) file — install it, not "primary"
+                # else 0–1 files: nothing to choose — fall through to the normal cascade (is_primary picks).
+            if variant is not None:
                 file_ids = [x for x in variant.split(",") if x]
                 res = await self._install_nexus_multifile(
                     game, install_dir, domain, mod_id, version, file_ids, seen=set(), installed=installed,
@@ -730,10 +734,53 @@ class Plugin:
             return False
         was_fresh = not mods.installed_files_present(game, install_dir, provider.key(ref))
         await download_queue.note_item(spec.mod.name)
-        res = await mods.install_smapi_files(game, install_dir, spec.mod, version or spec.version, urls)
+        if spec.mod.source.install_type == "zip_palworld":
+            res = await mods.install_palworld_files(game, install_dir, spec.mod, version or spec.version, urls)
+        else:
+            res = await mods.install_smapi_files(game, install_dir, spec.mod, version or spec.version, urls)
         if res is True and was_fresh and installed is not None:
             installed.append(spec.mod.id)
         return res
+
+    # Nexus file names that mark a non-Steam platform build (the Deck runs the Steam version, so a
+    # GamePass/Xbox/Epic io-store pak won't load). Substring match, case-insensitive.
+    _PW_NON_STEAM_MARKERS = (
+        "game pass", "gamepass", "game-pass", "(xbox", "xbox app", "(epic", "epic games",
+        "io store", "io-store", "iostore", "(ms ", "(microsoft", "windows store", "(gp)", "(wsa",
+    )
+
+    @staticmethod
+    def _pw_is_iostore_version(f: dict) -> bool:
+        """A GamePass io-store build is often distinguished only by its VERSION, not its name —
+        e.g. DekMCM uploads `1.9` (Steam) and `1.9io` (GamePass) with the identical name "DekMCM".
+        Treat a version ending in `io` (or containing io-store) as GamePass so the Deck skips it."""
+        v = (f.get("version", "") or "").lower().replace(" ", "").replace("-", "").replace("_", "")
+        return v.endswith("io") or "iostore" in v
+
+    def _palworld_pick_files(self, files: list) -> list:
+        """Drop clearly-non-Steam-platform files from a Palworld mod's selectable list — by name
+        marker (GamePass/Xbox/Epic) OR by an io-store version (`…io`). The Deck runs the Steam build,
+        so those won't load; dropping them also auto-collapses a Steam/GamePass pair to the one Steam
+        file (no picker). If filtering would remove everything, keep all (best-effort)."""
+        kept = [f for f in files
+                if not any(m in (f.get("name", "") or "").lower() for m in self._PW_NON_STEAM_MARKERS)
+                and not self._pw_is_iostore_version(f)]
+        return kept or files
+
+    @staticmethod
+    def _nexus_file_label(f: dict) -> str:
+        """Picker label for one selectable Nexus file: name + version (when the version isn't already
+        in the name) + category/recommended flags. Surfacing the version disambiguates same-NAMED
+        files (e.g. a mod's Steam vs GamePass uploads, or two tiers sharing a display name)."""
+        label = f.get("name", "") or ""
+        ver = (f.get("version", "") or "").strip()
+        if ver and ver.lower() not in label.lower():
+            label += f" (v{ver})"
+        if f.get("category") == "OPTIONAL":
+            label += " (optional)"
+        if f.get("is_primary"):
+            label += " — recommended"
+        return label
 
     # ── ficsit.app (Satisfactory) catalog ──────────────────────────────────────
     async def get_ficsit_catalog(self, appid: int, query: str = "", page: int = 1,
@@ -903,6 +950,9 @@ class Plugin:
                                        # mod; hide that listing and skip it as a dependency (it has no
                                        # manifest.json, so zip_smapi would reject it anyway)
         "nexus.site.818",              # Fluffy Mod Manager 5000 (site-wide Nexus listing some mods require)
+        "nexus.palworld.1121",         # UE4SS Prepackaged — the loader, installed via the Mod Loader
+                                       # tab (GitHub Okaetsu/RE-UE4SS), also listed on Nexus; hide it
+        "nexus.palworld.3405",         # RE-UE4SS (Experimental) Linux — same loader, another listing
     }
 
     def _nexus_browse_denylist(self) -> set[str]:
