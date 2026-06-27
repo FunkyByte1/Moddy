@@ -109,7 +109,12 @@ const BrowsePagedTab: FC<{
       }
     })();
     return () => { cancelled = true; };
-  }, [adapter, game, debounced, fetchKey, refreshKey, ready]);
+    // Depend on game.appid, NOT the whole game object: the catalog list is per-appid, but `game`
+    // gets a new identity on every onRefresh() (e.g. after an install updates installed_mods). Keying
+    // on the whole object would re-fetch and reset the selection (setSelectedIndex(0)) on every
+    // install — jumping the detail panel to the first mod. Installed-status (badge + Install/Uninstall
+    // button) updates independently via the installedIds memo below, which DOES key on `game`.
+  }, [adapter, game.appid, debounced, fetchKey, refreshKey, ready]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
