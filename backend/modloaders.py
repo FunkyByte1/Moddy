@@ -478,8 +478,8 @@ async def _install_ficsit_modloader(game: GameProfile, install_dir: str, ml: Mod
     Binaries/Win64/*, Content/Paks/*) install into the loader's own folder, Mods/SML/ (ml.dirs[0]).
     Unlike every other Moddy loader there is NO DLL proxy or WINEDLLOVERRIDES launch option: the game
     loads plugins from Mods/ natively (it's force-Proton'd so the Win64 binaries run). Every placed
-    file is tracked so uninstall removes exactly SML's footprint. `version` is ignored — SML always
-    installs at its current ficsit version (file ids aren't user-selectable)."""
+    file is tracked so uninstall removes exactly SML's footprint. `version` pins a specific ficsit
+    version (from the Mod Loader tab's picker); None installs the latest."""
     ref = ml.source.mod_reference
     if not ref:
         decky.logger.error(f"{ml.id}: ficsit source missing mod_reference")
@@ -489,13 +489,22 @@ async def _install_ficsit_modloader(game: GameProfile, install_dir: str, ml: Mod
         decky.logger.error(f"{ml.id}: ficsit loader has no dirs/indicator to install into")
         return False
 
-    mod = ficsit.get_mod(ref)
-    win = ficsit.windows_version(mod) if mod else None
-    if not win or not win.get("version_id"):
-        decky.logger.error(f"{ml.name}: no installable Windows build found on ficsit.app ({ref})")
-        return False
-    url = ficsit.download_url(win["version_id"])
-    resolved_version = win["version"] or "latest"
+    if version:
+        # A pinned version from the Mod Loader tab's picker: resolve its (Windows-buildable) version id.
+        match = next((v for v in ficsit.list_versions(ref)
+                      if v["version"] == version and ficsit.TARGET in v["targets"] and v["version_id"]), None)
+        if not match:
+            decky.logger.error(f"{ml.name}: version {version} not found on ficsit.app or has no {ficsit.TARGET} build")
+            return False
+        version_id, resolved_version = match["version_id"], version
+    else:
+        mod = ficsit.get_mod(ref)
+        win = ficsit.windows_version(mod) if mod else None
+        if not win or not win.get("version_id"):
+            decky.logger.error(f"{ml.name}: no installable Windows build found on ficsit.app ({ref})")
+            return False
+        version_id, resolved_version = win["version_id"], (win["version"] or "latest")
+    url = ficsit.download_url(version_id)
 
     tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_tmp.smod")
     tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_extract")

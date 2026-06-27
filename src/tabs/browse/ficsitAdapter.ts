@@ -31,13 +31,15 @@ export const ficsitAdapter: PagedVenueAdapter = {
   catalogName: 'ficsit.app',
   sourceLabel: 'ficsit',
   installModel: 'queue',
-  // v1: server-paged by popularity (+ search). A sort/filter menu is a later enhancement, so no
-  // filter button — the shared tab handles its absence (as the Workshop adapter does).
-  hasFilter: false,
+  // Server-paged by the chosen sort (default popularity) + search; the filter modal also offers
+  // install-status filtering over the loaded pages (client-side via pagedVisible). No NSFW/library
+  // controls — ficsit has neither (the shared modal hides those sections for ficsit).
+  hasFilter: true,
   emptyText: 'Catalog unavailable — check your network and try again.',
 
-  async fetchPage(game, query, page) {
-    const data = await getFicsitCatalog(game.appid, query, page, 'popularity');
+  async fetchPage(game, query, page, filter) {
+    // Sort is server-side, so it's part of the query (toggling it re-fetches).
+    const data = await getFicsitCatalog(game.appid, query, page, filter?.sortBy || 'popularity');
     return data.map(ficsitItem);
   },
   installedIds(game) {

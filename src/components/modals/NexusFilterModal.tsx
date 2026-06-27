@@ -50,9 +50,13 @@ const NexusFilterModal: FC<{
   // Account-global "Allow NSFW" gate (Settings). When off, the Show NSFW control is hidden
   // and adult mods stay excluded server-side; when on, it's offered per-session.
   nsfwEnabled?: boolean;
+  // ficsit.app (Satisfactory) reuses this server-paged sort/status filter but has no NSFW rating
+  // and no library classification, so it hides those sections entirely (not even the NSFW hint).
+  hideNsfwSection?: boolean;
+  hideLibrariesSection?: boolean;
   onChange: (filter: NexusFilter) => void;
   closeModal?: () => void;
-}> = ({ filter, nsfwEnabled = false, onChange, closeModal }) => {
+}> = ({ filter, nsfwEnabled = false, hideNsfwSection = false, hideLibrariesSection = false, onChange, closeModal }) => {
   const [local, setLocal] = useState<NexusFilter>(filter);
   const update = (next: NexusFilter) => { setLocal(next); onChange(next); };
 
@@ -88,14 +92,16 @@ const NexusFilterModal: FC<{
             onChange={(v) => update({ ...local, notInstalled: v })}
           />
         </Section>
-        <Section title="Libraries">
-          <DialogCheckbox
-            label="Hide Libraries"
-            checked={local.hideLibraries}
-            onChange={(v) => update({ ...local, hideLibraries: v })}
-          />
-        </Section>
-        {nsfwEnabled ? (
+        {!hideLibrariesSection && (
+          <Section title="Libraries">
+            <DialogCheckbox
+              label="Hide Libraries"
+              checked={local.hideLibraries}
+              onChange={(v) => update({ ...local, hideLibraries: v })}
+            />
+          </Section>
+        )}
+        {hideNsfwSection ? null : nsfwEnabled ? (
           <Section title="Visibility">
             <DialogCheckbox
               label="Show NSFW"

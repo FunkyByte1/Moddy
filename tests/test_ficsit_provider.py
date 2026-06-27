@@ -59,6 +59,20 @@ class FicsitProviderHelpersTest(unittest.TestCase):
         self.assertIn("order_by:search", q)           # a term switches to relevance ranking
         self.assertIn('search:"be\\"lt"', q)          # JSON-encoded, can't break out of the string
 
+    def test_list_versions_parses_and_keeps_targets(self):
+        import fetch
+        saved = fetch.post_json
+        fetch.post_json = lambda url, payload: {"data": {"getModByReference": {"versions": [
+            {"id": "v1", "version": "3.12.0", "targets": [{"targetName": "Windows"}, {"targetName": "LinuxServer"}]},
+            {"id": "v2", "version": "3.11.0", "targets": [{"targetName": "WindowsServer"}]},
+        ]}}}
+        try:
+            vs = ficsit.list_versions("SML")
+        finally:
+            fetch.post_json = saved
+        self.assertEqual(vs[0], {"version": "3.12.0", "version_id": "v1", "targets": ["Windows", "LinuxServer"]})
+        self.assertEqual(vs[1]["targets"], ["WindowsServer"])
+
     def test_mod_to_item_shape(self):
         item = ficsit._mod_to_item(_mod("RefinedPower", ["Windows"]))
         self.assertEqual(item["full_name"], "ficsit.RefinedPower")

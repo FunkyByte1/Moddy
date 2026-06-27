@@ -202,6 +202,26 @@ def download_url(version_id: str) -> str:
     return f"{API_V1}/version/{version_id}/{TARGET}/download"
 
 
+def list_versions(mod_reference: str, limit: int = 25) -> list[dict]:
+    """Recent versions of a mod (newest first), each {version, version_id, targets} — backs the Mod
+    Loader tab's version picker for SML. Only versions whose targets include `Windows` are installable
+    on the Proton client; the caller filters on that. Returns [] on error."""
+    gql = (f"{{ getModByReference(modReference:{json.dumps(mod_reference)}) "
+           f"{{ versions(filter:{{limit:{int(limit)}}}) {{ id version targets {{ targetName }} }} }} }}")
+    data = fetch.post_json(GRAPHQL_URL, {"query": gql})
+    if not isinstance(data, dict):
+        return []
+    if data.get("errors"):
+        decky.logger.error(f"ficsit list_versions errors for {mod_reference}: {data['errors']}")
+        return []
+    node = (data.get("data") or {}).get("getModByReference") or {}
+    return [{
+        "version": str(v.get("version", "") or ""),
+        "version_id": v.get("id", "") or "",
+        "targets": [t.get("targetName") for t in (v.get("targets") or [])],
+    } for v in (node.get("versions") or [])]
+
+
 def get_latest(mod_reference: str) -> dict | None:
     """Latest version string for a mod (for update checks). None on error / no versions."""
     mod = get_mod(mod_reference)

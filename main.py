@@ -245,6 +245,14 @@ class Plugin:
         if not game or not game.modloaders:
             return []
         ml = game.modloaders[0]
+        if ml.source.type == "ficsit":
+            # SML is a ficsit mod; offer its recent Windows-buildable versions in the picker. The
+            # download is resolved at install time by version, so download_urls is left empty here.
+            return [
+                {"version": v["version"], "name": v["version"], "published_at": "", "download_urls": {}}
+                for v in ficsit.list_versions(ml.source.mod_reference)
+                if ficsit.TARGET in v["targets"]
+            ]
         if ml.source.type != "github":
             return []
         releases = github.get_all_releases(ml.source.owner, ml.source.repo)

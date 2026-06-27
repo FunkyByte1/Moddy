@@ -253,6 +253,14 @@ const ModPage: FC = () => {
     );
   };
 
+  // ficsit reuses the server-paged sort/status filter (shared state with Nexus — a game is one or
+  // the other), minus the NSFW + library sections it has no concept of.
+  const handleFicsitFilterMenu = () => {
+    showModal(
+      <NexusFilterModal filter={nexusFilter} onChange={setNexusFilter} hideNsfwSection hideLibrariesSection />
+    );
+  };
+
   const persistProfile = async (name: string) => {
     const ok = await saveProfile(game.appid, name);
     toaster.toast({
@@ -537,18 +545,25 @@ const ModPage: FC = () => {
         onSecondaryActionDescription: 'Filter',
       },
     }] : []),
-    // ficsit.app (Satisfactory): server-paginated like Nexus, but anonymous + no NSFW/sort filter
-    // (v1), so it renders filter-less like the Workshop tab.
+    // ficsit.app (Satisfactory): server-paginated like Nexus (anonymous), with a sort/status filter.
     ...(game.catalog_type === 'ficsit' ? [{
       id: 'browse',
       title: 'Browse',
       content: (
-        <BrowsePagedTab adapter={ficsitAdapter} game={game} onRefresh={refresh} />
+        <BrowsePagedTab
+          adapter={ficsitAdapter}
+          game={game}
+          onRefresh={refresh}
+          filter={nexusFilter}
+          onFilterButton={handleFicsitFilterMenu}
+        />
       ),
       footer: {
         ...queueFooter,
         onMenuButton: handleOptionsMenu,
         onMenuActionDescription: 'Options',
+        onSecondaryButton: handleFicsitFilterMenu,
+        onSecondaryActionDescription: 'Filter',
       },
     }] : []),
     ...(game.modloader === 'steamworkshop' ? [{

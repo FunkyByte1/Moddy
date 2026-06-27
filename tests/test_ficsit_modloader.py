@@ -34,7 +34,8 @@ class SmlLoaderTest(unittest.TestCase):
         self.install_dir = tempfile.mkdtemp(prefix="moddy-game-")
         self.game = registry.get_game_by_appid(526870)
         self.assertIsNotNone(self.game, "Satisfactory must be in the registry")
-        self._saved = {"get_mod": ficsit.get_mod, "download": utils.download}
+        self._saved = {"get_mod": ficsit.get_mod, "download": utils.download,
+                       "list_versions": ficsit.list_versions}
         ficsit.get_mod = lambda ref, force=False: {
             "id": "x", "mod_reference": ref,
             "versions": [{"id": "v1", "version": "3.12.0", "hash": "", "size": 1,
@@ -44,6 +45,7 @@ class SmlLoaderTest(unittest.TestCase):
     def tearDown(self):
         ficsit.get_mod = self._saved["get_mod"]
         utils.download = self._saved["download"]
+        ficsit.list_versions = self._saved["list_versions"]
 
     def _serve(self, files):
         async def _dl(url, dest, appid):
@@ -117,6 +119,27 @@ class SmlLoaderTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self.parked(), "keep.txt")), "parked SML preserved")
         self.assertTrue(modloaders.is_modloader_installed(self.game, self.install_dir, "sml"))
         self.assertEqual(modloaders.get_modloader_version("sml"), "3.12.0")
+
+    def test_install_pinned_version_resolves_that_version(self):
+        # The Mod Loader tab's version picker passes a specific version; install it (not latest).
+        ficsit.list_versions = lambda ref, limit=25: [
+            {"version": "3.12.0", "version_id": "vNEW", "targets": ["Windows"]},
+            {"version": "3.11.0", "version_id": "vOLD", "targets": ["Windows", "WindowsServer"]},
+        ]
+        captured = {}
+        async def _dl(url, dest, appid):
+            captured["url"] = url
+            _make_smod(dest, {"SML.uplugin": "{}"})
+        utils.download = _dl
+        self.assertTrue(run(modloaders.install_modloader(self.game, self.install_dir, "sml", "3.11.0")))
+        self.assertEqual(modloaders.get_modloader_version("sml"), "3.11.0")
+        self.assertIn("vOLD", captured["url"])  # pinned version's id, not the latest
+
+    def test_install_pinned_version_missing_windows_build_fails(self):
+        ficsit.list_versions = lambda ref, limit=25: [
+            {"version": "3.10.0", "version_id": "vSrv", "targets": ["LinuxServer", "WindowsServer"]},
+        ]
+        self.assertFalse(run(modloaders.install_modloader(self.game, self.install_dir, "sml", "3.10.0")))
 
     def test_uninstall_while_enabled(self):
         self.install({"SML.uplugin": "{}"})

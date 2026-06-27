@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { nexusItem, nexusDetail } from './nexusAdapter';
+import { ficsitItem, ficsitDetail } from './ficsitAdapter';
 import { workshopItem, workshopDetail, fmtSubs } from './workshopAdapter';
 import type { ThunderstorePackage, WorkshopCatalogItem } from '../../types';
 
@@ -38,6 +39,20 @@ describe('nexus adapter mappers', () => {
   it('nexusDetail omits version/date when absent', () => {
     expect(nexusDetail(tsPkg({ date_updated: '', latest: { icon: '', version_number: '', description: 'd' } } as any)).byline)
       .toBe('by Owner');
+  });
+});
+
+describe('ficsit adapter mappers', () => {
+  const fic = (over: Partial<ThunderstorePackage> = {}): ThunderstorePackage =>
+    tsPkg({ full_name: 'ficsit.RefinedPower', name: 'Refined Power', owner: 'mrhid6', ...over });
+  it('ficsitItem normalizes the package (installId lowercased)', () => {
+    expect(ficsitItem(fic())).toEqual({
+      key: 'ficsit.RefinedPower', installId: 'ficsit.refinedpower', title: 'Refined Power',
+      subtitle: 'mrhid6', iconUrl: 'http://icon', isLibrary: false, raw: fic(),
+    });
+  });
+  it('ficsitDetail builds the byline with version + date', () => {
+    expect(ficsitDetail(fic()).byline).toBe('by mrhid6 · v1.2.3 · updated 2025-03-04');
   });
 });
 
