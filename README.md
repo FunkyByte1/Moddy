@@ -65,10 +65,11 @@ To browse or install Nexus mods you need a Nexus account and a **personal API ke
 2. Under **Personal API Key**, click **Generate** (or copy your existing one).
 
 Then add the key to Moddy. The key is ~90 random characters, so pasting is far easier than typing it on the Game Mode keyboard. Pick whichever is convenient:
-
-- **Desktop Mode (easiest):** switch to Desktop Mode, open the Decky panel → **Moddy → Settings**, and **paste** your key into the *Nexus Mods API key* field (real keyboard + clipboard).
-- **Game Mode:** open the Decky panel → **Moddy → Settings** and type the key into the *Nexus Mods API key* field with the on-screen keyboard.
-- **Advanced (SSH / file):** edit `~/homebrew/settings/moddy/settings.json` on the deck and set `nexus_api_key`, then restart Decky so it's picked up:
+- **Desktop Mode:** open the file `~/homebrew/settings/moddy/settings.json` and set it to:
+```json
+"nexus_api_key": "PASTE_YOUR_KEY_HERE"
+```
+- **SSH:** ssh into your steam deck and run: 
   ```bash
   mkdir -p ~/homebrew/settings/moddy
   cat > ~/homebrew/settings/moddy/settings.json <<'EOF'
@@ -78,7 +79,7 @@ Then add the key to Moddy. The key is ~90 random characters, so pasting is far e
   ```
   (The folder name is lowercase `moddy`; the file is read on startup.)
 
-For a shareable step-by-step (handy for testers), see **[docs/nexus-api-key.md](docs/nexus-api-key.md)**.
+- **Game Mode:** open the Decky panel → **Moddy → Settings** and type the key into the *Nexus Mods API key* field with the on-screen keyboard.
 
 ## Reporting issues
 
