@@ -1,11 +1,9 @@
 import os
 import json
-import re
 import time
 import decky
 from registry import GameProfile, ModInfo
 import steam
-import utils
 
 # A freshly-recorded Workshop install isn't in GetSubscribedWorkshopItems yet
 # (SteamClient subscribe is async), so reconcile must not drop records this young.
@@ -457,6 +455,11 @@ from install_txn import _MODDY_ORIG_SUFFIX, _STAGED_BAK_SUFFIX, _discard, _Stage
 # backend modules / tests. (The bare-import hack means these must be flat siblings, not a package.)
 # These imports sit at the BOTTOM of mods.py (after the store/vanilla/workshop defs above) so the
 # split modules, which do `import mods` to reach the store helpers, find a fully-initialized module.
+#
+# IMPORTANT: `mods` must be the entry point — never import a mods_* submodule before `mods`. A
+# submodule imported first runs `import mods`, which re-enters this facade mid-initialization and
+# raises a circular ImportError (the `from mods_* import (...)` re-exports below aren't defined
+# yet). main.py and the test harness both `import mods` first, so this holds in practice.
 import mods_common      # noqa: E402
 import mods_archive     # noqa: E402
 import mods_pak         # noqa: E402

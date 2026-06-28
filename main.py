@@ -459,51 +459,6 @@ class Plugin:
         a parked-then-cancelled install can be rolled back); a cancel/failure rolls it back here."""
         return await plugin_nexus_install.install_nexus_mod(appid, full_name, version, variant, installed)
 
-    async def _install_nexus_recursive(
-        self,
-        game: "registry.GameProfile",
-        install_dir: str,
-        domain: str,
-        mod_id: str,
-        version: str | None,
-        seen: set,
-        variant: str | None = None,
-        top: bool = False,
-        installed: "list | None" = None,
-    ):
-        """Install one Nexus mod plus its same-domain requirements (depth-first), via the shared
-        cascade. Requirements install at latest; only the top-level mod honors an explicit version
-        and variant. A failed requirement is best-effort (continue); a Premium-gated download aborts
-        and surfaces "premium_required". Returns True/False/None/"premium_required"/needs-variant."""
-        return await plugin_nexus_install._install_nexus_recursive(
-            game, install_dir, domain, mod_id, version, seen, variant=variant, top=top, installed=installed,
-        )
-
-    async def _install_nexus_multifile(self, game, install_dir, domain, mod_id, version, file_ids, *,
-                                       seen, installed):
-        """Install several user-chosen files of ONE Nexus SMAPI mod as a single library entry: its
-        requirements first (via the shared cascade, best-effort like a normal Nexus install), then
-        the chosen files downloaded and placed together under the one mod id (e.g. Stardew Valley
-        Expanded's main download + its optional alternate farm). Returns
-        True/False/None/"premium_required"."""
-        return await plugin_nexus_install._install_nexus_multifile(
-            game, install_dir, domain, mod_id, version, file_ids, seen=seen, installed=installed,
-        )
-
-    def _palworld_pick_files(self, files: list) -> list:
-        """Drop clearly-non-Steam-platform files from a Palworld mod's selectable list — by name
-        marker (GamePass/Xbox/Epic) OR by an io-store version (`…io`). The Deck runs the Steam build,
-        so those won't load; dropping them also auto-collapses a Steam/GamePass pair to the one Steam
-        file (no picker). If filtering would remove everything, keep all (best-effort)."""
-        return plugin_nexus_install.palworld_pick_files(files)
-
-    @staticmethod
-    def _nexus_file_label(f: dict) -> str:
-        """Picker label for one selectable Nexus file: name + version (when the version isn't already
-        in the name) + category/recommended flags. Surfacing the version disambiguates same-NAMED
-        files (e.g. a mod's Steam vs GamePass uploads, or two tiers sharing a display name)."""
-        return plugin_nexus_install._nexus_file_label(f)
-
     # ── ficsit.app (Satisfactory) catalog ──────────────────────────────────────
     async def get_ficsit_catalog(self, appid: int, query: str = "", page: int = 1,
                                  sort: str = ficsit.DEFAULT_SORT) -> list:
@@ -543,14 +498,6 @@ class Plugin:
         the device."""
         return await plugin_diagnostics.export_logs()
 
-    # Thunderstore packages that should never be installed as plugins via Browse —
-    # modloaders (already provided by Mod Loader tab) and desktop mod-manager apps.
-    # Case-insensitive comparison. Frontend uses get_browse_denylist() to keep these
-    # off the Browse list too. The canonical set lives in plugin_install_denylists; this class
-    # attribute aliases it so tests can instance-shadow it (self._BROWSE_DENYLIST = ...) and the
-    # thunderstore cascade delegators read self._BROWSE_DENYLIST.
-    _BROWSE_DENYLIST = plugin_install_denylists._BROWSE_DENYLIST
-
     async def get_browse_denylist(self) -> list[str]:
         """Lowercase install ids the UI should treat as 'not a real dependency' — modloaders,
         mod-manager apps (Thunderstore + Nexus), and every game's implicit deps (modloader cores
@@ -561,7 +508,7 @@ class Plugin:
         Implicit deps are unioned in only here, NOT into _BROWSE_DENYLIST: that set is what the
         install cascade uses to *skip* installs, and the modloader cores must still get installed."""
         implicit = {dep.lower() for g in registry.SUPPORTED_GAMES for dep in g.implicit_deps}
-        return sorted(self._BROWSE_DENYLIST | plugin_install_denylists.nexus_browse_denylist()
+        return sorted(plugin_install_denylists._BROWSE_DENYLIST | plugin_install_denylists.nexus_browse_denylist()
                       | plugin_install_denylists.ficsit_browse_denylist() | implicit)
 
     async def get_unresolved_dependencies(self, appid: int, full_name: str, with_deps: bool = True) -> list:
@@ -595,35 +542,6 @@ class Plugin:
         (it's skipped instead of failing — the UI's "install anyway").
         Returns True=success, False=failed, None=cancelled."""
         return await plugin_thunderstore_install.install_thunderstore_mod(appid, full_name, version, with_deps, allow_missing)
-
-    def _resolve_thunderstore_plan(
-        self, game: "registry.GameProfile", full_name: str, version: str | None,
-        with_deps: bool, seen: set, plan: list, unresolved: list, install_dir: str | None = None,
-    ) -> None:
-        """Size the Thunderstore cascade (depth-first packages it will download, into `plan`) and
-        collect declared deps not in the catalog (into `unresolved`), via the shared dry-run walk."""
-        plugin_thunderstore_install._resolve_thunderstore_plan(
-            game, full_name, version, with_deps, seen, plan, unresolved, install_dir, self._BROWSE_DENYLIST)
-
-    async def _install_thunderstore_recursive(
-        self,
-        game: "registry.GameProfile",
-        install_dir: str,
-        full_name: str,
-        version: str | None,
-        seen: set,
-        with_deps: bool = True,
-        installed_this_run: "list | None" = None,
-        allow_missing: bool = False,
-        is_dependency: bool = False,
-    ) -> bool | None:
-        """Install a Thunderstore mod plus its dependencies (depth-first), via the shared cascade.
-        Already-installed deps and denylisted packages are skipped; a failed/missing dependency
-        aborts (unless allow_missing skips a missing one). Returns True/False/None."""
-        return await plugin_thunderstore_install._install_thunderstore_recursive(
-            game, install_dir, full_name, version, seen, with_deps=with_deps,
-            installed_this_run=installed_this_run, allow_missing=allow_missing,
-            is_dependency=is_dependency, denylist=self._BROWSE_DENYLIST)
 
     async def reset_game(self, appid: int) -> dict:
         """Reset a game to its unmodded state: uninstall every tracked mod, then every

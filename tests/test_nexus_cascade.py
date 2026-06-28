@@ -1,10 +1,10 @@
-"""Characterization tests for the Nexus install cascade in main.py.
+"""Characterization tests for the Nexus install cascade in plugin_nexus_install.
 
 The Nexus cascade (_install_nexus_recursive) is a near-duplicate of the Thunderstore one and the
 planned ModProvider refactor unifies the two, so its behavior needs pinning too: depth-first
 requirement install, skip-already-installed, and the cross-domain-requirement skip that's specific
-to Nexus. Driven through main.Plugin with the nexus.* I/O and mods.install_mod stubbed; the skip
-check runs against the real store + mods.installed_files_present.
+to Nexus. Driven through plugin_nexus_install with the nexus.* I/O and mods.install_mod stubbed; the
+skip check runs against the real store + mods.installed_files_present.
 """
 import asyncio
 import os
@@ -12,7 +12,7 @@ import tempfile
 import unittest
 
 from _harness import mods, registry, reset_store
-import main
+import plugin_nexus_install
 import nexus
 import download_queue
 
@@ -33,7 +33,6 @@ class NexusCascadeTest(unittest.TestCase):
             id="g", name="G", appid=1, mods_dir="",
             catalog={"type": "nexus", "nexus_domain": "testgame", "install_type": "zip_flat"},
         )
-        self.plugin = main.Plugin()
 
         self.installs = []            # mod ids passed to install_mod, in order
         self.requirements = {}        # mod_id -> [ {domain, mod_id, name}, ... ]
@@ -63,7 +62,7 @@ class NexusCascadeTest(unittest.TestCase):
             setattr(mod_obj, name, value)
 
     def cascade(self, mod_id):
-        return run(self.plugin._install_nexus_recursive(
+        return run(plugin_nexus_install._install_nexus_recursive(
             self.game, self.install_dir, "testgame", mod_id, None, set(), installed=[],
         ))
 

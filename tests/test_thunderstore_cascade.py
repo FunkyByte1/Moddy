@@ -1,13 +1,14 @@
-"""Characterization tests for the Thunderstore install cascade in main.py.
+"""Characterization tests for the Thunderstore install cascade in plugin_thunderstore_install.
 
 These pin the *observable behavior* of the recursive dependency install — depth-first ordering,
 skip-already-installed, skip-denylisted, with_deps gating, missing-dependency handling, the
 "N of M" plan pre-pass, and rollback-on-partial-failure — BEFORE the planned refactor that moves
 this logic behind a ModProvider protocol. They're the net the refactor must keep green.
 
-The cascade is driven through main.Plugin with the I/O boundaries stubbed: thunderstore.find_package
-(the catalog), mods.install_mod / mods.uninstall_mod (placement + rollback), download_queue
-progress, and registry/steam resolution. The skip logic runs against the REAL store +
+The cascade is driven through plugin_thunderstore_install — and main.Plugin for the public-entry
+rollback test — with the I/O boundaries stubbed: thunderstore.find_package (the catalog),
+mods.install_mod / mods.uninstall_mod (placement + rollback), download_queue progress, and
+registry/steam resolution. The skip logic runs against the REAL store +
 mods.installed_files_present, so this also integration-tests that helper.
 """
 import asyncio
@@ -17,6 +18,7 @@ import unittest
 
 from _harness import mods, registry, reset_store
 import main
+import plugin_thunderstore_install
 import thunderstore
 import catalog
 import download_queue
@@ -39,6 +41,7 @@ class ThunderstoreCascadeTest(unittest.TestCase):
             id="g", name="G", appid=1, mods_dir="BepInEx/plugins", thunderstore_community="testcom",
         )
         self.plugin = main.Plugin()
+        self.denylist = set()        # lowercase install ids the cascade skips; a test overrides it
 
         self.catalog = {}            # full_name.lower() -> CatalogItem
         self.installs = []           # mod ids passed to install_mod, in order
@@ -93,7 +96,8 @@ class ThunderstoreCascadeTest(unittest.TestCase):
     def cascade(self, full_name, **kw):
         kw.setdefault("seen", set())
         kw.setdefault("installed_this_run", [])
-        return run(self.plugin._install_thunderstore_recursive(self.game, self.install_dir, full_name, None, **kw))
+        return run(plugin_thunderstore_install._install_thunderstore_recursive(
+            self.game, self.install_dir, full_name, None, denylist=self.denylist, **kw))
 
     # ── tests ────────────────────────────────────────────────────────────────
     def test_installs_dependencies_depth_first(self):
@@ -119,7 +123,7 @@ class ThunderstoreCascadeTest(unittest.TestCase):
         self.assertEqual(self.installs, ["OwnerB-ModB", "OwnerA-ModA"], "an orphaned record must not skip the reinstall")
 
     def test_skips_denylisted_dependency(self):
-        self.plugin._BROWSE_DENYLIST = {"ownerc-modc"}  # instance-shadow the class denylist
+        self.denylist = {"ownerc-modc"}  # the cascade skips this dependency
         self.add_pkg("OwnerB-ModB")
         self.add_pkg("OwnerC-ModC")
         self.add_pkg("OwnerA-ModA", deps=["OwnerC-ModC", "OwnerB-ModB"])
@@ -159,12 +163,14 @@ class ThunderstoreCascadeTest(unittest.TestCase):
         self.add_pkg("OwnerB-ModB")
         self.add_pkg("OwnerA-ModA", deps=["OwnerB-ModB"])
         plan = []
-        self.plugin._resolve_thunderstore_plan(self.game, "OwnerA-ModA", None, True, set(), plan, [], self.install_dir)
+        plugin_thunderstore_install._resolve_thunderstore_plan(
+            self.game, "OwnerA-ModA", None, True, set(), plan, [], self.install_dir, self.denylist)
         self.assertEqual(plan, ["OwnerB-ModB", "OwnerA-ModA"], "plan sizes deps before the parent (depth-first)")
 
         self.mark_installed_on_disk("OwnerB-ModB")
         plan2 = []
-        self.plugin._resolve_thunderstore_plan(self.game, "OwnerA-ModA", None, True, set(), plan2, [], self.install_dir)
+        plugin_thunderstore_install._resolve_thunderstore_plan(
+            self.game, "OwnerA-ModA", None, True, set(), plan2, [], self.install_dir, self.denylist)
         self.assertEqual(plan2, ["OwnerA-ModA"], "an already-installed dep drops out of the plan count")
 
 

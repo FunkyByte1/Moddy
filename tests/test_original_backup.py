@@ -11,7 +11,7 @@ import os
 import tempfile
 import unittest
 
-from _harness import mods, make_mod, make_game, reset_store, tree_snapshot, stub_download
+from _harness import mods, utils, make_mod, make_game, reset_store, tree_snapshot, stub_download
 import modloaders
 import github
 import registry
@@ -97,16 +97,16 @@ class SingleFileOriginalBackupTest(unittest.TestCase):
         self.install_dir = tempfile.mkdtemp(prefix="moddy-game-")
         self.game = make_game(mods_dir="")  # mods_path == game root
         self.mod = make_mod(mod_id="loose.dll", filename="dinput8.dll", install_type="file")
-        self._real_download = mods.utils.download
+        self._real_download = utils.download
 
     def tearDown(self):
-        mods.utils.download = self._real_download
+        utils.download = self._real_download
 
     def _dll(self, *suffix):
         return os.path.join(self.install_dir, "dinput8.dll" + "".join(suffix))
 
     def _install(self, payload=b"MODDLL"):
-        mods.utils.download = raw_download(payload)
+        utils.download = raw_download(payload)
         return run(mods.install_mod(self.game, self.install_dir, self.mod, url="http://x"))
 
     def test_install_preserves_stock_then_uninstall_restores(self):
@@ -146,8 +146,8 @@ class SingleFileOriginalBackupTest(unittest.TestCase):
         before = tree_snapshot(self.install_dir)
 
         async def boom(url, dest, appid):
-            raise mods.utils.InstallCancelledError("cancelled")
-        mods.utils.download = boom
+            raise utils.InstallCancelledError("cancelled")
+        utils.download = boom
         run(mods.install_mod(self.game, self.install_dir, self.mod, url="http://x"))
         self.assertEqual(tree_snapshot(self.install_dir), before, "a cancelled install must not touch the stock file")
 
@@ -166,19 +166,19 @@ class ModloaderOriginalBackupTest(unittest.TestCase):
             files=["version.dll"], dirs=["MelonLoader"],
         )
         self.game = registry.GameProfile(id="g", name="G", appid=1, mods_dir="Mods", modloaders=[self.ml])
-        self._real_download = mods.utils.download
+        self._real_download = utils.download
         self._real_url = github.get_download_url_for_version
         github.get_download_url_for_version = lambda *a, **k: "http://x"
 
     def tearDown(self):
-        mods.utils.download = self._real_download
+        utils.download = self._real_download
         github.get_download_url_for_version = self._real_url
 
     def at(self, rel):
         return os.path.join(self.install_dir, rel)
 
     def _install(self):
-        mods.utils.download = stub_download(writes={"version.dll": b"LOADER", "MelonLoader/net6/x.dll": b"L"})
+        utils.download = stub_download(writes={"version.dll": b"LOADER", "MelonLoader/net6/x.dll": b"L"})
         return run(modloaders._install_github_modloader(self.game, self.install_dir, self.ml, "1.0.0"))
 
     def test_stock_version_dll_preserved_and_restored(self):

@@ -15,6 +15,7 @@ import zipfile
 from _harness import mods, utils, registry, make_game, make_mod, reset_store, stub_download
 import modloaders
 import github
+import plugin_nexus_install
 
 
 def run(coro):
@@ -398,48 +399,44 @@ class PalworldMultifileTest(unittest.TestCase):
 
 
 class PalworldFilterTest(unittest.TestCase):
-    """_palworld_pick_files — drops non-Steam-platform files so the Deck (Steam build) doesn't try a
+    """palworld_pick_files — drops non-Steam-platform files so the Deck (Steam build) doesn't try a
     GamePass/Xbox/Epic io-store pak, and auto-collapses a Steam/GamePass pair to the Steam file."""
-    def setUp(self):
-        import main
-        self.plugin = main.Plugin()
 
     def _files(self, *names):
         return [{"name": n, "category": "MAIN", "file_id": str(i), "is_primary": False}
                 for i, n in enumerate(names)]
 
     def test_drops_nonsteam_platform_files(self):
-        kept = self.plugin._palworld_pick_files(
+        kept = plugin_nexus_install.palworld_pick_files(
             self._files("Mod (STEAM)", "Mod (Game Pass)", "Mod (XBOX APP)", "Mod (Epic)"))
         self.assertEqual([k["name"] for k in kept], ["Mod (STEAM)"])
 
     def test_keeps_version_variants(self):
-        self.assertEqual(len(self.plugin._palworld_pick_files(self._files("Mod x2", "Mod x5", "Mod x10"))), 3)
+        self.assertEqual(len(plugin_nexus_install.palworld_pick_files(self._files("Mod x2", "Mod x5", "Mod x10"))), 3)
 
     def test_keeps_steam_plus_neutral_addon(self):
         # Steam build + a Mod Config File -> both kept (the picker offers base + add-on).
-        kept = self.plugin._palworld_pick_files(self._files("Pal Info (STEAM)", "Pal Info (GAMEPASS)", "Pal Info Config"))
+        kept = plugin_nexus_install.palworld_pick_files(self._files("Pal Info (STEAM)", "Pal Info (GAMEPASS)", "Pal Info Config"))
         self.assertEqual([k["name"] for k in kept], ["Pal Info (STEAM)", "Pal Info Config"])
 
     def test_fallback_keeps_all_when_only_nonsteam(self):
         only = self._files("Mod (Game Pass)")
-        self.assertEqual(len(self.plugin._palworld_pick_files(only)), 1)
+        self.assertEqual(len(plugin_nexus_install.palworld_pick_files(only)), 1)
 
     def test_drops_iostore_version_when_name_is_identical(self):
         # DekMCM: same display name, version 1.9 (Steam) vs 1.9io (GamePass) — drop the io one.
         files = [{"name": "DekMCM", "version": "1.9", "category": "MAIN", "file_id": "1", "is_primary": True},
                  {"name": "DekMCM", "version": "1.9io", "category": "MAIN", "file_id": "2", "is_primary": False}]
-        self.assertEqual([k["version"] for k in self.plugin._palworld_pick_files(files)], ["1.9"])
+        self.assertEqual([k["version"] for k in plugin_nexus_install.palworld_pick_files(files)], ["1.9"])
 
     def test_label_disambiguates_by_version(self):
-        import main
         rec = {"name": "DekMCM", "version": "1.9", "category": "MAIN", "is_primary": True}
-        self.assertEqual(main.Plugin._nexus_file_label(rec), "DekMCM (v1.9) — recommended")
+        self.assertEqual(plugin_nexus_install._nexus_file_label(rec), "DekMCM (v1.9) — recommended")
         opt = {"name": "Config", "version": "1.0", "category": "OPTIONAL", "is_primary": False}
-        self.assertEqual(main.Plugin._nexus_file_label(opt), "Config (v1.0) (optional)")
+        self.assertEqual(plugin_nexus_install._nexus_file_label(opt), "Config (v1.0) (optional)")
         # version already in the name isn't duplicated
         dup = {"name": "Mod v2.5", "version": "2.5", "category": "MAIN", "is_primary": False}
-        self.assertEqual(main.Plugin._nexus_file_label(dup), "Mod v2.5")
+        self.assertEqual(plugin_nexus_install._nexus_file_label(dup), "Mod v2.5")
 
 
 if __name__ == "__main__":
