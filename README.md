@@ -62,6 +62,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Slay the Spire
 - Killing Floor 2
 - Tabletop Simulator
+- Portal 2
 - ROUNDS
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
