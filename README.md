@@ -51,6 +51,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Darkest Dungeon
 - Stellaris
 - Crusader Kings III
+- Hearts of Iron IV
 - ROUNDS
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
