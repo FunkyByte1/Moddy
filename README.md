@@ -38,6 +38,8 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Enter the Gungeon
 - Left 4 Dead 2
 - Brotato
+- RimWorld
+- Dwarf Fortress
 - ROUNDS
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
