@@ -3,6 +3,7 @@ import json
 import mods
 import mods_common
 import mods_archive
+import mods_fomod
 import mods_pak
 from registry import GameProfile, ModInfo
 import decky
@@ -477,6 +478,7 @@ async def _install_mod_loose_merge(
     # so the resume can install the choice without downloading again. `park` tells the finally not
     # to delete that extract; `reuse` (a chosen variant + a cache already on disk) skips the fetch.
     park = False
+    fomod_staged: str | None = None
     try:
         reuse = variant is not None and os.path.isdir(tmp_extract)
         if reuse:
@@ -488,20 +490,34 @@ async def _install_mod_loose_merge(
             await utils.download(url, tmp_archive, game.appid)
             mods_archive.extract_archive(tmp_archive, tmp_extract)
 
-        # Resolve which payload to install. Multiple variants + no choice → ask the UI.
-        variants = mods_archive._detect_variants(tmp_extract)
-        valid_ids = {v["id"] for v in variants}
-        if variant is not None:
-            if variant not in valid_ids:
-                decky.logger.error(f"{mod.name}: unknown variant {variant!r}")
-                return False
-            search_root = os.path.join(tmp_extract, variant)
-        elif len(variants) > 1:
-            decky.logger.info(f"{mod.name}: {len(variants)} variants — asking user to choose")
-            park = True
-            return {"needs_variant": True, "variants": variants}
+        # A FOMOD scripted installer takes precedence over the folder-variant heuristic: if the
+        # archive ships fomod/ModuleConfig.xml, resolve it under default options into a staging tree
+        # and install THAT recommended file set, instead of mis-reading its option folders (00 Core /
+        # 01 Legiana / …) as mutually-exclusive variants and dropping the required ones. The staged
+        # tree is the mod's logical root, so `wrap_loose` maps it under the canonical folder.
+        if variant is None:
+            fomod_cfg = mods_fomod.find_config(tmp_extract)
+            if fomod_cfg is not None:
+                fomod_staged = mods_fomod.stage_default_install(tmp_extract, fomod_cfg, mod.name)
+
+        if fomod_staged is not None:
+            search_root = fomod_staged
+            wrap_loose = True
         else:
-            search_root = tmp_extract
+            # Resolve which payload to install. Multiple variants + no choice → ask the UI.
+            variants = mods_archive._detect_variants(tmp_extract)
+            valid_ids = {v["id"] for v in variants}
+            if variant is not None:
+                if variant not in valid_ids:
+                    decky.logger.error(f"{mod.name}: unknown variant {variant!r}")
+                    return False
+                search_root = os.path.join(tmp_extract, variant)
+            elif len(variants) > 1:
+                decky.logger.info(f"{mod.name}: {len(variants)} variants — asking user to choose")
+                park = True
+                return {"needs_variant": True, "variants": variants}
+            else:
+                search_root = tmp_extract
 
         # Build the placement plan from the staging tree — read-only, the live game dir is untouched
         # until the commit transaction below.
@@ -622,6 +638,8 @@ async def _install_mod_loose_merge(
         # Keep the extracted archive when parked for a variant choice; the resume reuses it.
         if not park and os.path.exists(tmp_extract):
             shutil.rmtree(tmp_extract)
+        if fomod_staged and os.path.exists(fomod_staged):
+            shutil.rmtree(fomod_staged, ignore_errors=True)
 
 
 async def _install_mod_zip_natives(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, url: str | None, variant: str | None = None) -> "bool | None | dict":
