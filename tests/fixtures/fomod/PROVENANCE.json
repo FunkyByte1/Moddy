@@ -1,0 +1,175 @@
+[
+ {
+  "fixture": "mhw_5076.xml.gz",
+  "game": "mhw",
+  "mod_id": 5076,
+  "file_id": 24095,
+  "name": "Grada's Paradise - All in One V2 - Main Mod",
+  "steps": 62,
+  "groups": 355,
+  "group_types": [
+   "SelectAll",
+   "SelectAny",
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ },
+ {
+  "fixture": "mhw_5609.xml.gz",
+  "game": "mhw",
+  "mod_id": 5609,
+  "file_id": 23114,
+  "name": "00-Defender Armor Ver.R Fomod Installer",
+  "steps": 15,
+  "groups": 15,
+  "group_types": [
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ },
+ {
+  "fixture": "mhw_5643.xml.gz",
+  "game": "mhw",
+  "mod_id": 5643,
+  "file_id": 23078,
+  "name": "00-Rajang Armor Ver.R Fomod Installer",
+  "steps": 11,
+  "groups": 23,
+  "group_types": [
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ },
+ {
+  "fixture": "mhw_5694.xml.gz",
+  "game": "mhw",
+  "mod_id": 5694,
+  "file_id": 23272,
+  "name": "00-Guild Palace Armor Ver.R - Fomod Installer",
+  "steps": 12,
+  "groups": 15,
+  "group_types": [
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ },
+ {
+  "fixture": "mhw_5719.xml.gz",
+  "game": "mhw",
+  "mod_id": 5719,
+  "file_id": 23334,
+  "name": "00-Safi'jiiva Armor Ver.R Fomod Installer",
+  "steps": 11,
+  "groups": 23,
+  "group_types": [
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ },
+ {
+  "fixture": "mhw_5806.xml.gz",
+  "game": "mhw",
+  "mod_id": 5806,
+  "file_id": 23653,
+  "name": "00-Ruiner Nergigante Armor Ver.R Fomod Installer v1.01",
+  "steps": 10,
+  "groups": 21,
+  "group_types": [
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ },
+ {
+  "fixture": "mhw_5818.xml.gz",
+  "game": "mhw",
+  "mod_id": 5818,
+  "file_id": 23689,
+  "name": "00-Harvest Armor Ver.R Fomod Installer",
+  "steps": 12,
+  "groups": 14,
+  "group_types": [
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ },
+ {
+  "fixture": "mhw_5878.xml.gz",
+  "game": "mhw",
+  "mod_id": 5878,
+  "file_id": 23941,
+  "name": "00-Raging Brachydios Armor Ver.R Fomod Installer",
+  "steps": 12,
+  "groups": 22,
+  "group_types": [
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ },
+ {
+  "fixture": "mhw_6005.xml.gz",
+  "game": "mhw",
+  "mod_id": 6005,
+  "file_id": 24328,
+  "name": "Diablos and Black Diablos MR - Vanilla Like - Up to 352 Options to chose from - Grada's Paradise Series - Main Mod",
+  "steps": 11,
+  "groups": 38,
+  "group_types": [
+   "SelectAll",
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ },
+ {
+  "fixture": "mhw_6049.xml.gz",
+  "game": "mhw",
+  "mod_id": 6049,
+  "file_id": 24462,
+  "name": "00-Tigrex EX Armor Ver.R Fomod Installer",
+  "steps": 11,
+  "groups": 21,
+  "group_types": [
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ },
+ {
+  "fixture": "mhw_6152.xml.gz",
+  "game": "mhw",
+  "mod_id": 6152,
+  "file_id": 24733,
+  "name": "Rathalos MR - Vanilla Like - Up to 68 Options to chose from - Grada's Paradise Series - Main Mod",
+  "steps": 9,
+  "groups": 22,
+  "group_types": [
+   "SelectAll",
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ },
+ {
+  "fixture": "mhw_6468.xml.gz",
+  "game": "mhw",
+  "mod_id": 6468,
+  "file_id": 25743,
+  "name": "Lunastra Master Rank - Grada's Paradise Series - Up to 100 Options to chose from - Main Mod",
+  "steps": 9,
+  "groups": 26,
+  "group_types": [
+   "SelectAll",
+   "SelectExactlyOne"
+  ],
+  "flags": true,
+  "conditional_installs": false
+ }
+]
