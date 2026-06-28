@@ -26,16 +26,14 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Controller-native UI with d-pad navigation
 
 ## Supported Games
-### Currently Supported:
 
+Moddy installs mods from several sources. What you need to do depends on where a game's mods come from.
 
-- Risk of Rain 2
-- Balatro
-- PEAK
-- Valheim
+### Steam Workshop
+No setup — Moddy subscribes the mods through Steam; just play.
+
 - Haste
 - Hand of Fate 2
-- Enter the Gungeon
 - Left 4 Dead 2
 - Brotato
 - RimWorld
@@ -66,15 +64,30 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Rivals of Aether
 - Castle Crashers
 - BattleBlock Theater
+
+### Thunderstore
+No setup — Moddy installs the required mod loader (BepInEx) automatically.
+
+- Risk of Rain 2
+- PEAK
+- Valheim
+- Enter the Gungeon
 - ROUNDS
+
+### Nexus Mods
+Requires a Nexus account and a **personal API key** (Premium only — see [Setting up your Nexus Mods API key](#setting-up-your-nexus-mods-api-key)).
+
+- Stardew Valley
+- Resident Evil 4
+- Monster Hunter World
+- Monster Hunter Rise
+- No Man's Sky
+- Palworld
+- Slime Rancher 2
+
+### Other
+- Balatro *(via [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index))*
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
-- Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
-- Resident Evil 4 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
-- Monster Hunter World *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
-- Monster Hunter Rise *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
-- No Man's Sky *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
-- Palworld *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
-- Slime Rancher 2 *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
 
 ### Planned:
 - Vampire Survivors
