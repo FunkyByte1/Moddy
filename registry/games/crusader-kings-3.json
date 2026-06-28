@@ -1,0 +1,11 @@
+{
+  "id": "crusader-kings-3",
+  "name": "Crusader Kings III",
+  "appid": 1158310,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": [
+    "steamworkshop"
+  ],
+  "library_workshop_ids": []
+}
