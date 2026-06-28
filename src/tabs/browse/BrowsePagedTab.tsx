@@ -58,13 +58,21 @@ const BrowsePagedTab: FC<{
   onCategories?: (categories: string[]) => void; // Thunderstore bubbles its catalog categories to the filter modal
   refreshKey?: number;          // bumped by "Refresh Catalog"; busts a client-paged venue's cache (Phase 2)
   ready?: boolean;              // default true; Nexus gates the first fetch on the NSFW seed
-}> = ({ adapter, game, onRefresh, filter, onFilterButton, onCategories, refreshKey, ready = true }) => {
+  // Nexus remounts this tab (via a key on the server-side filter) to force a fresh fetch when
+  // Show-NSFW/sort change — the in-place fetchKey effect doesn't re-run reliably inside SteamUI's
+  // Tabs. These let the search term survive that remount (seed from / report back to the parent).
+  initialSearch?: string;
+  onSearchChange?: (s: string) => void;
+}> = ({ adapter, game, onRefresh, filter, onFilterButton, onCategories, refreshKey, ready = true,
+        initialSearch, onSearchChange }) => {
   // Inputs that trigger a reset+refetch. Default keys on the server-side inputs (Nexus showNsfw/sort);
   // a client-paged venue (Thunderstore) overrides via adapter.fetchKey to re-slice on any filter change.
   const fetchKey = adapter.fetchKey?.(filter) ?? `${filter?.showNsfw ?? false}|${filter?.sortBy ?? ''}`;
 
-  const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
+  const [search, setSearch] = useState(initialSearch ?? '');
+  // Seed debounced from the lifted search too, so a remount (Nexus filter change) re-fetches the
+  // SEARCHED query immediately instead of flashing unfiltered results for one debounce interval.
+  const [debounced, setDebounced] = useState((initialSearch ?? '').trim());
   const [items, setItems] = useState<BrowseItem[]>([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -183,7 +191,8 @@ const BrowsePagedTab: FC<{
     >
       <Focusable style={{ width: LEFT_PANEL_WIDTH, borderRight: '1px solid var(--gpColorSeparator)', display: 'flex', flexDirection: 'column' }}>
         <div ref={searchPanelRef} style={{ padding: 8 }}>
-          <TextField label={adapter.searchLabel} value={search} onChange={e => setSearch(e.target.value)}
+          <TextField label={adapter.searchLabel} value={search}
+            onChange={e => { setSearch(e.target.value); onSearchChange?.(e.target.value); }}
             // Enter (R2) closes the keyboard (blur) but keeps focus on the search field.
             onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); refocusSearch(); } }} />
           <CatalogSourceLabel source={adapter.sourceLabel} />

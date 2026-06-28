@@ -51,6 +51,9 @@ const ModPage: FC = () => {
   const [installedFilter, setInstalledFilter] = useState<InstalledFilter>(defaultInstalledFilter);
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>(defaultBrowseFilter);
   const [nexusFilter, setNexusFilter] = useState<NexusFilter>(defaultNexusFilter);
+  // Lifted so it survives the Nexus Browse tab's remount when a server-side filter (Show NSFW / sort)
+  // changes — see the key on that tab below.
+  const [nexusSearch, setNexusSearch] = useState('');
   // Gates the Nexus tab's first fetch until the NSFW seed below has resolved, so it
   // queries with the right include_adult value once instead of fetching twice.
   const [nsfwSeedResolved, setNsfwSeedResolved] = useState(false);
@@ -529,13 +532,20 @@ const ModPage: FC = () => {
       id: 'browse',
       title: 'Browse',
       content: (
+        // Key on the server-side filter inputs (Show NSFW + sort): changing either remounts the tab
+        // so it re-fetches from page 1, since the in-place fetchKey effect doesn't re-run reliably
+        // inside SteamUI's Tabs. The search term is lifted (initialSearch/onSearchChange) so it
+        // survives the remount; client-side filters (hide-libraries/install-status) still apply live.
         <BrowsePagedTab
+          key={`nexus-${nexusFilter.showNsfw}-${nexusFilter.sortBy}`}
           adapter={nexusAdapter}
           game={game}
           onRefresh={refresh}
           filter={nexusFilter}
           onFilterButton={handleNexusFilterMenu}
           ready={nsfwSeedResolved}
+          initialSearch={nexusSearch}
+          onSearchChange={setNexusSearch}
         />
       ),
       footer: {
