@@ -1,0 +1,11 @@
+{
+  "id": "europa-universalis-4",
+  "name": "Europa Universalis IV",
+  "appid": 236850,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": [
+    "steamworkshop"
+  ],
+  "library_workshop_ids": []
+}
