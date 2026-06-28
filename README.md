@@ -41,6 +41,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - RimWorld
 - Dwarf Fortress
 - Project Zomboid
+- Don't Starve Together
 - ROUNDS
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
