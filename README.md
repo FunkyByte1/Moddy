@@ -44,6 +44,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Don't Starve Together
 - Cities: Skylines
 - XCOM 2
+- Sid Meier's Civilization V
 - ROUNDS
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
