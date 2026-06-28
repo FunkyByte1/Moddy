@@ -1,0 +1,11 @@
+{
+  "id": "kenshi",
+  "name": "Kenshi",
+  "appid": 233860,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": [
+    "steamworkshop"
+  ],
+  "library_workshop_ids": []
+}
