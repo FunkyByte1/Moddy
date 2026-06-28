@@ -29,6 +29,26 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 
 Moddy installs mods from several sources. What you need to do depends on where a game's mods come from.
 
+### Thunderstore
+No setup — Moddy installs the required mod loader (BepInEx) automatically.
+
+- Enter the Gungeon
+- PEAK
+- Risk of Rain 2
+- ROUNDS
+- Valheim
+
+### Nexus Mods
+Requires a Nexus account and a **personal API key** (Premium only — see [Setting up your Nexus Mods API key](#setting-up-your-nexus-mods-api-key)).
+
+- Monster Hunter Rise
+- Monster Hunter World
+- No Man's Sky
+- Palworld
+- Resident Evil 4
+- Slime Rancher 2
+- Stardew Valley
+
 ### Steam Workshop
 No setup — Moddy subscribes the mods through Steam; just play.
 
@@ -64,26 +84,6 @@ No setup — Moddy subscribes the mods through Steam; just play.
 - Total War: Warhammer II
 - Total War: Warhammer III
 - XCOM 2
-
-### Thunderstore
-No setup — Moddy installs the required mod loader (BepInEx) automatically.
-
-- Enter the Gungeon
-- PEAK
-- Risk of Rain 2
-- ROUNDS
-- Valheim
-
-### Nexus Mods
-Requires a Nexus account and a **personal API key** (Premium only — see [Setting up your Nexus Mods API key](#setting-up-your-nexus-mods-api-key)).
-
-- Monster Hunter Rise
-- Monster Hunter World
-- No Man's Sky
-- Palworld
-- Resident Evil 4
-- Slime Rancher 2
-- Stardew Valley
 
 ### Other
 - Balatro *(via [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index))*
