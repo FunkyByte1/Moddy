@@ -49,9 +49,10 @@ class Job:
         self.items_total = 0  # total packages this job will install ("M"); 0 = unknown
         self.cancel_requested = False
         # Parked-job (needs_input) support — used by the Nexus variant flow.
-        self.variant: "str | None" = None      # the chosen variant, set on resume
+        self.variant: "str | None" = None      # the chosen variant (or FOMOD selections JSON), set on resume
         self.variants: list = []                # options to present while parked
         self.multi_select: bool = False         # parked choice is a checklist (file picker), not single-pick
+        self.fomod: "dict | None" = None        # serialized FOMOD wizard model, present while parked on it
         self.installed: list = []               # ids freshly installed this job (survives a park)
         self.rollback = None                    # optional async rollback(job) for a parked cancel
         self.cleanup = None                     # optional sync cleanup() (e.g. drop a cached extract)
@@ -72,6 +73,7 @@ class Job:
             "items_total": self.items_total,
             "variants": self.variants,
             "multi_select": self.multi_select,
+            "fomod": self.fomod,
         }
 
 
@@ -161,6 +163,7 @@ async def resume(job_id: int, variant: str) -> bool:
     job.variant = variant
     job.variants = []
     job.multi_select = False
+    job.fomod = None
     job.cancel_requested = False
     job.status = STATUS_QUEUED
     _ensure_worker()
@@ -289,6 +292,10 @@ async def _worker() -> None:
                 job.variants = result.get("variants") or []
                 job.multi_select = bool(result.get("multi_select"))  # file picker → checklist UI
                 job.status = STATUS_NEEDS_INPUT  # parked; worker moves on (does NOT block)
+            elif isinstance(result, dict) and result.get("needs_fomod"):
+                job.fomod = result.get("fomod")  # serialized wizard model for the UI
+                job.status = STATUS_NEEDS_INPUT  # parked on the FOMOD wizard
+
             elif isinstance(result, str):
                 job.status = STATUS_FAILED
                 job.error = "Nexus Premium account required" if result == "premium_required" else result

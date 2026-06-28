@@ -491,14 +491,19 @@ async def _install_mod_loose_merge(
             mods_archive.extract_archive(tmp_archive, tmp_extract)
 
         # A FOMOD scripted installer takes precedence over the folder-variant heuristic: if the
-        # archive ships fomod/ModuleConfig.xml, resolve it under default options into a staging tree
-        # and install THAT recommended file set, instead of mis-reading its option folders (00 Core /
-        # 01 Legiana / …) as mutually-exclusive variants and dropping the required ones. The staged
-        # tree is the mod's logical root, so `wrap_loose` maps it under the canonical folder.
-        if variant is None:
-            fomod_cfg = mods_fomod.find_config(tmp_extract)
-            if fomod_cfg is not None:
-                fomod_staged = mods_fomod.stage_default_install(tmp_extract, fomod_cfg, mod.name)
+        # archive ships fomod/ModuleConfig.xml, resolve it (not its option folders, which would be
+        # mis-read as mutually-exclusive variants, dropping required ones) into a staging tree and
+        # install THAT. prepare() returns a {"needs_fomod"} dict to PARK for the wizard when there
+        # are real choices (resumed with the wizard's JSON selections via the `variant` channel),
+        # else stages the default/selected file set. The staged tree is the mod's logical root, so
+        # `wrap_loose` maps it under the canonical folder.
+        fomod_cfg = mods_fomod.find_config(tmp_extract)
+        fomod_result = mods_fomod.prepare(tmp_extract, fomod_cfg, mod.name, variant) if fomod_cfg else None
+        if isinstance(fomod_result, dict):
+            park = True
+            return fomod_result
+        if isinstance(fomod_result, str):
+            fomod_staged = fomod_result
 
         if fomod_staged is not None:
             search_root = fomod_staged

@@ -133,6 +133,29 @@ export interface VanillaResult {
 export interface NexusVariant { id: string; label: string }
 export interface NeedsVariant { needs_variant: true; variants: NexusVariant[] }
 
+// ── FOMOD install wizard ───────────────────────────────────────────────────
+// A FOMOD (scripted Nexus installer) with real choices parks the install and ships this serialized
+// option-tree (backend fomod.serialize_for_ui). The wizard evaluates flag conditions client-side
+// (steps appear/disappear, plugin states update) and resumes with the chosen plugin indices encoded
+// as [[stepIdx, groupIdx, [pluginIdx, ...]], ...] through the same channel as a variant id.
+export interface FomodCondition { op: string; flags: [string, string][]; children: FomodCondition[] }
+export interface FomodPlugin {
+  name: string;
+  description: string;
+  image: string | null;
+  flags: [string, string][];                                  // condition flags set when selected
+  type: { default: string; patterns: { cond: FomodCondition | null; type: string }[] };
+}
+export type FomodGroupType =
+  'SelectExactlyOne' | 'SelectAtMostOne' | 'SelectAtLeastOne' | 'SelectAny' | 'SelectAll';
+export interface FomodGroup { name: string; type: FomodGroupType | string; plugins: FomodPlugin[] }
+export interface FomodStep { name: string; visible: FomodCondition | null; groups: FomodGroup[] }
+export interface FomodModel {
+  moduleName: string;
+  steps: FomodStep[];
+  default: [number, number, number[]][];                      // [stepIdx, groupIdx, pluginIdx[]]
+}
+
 // ── Background download queue ──────────────────────────────────────────────
 // Catalog installs that fetch archives server-side (Thunderstore / Nexus / BMI) are enqueued
 // and drained by a single serial backend worker, so the UI can show a queue + per-item
@@ -159,6 +182,7 @@ export interface QueueJob {
   items_total: number; // "M" — total packages this job installs (0 = unknown / single)
   variants: NexusVariant[]; // present while status is 'needs_input' — the choices to offer
   multi_select?: boolean;   // the parked choice is a Nexus file picker (checklist), not a single-pick variant
+  fomod?: FomodModel | null; // present while parked on a FOMOD install wizard (instead of variants)
 }
 
 export interface WorkshopCatalogItem {

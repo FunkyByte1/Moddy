@@ -11,12 +11,17 @@ FOMOD detection takes PRECEDENCE over the folder-variant heuristic (_detect_vari
 option folders (00 Core / 01 Legiana / …) are NOT mutually-exclusive variants — Core is required —
 so guessing one folder silently drops required files. Resolving the FOMOD installs the correct set.
 """
+import json
 import os
 import shutil
 
 import decky
 
 import fomod
+
+# Sentinel `selections_json` meaning "resolve under engine defaults, don't park" — used for a FOMOD
+# pulled in as a same-domain dependency, which can't prompt the user mid-cascade.
+FOMOD_DEFAULTS = "__moddy_fomod_defaults__"
 
 
 def find_config(extract_dir: str) -> "str | None":
@@ -50,16 +55,9 @@ def _resolve_ci(base: str, rel: str) -> "str | None":
     return cur
 
 
-def stage_default_install(extract_dir: str, cfg_path: str, mod_name: str) -> "str | None":
-    """Resolve the FOMOD under default options and materialise the chosen files into a fresh staging
-    dir (sibling of extract_dir). Returns the staging path for the caller to feed to the loose-file
-    merge, or None to fall back to legacy variant handling — when the FOMOD uses constructs we can't
-    evaluate, fails to parse/resolve, or resolves to nothing on disk.
-
-    FOMOD `source` paths are relative to the PACKAGE ROOT (the dir containing fomod/), not the
-    archive root. `<folder>` copies the source's CONTENTS into the destination (FOMOD semantics);
-    operations are applied in priority order so a later op overwrites an earlier one on a path clash.
-    """
+def _load_model(cfg_path: str, mod_name: str):
+    """Parse the FOMOD; return the model, or None to fall back to legacy variant handling (parse
+    error, or constructs the engine can't evaluate — fail loud, don't guess)."""
     try:
         with open(cfg_path, "rb") as f:
             model = fomod.parse(f.read())
@@ -71,13 +69,16 @@ def stage_default_install(extract_dir: str, cfg_path: str, mod_name: str) -> "st
             f"{mod_name}: FOMOD uses unsupported constructs {sorted(model.unsupported)}; "
             "falling back to variant handling")
         return None
-    try:
-        plan = fomod.resolve(model, fomod.default_selections(model))
-    except fomod.FomodError as e:
-        decky.logger.warning(f"{mod_name}: FOMOD resolve failed ({e}); falling back to variant handling")
-        return None
+    return model
 
-    pkg_root = os.path.dirname(os.path.dirname(cfg_path))  # the dir that contains the fomod/ folder
+
+def _materialize(plan, pkg_root: str, extract_dir: str, mod_name: str) -> "str | None":
+    """Copy a resolved plan's ops into a fresh staging dir (sibling of extract_dir), shaped like the
+    mod's logical root. Returns the staging path, or None if nothing landed (caller falls back).
+
+    `<folder>` copies the source's CONTENTS into the destination (FOMOD semantics); ops are applied
+    in priority order so a later op overwrites an earlier one on a path clash. Sources resolve
+    case-insensitively against the PACKAGE ROOT (the dir containing fomod/)."""
     staging = extract_dir.rstrip("/") + "_fomod"
     if os.path.exists(staging):
         shutil.rmtree(staging)
@@ -113,5 +114,41 @@ def stage_default_install(extract_dir: str, cfg_path: str, mod_name: str) -> "st
         decky.logger.error(f"{mod_name}: FOMOD resolved to no installable files; falling back")
         shutil.rmtree(staging, ignore_errors=True)
         return None
-    decky.logger.info(f"{mod_name}: FOMOD resolved {placed} payload op(s) under default options")
+    decky.logger.info(f"{mod_name}: FOMOD staged {placed} payload op(s)")
     return staging
+
+
+def prepare(extract_dir: str, cfg_path: str, mod_name: str, selections_json: "str | None"):
+    """Drive a FOMOD install. Returns one of:
+      - dict {"needs_fomod": True, ...} : park for the wizard (the model has real choices and the
+        caller passed no selections yet) — the caller surfaces it to the UI like a variant park;
+      - str : the staging dir to install (resolved under defaults, or under the wizard selections);
+      - None : fall back to legacy variant handling (not auto-resolvable).
+
+    `selections_json` is None on the first pass (park or default-install) and, on resume, the JSON
+    the wizard sent back through the same channel as the variant id."""
+    model = _load_model(cfg_path, mod_name)
+    if model is None:
+        return None
+
+    if selections_json is None:
+        if fomod.has_choices(model):
+            decky.logger.info(f"{mod_name}: FOMOD has options — parking for the install wizard")
+            return {"needs_fomod": True, "fomod": fomod.serialize_for_ui(model)}
+        selections = fomod.default_selections(model)
+    elif selections_json == FOMOD_DEFAULTS:
+        selections = fomod.default_selections(model)
+    else:
+        try:
+            selections = fomod.decode_selections(json.loads(selections_json))
+        except (ValueError, TypeError, KeyError, IndexError) as e:
+            decky.logger.warning(f"{mod_name}: bad FOMOD selections ({e}); using defaults")
+            selections = fomod.default_selections(model)
+
+    try:
+        plan = fomod.resolve(model, selections)
+    except fomod.FomodError as e:
+        decky.logger.warning(f"{mod_name}: FOMOD resolve failed ({e}); falling back to variant handling")
+        return None
+    pkg_root = os.path.dirname(os.path.dirname(cfg_path))  # the dir that contains the fomod/ folder
+    return _materialize(plan, pkg_root, extract_dir, mod_name)

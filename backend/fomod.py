@@ -531,3 +531,73 @@ def resolve(model: FomodModel, selections: Selections) -> InstallPlan:
             ops.extend(files)
     ops_sorted = sorted(ops, key=lambda o: o.priority)  # stable: ties keep declaration order
     return InstallPlan(operations=ops_sorted, flags=flags)
+
+
+# ---- UI serialization (for the install wizard) ------------------------------
+
+def _dep_to_dict(dep: Optional[Dependency]) -> Optional[dict]:
+    if dep is None:
+        return None
+    return {
+        "op": dep.operator,
+        "flags": [[f, v] for f, v in dep.flag_deps],
+        "children": [_dep_to_dict(c) for c in dep.children],
+    }
+
+
+_CHOOSABLE = {"SelectExactlyOne", "SelectAtMostOne", "SelectAtLeastOne", "SelectAny"}
+
+
+def has_choices(model: FomodModel) -> bool:
+    """Whether the wizard has anything for the user to decide — i.e. a choosable group with more
+    than one selectable plugin (or a SelectAny/AtMostOne, where 'none' is itself a choice). A FOMOD
+    that's all SelectAll / single-option groups is fully forced, so the install needn't park."""
+    for step in model.install_steps:
+        for group in step.groups:
+            usable = sum(1 for p in group.plugins if p.type_descriptor.default != "NotUsable")
+            if group.type in ("SelectAny", "SelectAtMostOne") and usable >= 1:
+                return True
+            if group.type in ("SelectExactlyOne", "SelectAtLeastOne") and usable >= 2:
+                return True
+    return False
+
+
+def serialize_for_ui(model: FomodModel) -> dict:
+    """A JSON-able description of the wizard for the frontend: ordered steps -> groups -> plugins,
+    each plugin's condition flags + type descriptor, each step's `visible` condition, plus the
+    default selection. The UI evaluates flag conditions client-side (steps appear/disappear, plugin
+    states update) and sends the chosen plugin indices back; resolve() is the source of truth."""
+    def plugin_dict(p: Plugin) -> dict:
+        td = p.type_descriptor
+        return {
+            "name": p.name,
+            "description": p.description,
+            "image": p.image,
+            "flags": [[f, v] for f, v in p.condition_flags],
+            "type": {
+                "default": td.default,
+                "patterns": [{"cond": _dep_to_dict(c), "type": t} for c, t in td.patterns],
+            },
+        }
+    steps = [{
+        "name": s.name,
+        "visible": _dep_to_dict(s.visible),
+        "groups": [{
+            "name": g.name,
+            "type": g.type,
+            "plugins": [plugin_dict(p) for p in g.plugins],
+        } for g in s.groups],
+    } for s in model.install_steps]
+    default = [[si, gi, sorted(pl)] for (si, gi), pl in default_selections(model).items()]
+    return {"moduleName": model.module_name, "steps": steps, "default": default}
+
+
+def decode_selections(raw: list) -> Selections:
+    """Inverse of the `default` shape in serialize_for_ui: a list of [step_idx, group_idx,
+    [plugin_idx, ...]] -> the Selections dict resolve() expects. Tolerant of str/float indices
+    (JSON round-trips), since this crosses the frontend boundary."""
+    out: Selections = {}
+    for entry in raw or []:
+        si, gi, plugins = entry[0], entry[1], entry[2]
+        out[(int(si), int(gi))] = {int(p) for p in plugins}
+    return out

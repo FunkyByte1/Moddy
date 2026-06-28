@@ -7,11 +7,22 @@ import { cancelDownloadJob, clearDownloadJob, clearFinishedDownloads, resumeDown
 import { useDownloadQueue, useGameDownloadQueue, summarize, isActiveStatus, jobStatusText } from '../lib/downloadQueue';
 import VariantModal from './modals/VariantModal';
 import FileChoiceModal from './modals/FileChoiceModal';
+import FomodWizardModal from './modals/FomodWizardModal';
 
-/** Resolve a parked (needs_input) job's choice, then resume it. A multi-select job is a Nexus
- *  file picker (pick one or more files → resume with the ids comma-joined); otherwise it's a
- *  single-pick archive variant. Both ride the same resume channel. */
+/** Resolve a parked (needs_input) job's choice, then resume it. A FOMOD job shows the install
+ *  wizard (resume with the chosen plugin indices as JSON); a multi-select job is a Nexus file
+ *  picker (resume with ids comma-joined); otherwise it's a single-pick archive variant. All ride
+ *  the same resume channel. */
 export function promptVariant(job: QueueJob): void {
+  if (job.fomod) {
+    showModal(
+      <FomodWizardModal
+        model={job.fomod}
+        onInstall={(selections, close) => { close(); resumeDownloadJob(job.job_id, JSON.stringify(selections)); }}
+      />
+    );
+    return;
+  }
   if (job.multi_select) {
     showModal(
       <FileChoiceModal

@@ -17,6 +17,7 @@ import decky
 
 import registry
 import mods
+import mods_fomod
 import thunderstore
 import nexus
 import ficsit
@@ -371,14 +372,19 @@ async def run_cascade(provider: ModProvider, game, install_dir, ref, version, *,
     await download_queue.note_item(spec.mod.name)
     res = await mods.install_mod(game, install_dir, spec.mod, version=spec.version, url=spec.url,
                                  variant=variant if top else None)
-    if isinstance(res, dict) and res.get("needs_variant"):
+    if isinstance(res, dict) and (res.get("needs_variant") or res.get("needs_fomod")):
         if top:
             return res  # park for the UI (any deps already installed are recorded in `installed`)
-        # A dependency that bundles variants can't ask the user mid-cascade — install its first.
-        first = (res.get("variants") or [{}])[0].get("id")
-        decky.logger.warning(f"{key} bundles variants; installing default {first!r} as a dependency")
+        # A dependency can't ask the user mid-cascade — install its default. A FOMOD dependency
+        # resolves under engine defaults; a variant-bundling one installs its first variant.
+        if res.get("needs_fomod"):
+            decky.logger.warning(f"{key} is a FOMOD dependency; installing default options")
+            choice = mods_fomod.FOMOD_DEFAULTS
+        else:
+            choice = (res.get("variants") or [{}])[0].get("id")
+            decky.logger.warning(f"{key} bundles variants; installing default {choice!r} as a dependency")
         res = await mods.install_mod(game, install_dir, spec.mod, version=spec.version, url=spec.url,
-                                     variant=first)
+                                     variant=choice)
     if res is True and was_fresh and installed is not None:
         installed.append(spec.mod.id)  # the install id (original case), not the lowercased dedup key
     return res

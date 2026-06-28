@@ -269,6 +269,62 @@ class TestPriorityOrdering(unittest.TestCase):
         self.assertLess(order.index("early"), order.index("late"))   # 1 before 9
 
 
+class TestUiSerialization(unittest.TestCase):
+    """parking/wizard support: has_choices, serialize_for_ui, decode_selections."""
+
+    def _choice_model(self):
+        return fomod.parse(cfg(
+            '<installStep name="S1"><optionalFileGroups>'
+            '<group name="Pick" type="SelectExactlyOne"><plugins>'
+            '<plugin name="A"><description>aa</description>'
+            '<files><folder source="a" destination=""/></files>'
+            '<conditionFlags><flag name="picked">A</flag></conditionFlags>'
+            '<typeDescriptor><type name="Optional"/></typeDescriptor></plugin>'
+            '<plugin name="B"><description>bb</description>'
+            '<files><folder source="b" destination=""/></files>'
+            '<typeDescriptor><type name="Optional"/></typeDescriptor></plugin>'
+            '</plugins></group></optionalFileGroups></installStep>'
+            '<installStep name="S2">'
+            '<visible><dependencies operator="And"><flagDependency flag="picked" value="A"/></dependencies></visible>'
+            '<optionalFileGroups><group name="Extra" type="SelectAll"><plugins>'
+            '<plugin name="E"><description>ee</description><files><folder source="e" destination=""/></files>'
+            '<typeDescriptor><type name="Required"/></typeDescriptor></plugin>'
+            '</plugins></group></optionalFileGroups></installStep>'))
+
+    def test_has_choices(self):
+        self.assertTrue(fomod.has_choices(self._choice_model()))
+        forced = fomod.parse(cfg(
+            '<installStep name="S"><optionalFileGroups><group name="G" type="SelectAll"><plugins>'
+            '<plugin name="P"><description>d</description><files><folder source="p" destination=""/></files>'
+            '<typeDescriptor><type name="Required"/></typeDescriptor></plugin>'
+            '</plugins></group></optionalFileGroups></installStep>'))
+        self.assertFalse(fomod.has_choices(forced))
+
+    def test_serialize_shape(self):
+        dto = fomod.serialize_for_ui(self._choice_model())
+        self.assertEqual(dto["moduleName"], "Synthetic")
+        self.assertEqual(len(dto["steps"]), 2)
+        g = dto["steps"][0]["groups"][0]
+        self.assertEqual(g["type"], "SelectExactlyOne")
+        self.assertEqual(g["plugins"][0]["flags"], [["picked", "A"]])
+        # step 2's visibility condition is serialized for client-side eval
+        self.assertEqual(dto["steps"][1]["visible"],
+                         {"op": "And", "flags": [["picked", "A"]], "children": []})
+        self.assertEqual(dto["default"], [[0, 0, [0]], [1, 0, [0]]])  # A, then E (visible since A)
+
+    def test_decode_round_trips_and_tolerates_strings(self):
+        sel = fomod.decode_selections([[0, 0, [1]], ["1", "0", ["0"]]])
+        self.assertEqual(sel, {(0, 0): {1}, (1, 0): {0}})
+
+    def test_serialized_default_resolves_same_as_default_selections(self):
+        model = self._choice_model()
+        dto = fomod.serialize_for_ui(model)
+        from_dto = fomod.resolve(model, fomod.decode_selections(dto["default"]))
+        direct = fomod.resolve(model, fomod.default_selections(model))
+        self.assertEqual([o.source for o in from_dto.operations],
+                         [o.source for o in direct.operations])
+
+
 class TestUnsupportedFailLoud(unittest.TestCase):
     def test_filedependency_recorded_and_evaluation_raises(self):
         model = fomod.parse(cfg(
