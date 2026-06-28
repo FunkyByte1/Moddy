@@ -58,6 +58,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Crusader Kings II
 - Total War: Warhammer II
 - Total War: Three Kingdoms
+- Oxygen Not Included
 - ROUNDS
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
