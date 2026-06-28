@@ -46,6 +46,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - XCOM 2
 - Sid Meier's Civilization V
 - Sid Meier's Civilization VI
+- Total War: Warhammer III
 - ROUNDS
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
