@@ -68,6 +68,17 @@ def _extractors_for(magic: bytes, archive_path: str, dest_dir: str) -> list[tupl
     return [c for c in candidates if c[0]]
 
 
+def _has_extracted_files(dest_dir: str) -> bool:
+    """True if dest_dir holds at least one regular file anywhere in its tree. An extractor that
+    exits 0 but writes nothing has silently failed — e.g. bsdtar/libarchive on a RAR5 or solid
+    archive it can't fully read. Callers treat an empty result as a miss and try the next extractor
+    rather than handing back a truncated tree (a missing fomod/ModuleConfig.xml mis-installs)."""
+    for _root, _dirs, files in os.walk(dest_dir):
+        if files:
+            return True
+    return False
+
+
 def extract_archive(archive_path: str, dest_dir: str) -> None:
     """Extract a mod archive into dest_dir. RE4/MHW/Nexus mods ship as .zip, .7z, or .rar;
     Python's zipfile only handles zip, so 7z/rar are handed to a system extractor. Routes by magic
@@ -92,9 +103,12 @@ def extract_archive(archive_path: str, dest_dir: str) -> None:
         result = subprocess.run(
             argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=_system_env(),
         )
-        if result.returncode == 0:
-            return
         name = os.path.basename(binary)
+        if result.returncode == 0:
+            if _has_extracted_files(dest_dir):
+                return
+            errors.append(f"{name}: exited 0 but extracted no files (incomplete codec support?)")
+            continue
         errors.append(f"{name}: {result.stderr.decode(errors='replace').strip()[:160] or f'exit {result.returncode}'}")
     raise Exception(
         f"could not extract {kind} archive (tried {', '.join(os.path.basename(b) for b, _ in candidates)}): "
