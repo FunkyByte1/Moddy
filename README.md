@@ -32,58 +32,58 @@ Moddy installs mods from several sources. What you need to do depends on where a
 ### Steam Workshop
 No setup — Moddy subscribes the mods through Steam; just play.
 
-- Haste
-- Hand of Fate 2
-- Left 4 Dead 2
+- BattleBlock Theater
 - Brotato
-- RimWorld
-- Dwarf Fortress
-- Project Zomboid
-- Don't Starve Together
+- Castle Crashers
 - Cities: Skylines
-- XCOM 2
-- Sid Meier's Civilization V
-- Sid Meier's Civilization VI
-- Total War: Warhammer III
-- The Binding of Isaac: Rebirth
-- Darkest Dungeon
-- Stellaris
+- Crusader Kings II
 - Crusader Kings III
-- Hearts of Iron IV
+- Darkest Dungeon
+- Don't Starve Together
+- Dwarf Fortress
 - Europa Universalis IV
 - Garry's Mod
+- Hand of Fate 2
+- Haste
+- Hearts of Iron IV
 - Kenshi
-- Crusader Kings II
-- Total War: Warhammer II
-- Total War: Three Kingdoms
-- Oxygen Not Included
-- Slay the Spire
 - Killing Floor 2
-- Tabletop Simulator
+- Left 4 Dead 2
+- Oxygen Not Included
 - Portal 2
+- Project Zomboid
+- RimWorld
 - Rivals of Aether
-- Castle Crashers
-- BattleBlock Theater
+- Sid Meier's Civilization V
+- Sid Meier's Civilization VI
+- Slay the Spire
+- Stellaris
+- Tabletop Simulator
+- The Binding of Isaac: Rebirth
+- Total War: Three Kingdoms
+- Total War: Warhammer II
+- Total War: Warhammer III
+- XCOM 2
 
 ### Thunderstore
 No setup — Moddy installs the required mod loader (BepInEx) automatically.
 
-- Risk of Rain 2
-- PEAK
-- Valheim
 - Enter the Gungeon
+- PEAK
+- Risk of Rain 2
 - ROUNDS
+- Valheim
 
 ### Nexus Mods
 Requires a Nexus account and a **personal API key** (Premium only — see [Setting up your Nexus Mods API key](#setting-up-your-nexus-mods-api-key)).
 
-- Stardew Valley
-- Resident Evil 4
-- Monster Hunter World
 - Monster Hunter Rise
+- Monster Hunter World
 - No Man's Sky
 - Palworld
+- Resident Evil 4
 - Slime Rancher 2
+- Stardew Valley
 
 ### Other
 - Balatro *(via [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index))*
