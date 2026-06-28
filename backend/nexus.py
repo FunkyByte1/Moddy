@@ -2,7 +2,7 @@
 
 Nexus is two-headed and both heads use the same personal `apikey` header:
 - v2 GraphQL (api.nexusmods.com/v2/graphql) for browse/search — the v1 REST API has no
-  text search. Free-text search is the `nameStemmed` filter with op WILDCARD.
+  text search. Free-text search is the `name` filter with op WILDCARD (substring match).
 - v1 REST for per-mod details, file lists, and the download link.
 
 v1 SCOPE = Premium downloads only. The v1 download_link endpoint returns a direct CDN URL
@@ -85,8 +85,12 @@ def _search_query(domain: str, term: str, count: int, offset: int,
                   include_adult: bool = False, sort: str = DEFAULT_SORT) -> str:
     """Build the GraphQL mods-search query inline. Values are JSON-encoded so terms with
     quotes/backslashes can't break or inject into the query. The filter is built inline
-    (not via variables) because that exact shape was verified live; `nameStemmed`/WILDCARD
-    is the tokenized full-text search the website uses, omitted entirely for empty terms.
+    (not via variables) because that exact shape was verified live; `name`/WILDCARD does a
+    case-insensitive substring match on the raw mod name, omitted entirely for empty terms.
+    (We deliberately do NOT use `nameStemmed`: it stems the INDEX but not the query, so an
+    inflected term like "diablos" can't match the stored stem "diablo" and returns nothing,
+    even though plain `name` matches "Diablos". Substring on `name` matches both "diablo" and
+    "diablos", which is what users expect.)
     Unless `include_adult` is set, adult-rated mods are excluded server-side (so pagination
     counts stay correct) via the `adultContent` BooleanFilter — verified live as the {value,op}
     shape, not a bare boolean. `sort` picks the order from the `_SORTS` whitelist (unknown
@@ -96,7 +100,7 @@ def _search_query(domain: str, term: str, count: int, offset: int,
     # which surfaced as a hard error mid-typing. Below 2 chars, skip the filter (show the unfiltered
     # game list) rather than fire a query the server refuses.
     if term and len(term) >= 2:
-        parts.append(f"nameStemmed:{{value:{json.dumps(term)},op:WILDCARD}}")
+        parts.append(f"name:{{value:{json.dumps(term)},op:WILDCARD}}")
     if not include_adult:
         parts.append("adultContent:{value:false,op:EQUALS}")
     filter_str = ",".join(parts)
