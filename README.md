@@ -65,6 +65,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Portal 2
 - Rivals of Aether
 - Castle Crashers
+- BattleBlock Theater
 - ROUNDS
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
