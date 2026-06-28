@@ -1,0 +1,11 @@
+{
+  "id": "project-zomboid",
+  "name": "Project Zomboid",
+  "appid": 108600,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": [
+    "steamworkshop"
+  ],
+  "library_workshop_ids": []
+}
