@@ -19,7 +19,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 ## Features
 
 - Browse and install mods without leaving Game Mode
-- Mod loader installation and management (MelonLoader, BepInEx, Lovely, REFramework)
+- Mod loader installation and management (MelonLoader, BepInEx, Lovely, REFramework, SMAPI, UE4SS, and more)
 - Version selection with rollback support
 - Dependency resolution and cascade disable/uninstall
 - Update checking for mods and mod loaders
@@ -90,7 +90,7 @@ No setup — Moddy subscribes the mods through Steam; just play.
 - Balatro *(via [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index))*
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
 
-### Planned:
+### Planned
 - Vampire Survivors
 - Subnautica
 - and more :)
@@ -113,7 +113,7 @@ Then add the key to Moddy. The key is ~90 random characters, so pasting is far e
 ```json
 "nexus_api_key": "PASTE_YOUR_KEY_HERE"
 ```
-- **SSH:** ssh into your steam deck and run: 
+- **SSH:** ssh into your Steam Deck and run:
   ```bash
   mkdir -p ~/homebrew/settings/moddy
   cat > ~/homebrew/settings/moddy/settings.json <<'EOF'
@@ -133,7 +133,7 @@ Moddy is in alpha, so bug reports are genuinely useful. Please open an issue on 
 - What you expected vs. what happened
 - A **log bundle** (see below)
 
-**Exporting logs:** open the Decky panel → **Moddy → Diagnostics → Export logs**. This saves a `moddy-logs-<timestamp>.zip` to your Steam Deck's **Desktop** . Switch to Desktop Mode and attach it to your issue (drag it into the GitHub upload box). The bundle contains Moddy's log files and basic version info; your **Nexus API key is not included**.
+**Exporting logs:** open the Decky panel → **Moddy → Diagnostics → Export logs**. This saves a `moddy-logs-<timestamp>.zip` to your Steam Deck's **Desktop**. Switch to Desktop Mode and attach it to your issue (drag it into the GitHub upload box). The bundle contains Moddy's log files and basic version info; your **Nexus API key is not included**.
 
 ## Disclaimer
 
@@ -161,6 +161,10 @@ Moddy is mostly glue. The real work behind every install is done by the projects
 - **[BepInEx](https://github.com/BepInEx/BepInEx)**
 - **[Lovely](https://github.com/ethangreen-dev/lovely-injector)** — by ethangreen-dev
 - **[REFramework](https://github.com/praydog/REFramework)** — by praydog
+- **[SMAPI](https://github.com/Pathoschild/SMAPI)** — by Pathoschild
+- **[UE4SS](https://github.com/UE4SS-RE/RE-UE4SS)** — by the UE4SS team
+- **[Satisfactory Mod Loader](https://github.com/satisfactorymodding/SatisfactoryModLoader)** — by the Satisfactory Modding team
+- **[Stracker's Loader](https://www.nexusmods.com/monsterhunterworld/mods/1982)** — by Stracker
 
 **Catalogs are curated by:**
 
@@ -176,7 +180,7 @@ A large portion of this codebase was made with the help of AI. I'm a single pers
 
 ### Requirements
 
-- Node.js v16.14+
+- Node.js v20+
 - pnpm v9 (`npm i -g pnpm@9`)
 - A Steam Deck (or SteamOS VM) running [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader)
 
