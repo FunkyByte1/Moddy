@@ -1,0 +1,11 @@
+{
+  "id": "binding-of-isaac-rebirth",
+  "name": "The Binding of Isaac: Rebirth",
+  "appid": 250900,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": [
+    "steamworkshop"
+  ],
+  "library_workshop_ids": []
+}
