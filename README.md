@@ -55,6 +55,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Europa Universalis IV
 - Garry's Mod
 - Kenshi
+- Crusader Kings II
 - ROUNDS
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*

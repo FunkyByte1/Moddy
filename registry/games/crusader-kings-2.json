@@ -1,0 +1,11 @@
+{
+  "id": "crusader-kings-2",
+  "name": "Crusader Kings II",
+  "appid": 203770,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": [
+    "steamworkshop"
+  ],
+  "library_workshop_ids": []
+}
