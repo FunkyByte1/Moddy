@@ -85,6 +85,23 @@ class TestCorpus(unittest.TestCase):
         self.assertTrue(plan.operations)
 
 
+class TestSandboxSafety(unittest.TestCase):
+    def test_fomod_does_not_import_xml(self):
+        """Decky's plugin Python is a stripped build with no `xml` package; importing it crashes the
+        whole backend at load (and the test suite, on full Python, can't see that). Guard that fomod
+        and its deps never pull in `xml`. Runs in a fresh interpreter so an already-imported xml in
+        this process can't mask a regression."""
+        import subprocess
+        backend = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend")
+        code = (
+            "import sys; sys.path.insert(0, %r); import fomod; "
+            "bad=[m for m in sys.modules if m=='xml' or m.startswith('xml.')]; "
+            "assert not bad, 'fomod pulled in xml: '+repr(bad); print('ok')" % backend
+        )
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
 class TestPathSemantics(unittest.TestCase):
     def test_folder_and_file_paths_normalised(self):
         model = fomod.parse(cfg(

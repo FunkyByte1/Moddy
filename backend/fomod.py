@@ -18,9 +18,14 @@ recorded in `model.unsupported`; the integration layer is expected to fall back 
 """
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
+
+# NOTE: deliberately NOT using xml.etree — Decky's bundled plugin Python is a stripped build with no
+# `xml` package (ModuleNotFoundError: No module named 'xml.etree' at load), which takes the whole
+# backend down. See reference_decky_no_xml_stdlib. We tokenise the (simple, namespace-free) FOMOD
+# ModuleConfig.xml with `re`, which IS available in the sandbox.
 
 
 # ---- exceptions -------------------------------------------------------------
@@ -144,6 +149,126 @@ class InstallPlan:
 
 def _ln(tag: str) -> str:
     return tag.split("}")[-1]
+
+
+# ---- minimal XML parser (re-based; no xml stdlib) ---------------------------
+
+class _Element:
+    """The slice of the ElementTree API the rest of this module uses: tag, attrib, text, iteration
+    over children, and .get(). FOMOD ModuleConfig.xml is simple, namespace-free XML, so a tokeniser
+    is enough — and it avoids the `xml` package, absent from Decky's plugin Python."""
+    __slots__ = ("tag", "attrib", "text", "_children")
+
+    def __init__(self, tag: str, attrib: dict):
+        self.tag = tag
+        self.attrib = attrib
+        self.text: Optional[str] = None
+        self._children: List["_Element"] = []
+
+    def get(self, key, default=None):
+        return self.attrib.get(key, default)
+
+    def __iter__(self):
+        return iter(self._children)
+
+
+_TOKEN = re.compile(
+    r"<!--.*?-->"                                   # comment
+    r"|<!\[CDATA\[.*?\]\]>"                          # CDATA section
+    r"|<\?.*?\?>"                                    # processing instruction / xml decl
+    r"|<!DOCTYPE[^>]*>"                              # doctype
+    r"|</\s*([\w:.\-]+)\s*>"                          # group 1: end tag
+    r"|<\s*([\w:.\-]+)((?:\s+[\w:.\-]+\s*=\s*(?:\"[^\"]*\"|'[^']*'))*)\s*(/?)\s*>",  # 2 name 3 attrs 4 empty
+    re.DOTALL,
+)
+_ATTR = re.compile(r"([\w:.\-]+)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')")
+_ENTITIES = {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}
+
+
+def _unescape(text: str) -> str:
+    if "&" not in text:
+        return text
+
+    def repl(m):
+        e = m.group(1)
+        if e[:1] == "#":
+            try:
+                return chr(int(e[2:], 16) if e[1:2] in "xX" else int(e[1:]))
+            except ValueError:
+                return m.group(0)
+        return _ENTITIES.get(e, m.group(0))
+
+    return re.sub(r"&(#[xX]?[0-9a-fA-F]+|\w+);", repl, text)
+
+
+def _parse_attrs(s: str) -> dict:
+    out = {}
+    for m in _ATTR.finditer(s or ""):
+        out[m.group(1)] = _unescape(m.group(2) if m.group(2) is not None else m.group(3))
+    return out
+
+
+def _parse_xml(data: "str | bytes") -> _Element:
+    """Tokenise XML into an _Element tree. Raises FomodParseError on a missing/duplicate root or a
+    mismatched/unclosed tag (so malformed ModuleConfig.xml fails loudly, like ET.fromstring did)."""
+    if isinstance(data, (bytes, bytearray)):
+        b = bytes(data)
+        # Real FOMOD ModuleConfig.xml is frequently UTF-16 (the "FOMOD Creator" tool emits it with a
+        # BOM); ElementTree auto-detected this, so the re-parser must too. Decode by BOM, then sniff a
+        # BOM-less UTF-16 (ASCII char + NUL), else UTF-8, with latin-1 as a never-fails fallback.
+        if b[:2] in (b"\xff\xfe", b"\xfe\xff"):
+            s = b.decode("utf-16")
+        elif b[:3] == b"\xef\xbb\xbf":
+            s = b.decode("utf-8-sig")
+        elif b[:1] == b"\x00":
+            s = b.decode("utf-16-be")
+        elif b[1:2] == b"\x00":
+            s = b.decode("utf-16-le")
+        else:
+            try:
+                s = b.decode("utf-8")
+            except UnicodeDecodeError:
+                s = b.decode("latin-1")
+    else:
+        s = data
+    if s[:1] == "﻿":
+        s = s[1:]
+
+    root: Optional[_Element] = None
+    stack: List[_Element] = []
+    pos = 0
+    for m in _TOKEN.finditer(s):
+        if stack:
+            text = s[pos:m.start()]
+            if text:
+                top = stack[-1]
+                top.text = (top.text or "") + _unescape(text)
+        pos = m.end()
+        whole = m.group(0)
+        if whole[:2] == "<!" or whole[:2] == "<?":            # comment / cdata / doctype / PI
+            if whole[:9] == "<![CDATA[" and stack:
+                stack[-1].text = (stack[-1].text or "") + whole[9:-3]
+            continue
+        end_name = m.group(1)
+        if end_name is not None:                               # end tag
+            if not stack or stack[-1].tag != end_name:
+                raise FomodParseError("mismatched </%s>" % end_name)
+            stack.pop()
+            continue
+        el = _Element(m.group(2), _parse_attrs(m.group(3)))    # start / empty tag
+        if stack:
+            stack[-1]._children.append(el)
+        elif root is None:
+            root = el
+        else:
+            raise FomodParseError("multiple root elements")
+        if m.group(4) != "/":
+            stack.append(el)
+    if stack:
+        raise FomodParseError("unclosed <%s>" % stack[-1].tag)
+    if root is None:
+        raise FomodParseError("no root element")
+    return root
 
 
 def _child(el, name: str):
@@ -279,10 +404,7 @@ def parse(xml: "str | bytes") -> FomodModel:
     """Parse a fomod/ModuleConfig.xml into a FomodModel. Raises FomodParseError on malformed XML
     or a missing <config> root. Unsupported-but-present constructs are recorded in `.unsupported`,
     not raised — the caller decides whether to proceed (flag-only mods) or fall back to manual."""
-    try:
-        root = ET.fromstring(xml)
-    except ET.ParseError as e:
-        raise FomodParseError("invalid XML: %s" % e) from e
+    root = _parse_xml(xml)
     if _ln(root.tag) != "config":
         raise FomodParseError("root element is <%s>, expected <config>" % _ln(root.tag))
 
