@@ -1,0 +1,9 @@
+{
+  "id": "brotato",
+  "name": "Brotato",
+  "appid": 1942280,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": ["steamworkshop"],
+  "library_workshop_ids": []
+}
