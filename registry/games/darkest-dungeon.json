@@ -1,0 +1,11 @@
+{
+  "id": "darkest-dungeon",
+  "name": "Darkest Dungeon",
+  "appid": 262060,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": [
+    "steamworkshop"
+  ],
+  "library_workshop_ids": []
+}
