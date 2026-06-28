@@ -1,0 +1,11 @@
+{
+  "id": "dead-cells",
+  "name": "Dead Cells",
+  "appid": 588650,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": [
+    "steamworkshop"
+  ],
+  "library_workshop_ids": []
+}

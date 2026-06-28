@@ -59,6 +59,7 @@ No setup — Moddy subscribes the mods through Steam; just play.
 - Crusader Kings II
 - Crusader Kings III
 - Darkest Dungeon
+- Dead Cells
 - Don't Starve Together
 - Dwarf Fortress
 - Europa Universalis IV
@@ -91,6 +92,7 @@ No setup — Moddy subscribes the mods through Steam; just play.
 
 ### Planned:
 - Vampire Survivors
+- Subnautica
 - and more :)
 
 ## Mod Sources
