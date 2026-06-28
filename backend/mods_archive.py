@@ -12,12 +12,68 @@ def _system_env() -> dict:
     return {k: v for k, v in os.environ.items() if k not in ("LD_LIBRARY_PATH", "LD_PRELOAD")}
 
 
+def _find_bin(*names: str) -> str | None:
+    """Resolve the first of `names` to an executable path, falling back to /usr/bin (PATH may be
+    sparse under Steam's launch env)."""
+    import shutil as _sh
+    for n in names:
+        found = _sh.which(n)
+        if found:
+            return found
+    for n in names:
+        cand = os.path.join("/usr/bin", n)
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
+def _extractors_for(magic: bytes, archive_path: str, dest_dir: str) -> list[tuple[str, list]]:
+    """Ordered (binary, argv) extractor candidates for a non-zip archive, by magic bytes.
+
+    RAR (`Rar!`, both v4 and v5) is the important case. `7z` is tried first — on SteamOS (the
+    device target) its build includes the RAR codec and is the reference-quality RAR reader, so it
+    stays the production path. But several *desktop* distro builds ship `7z` WITHOUT the RAR codec
+    (e.g. Fedora strips it for licensing); there it exits cleanly with "Cannot open the file as
+    archive" and we fall through to `bsdtar` (libarchive, near-universal, reads RAR5) and then the
+    dedicated `unrar`/`unar`, using whichever is present and succeeds. `.7z` and unknown payloads
+    stay 7z-first (its native format) with bsdtar as a safety net."""
+    sevenzip = _find_bin("7z", "7zz", "7za", "7zr")
+    bsdtar = _find_bin("bsdtar")
+    unar = _find_bin("unar")
+    unrar = _find_bin("unrar")
+    is_rar = magic[:5] == b"Rar!\x1a"
+    candidates: list[tuple[str | None, list]] = []
+
+    def sevenz(b):
+        return (b, [b, "x", "-y", f"-o{dest_dir}", archive_path])
+
+    def tar(b):
+        return (b, [b, "-x", "-f", archive_path, "-C", dest_dir])
+
+    if is_rar:
+        if sevenzip:
+            candidates.append(sevenz(sevenzip))
+        if bsdtar:
+            candidates.append(tar(bsdtar))
+        if unrar:
+            candidates.append((unrar, [unrar, "x", "-y", archive_path, dest_dir + os.sep]))
+        if unar:
+            candidates.append((unar, [unar, "-quiet", "-force-overwrite", "-no-directory",
+                                      "-output-directory", dest_dir, archive_path]))
+    else:
+        if sevenzip:
+            candidates.append(sevenz(sevenzip))
+        if bsdtar:
+            candidates.append(tar(bsdtar))
+    return [c for c in candidates if c[0]]
+
+
 def extract_archive(archive_path: str, dest_dir: str) -> None:
     """Extract a mod archive into dest_dir. RE4/MHW/Nexus mods ship as .zip, .7z, or .rar;
-    Python's zipfile only handles zip, so 7z/rar are handed to the system `7z` (ships on
-    SteamOS). Routes by magic bytes since the downloaded file may carry no extension."""
+    Python's zipfile only handles zip, so 7z/rar are handed to a system extractor. Routes by magic
+    bytes since the downloaded file may carry no extension, and tries several extractors in turn so
+    a distro whose `7z` lacks the RAR codec still installs RAR mods. See _extractors_for."""
     import zipfile, subprocess
-    import shutil as _sh
     os.makedirs(dest_dir, exist_ok=True)
     with open(archive_path, "rb") as f:
         magic = f.read(8)
@@ -25,18 +81,25 @@ def extract_archive(archive_path: str, dest_dir: str) -> None:
         with zipfile.ZipFile(archive_path, "r") as z:
             z.extractall(dest_dir)
         return
-    sevenzip = _sh.which("7z") or _sh.which("7za") or _sh.which("7zz") or _sh.which("7zr")
-    for cand in ("/usr/bin/7z", "/usr/bin/7zz", "/usr/bin/7za"):
-        if not sevenzip and os.path.isfile(cand):
-            sevenzip = cand
-    if not sevenzip:
-        raise Exception("system 7z not found — cannot extract a .7z/.rar mod archive")
-    result = subprocess.run(
-        [sevenzip, "x", "-y", f"-o{dest_dir}", archive_path],
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=_system_env(),
+
+    candidates = _extractors_for(magic, archive_path, dest_dir)
+    kind = "RAR" if magic[:5] == b"Rar!\x1a" else "7z/other"
+    if not candidates:
+        tools = "bsdtar, 7z, unar or unrar" if kind == "RAR" else "7z or bsdtar"
+        raise Exception(f"no extractor found for {kind} archive — install one of: {tools}")
+    errors: list[str] = []
+    for binary, argv in candidates:
+        result = subprocess.run(
+            argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=_system_env(),
+        )
+        if result.returncode == 0:
+            return
+        name = os.path.basename(binary)
+        errors.append(f"{name}: {result.stderr.decode(errors='replace').strip()[:160] or f'exit {result.returncode}'}")
+    raise Exception(
+        f"could not extract {kind} archive (tried {', '.join(os.path.basename(b) for b, _ in candidates)}): "
+        + " | ".join(errors)
     )
-    if result.returncode != 0:
-        raise Exception(f"7z failed: {result.stderr.decode(errors='replace')[:200]}")
 
 
 def _is_archive_junk(rel: str) -> bool:
