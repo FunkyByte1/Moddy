@@ -1,0 +1,11 @@
+{
+  "id": "total-war-warhammer-2",
+  "name": "Total War: Warhammer II",
+  "appid": 594570,
+  "mods_dir": "SteamWorkshopManaged",
+  "mods_dir_type": "game",
+  "modloader_ids": [
+    "steamworkshop"
+  ],
+  "library_workshop_ids": []
+}
