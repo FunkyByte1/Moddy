@@ -57,6 +57,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 - Kenshi
 - Crusader Kings II
 - Total War: Warhammer II
+- Total War: Three Kingdoms
 - ROUNDS
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
 - Stardew Valley *(via [Nexus Mods](#setting-up-your-nexus-mods-api-key))*
