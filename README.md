@@ -11,7 +11,7 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for o
 Moddy isn't in the Decky store yet, so install it from its URL:
 
 1. Make sure [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) is installed.
-2. In the Decky panel, open the **store / settings** (the 🛒/⚙️ icon) and enable **Developer mode**.
+2. In the Decky panel, open the **settings** (the ⚙️ icon) and enable **Developer mode**.
 3. Use **Install from URL** and enter **`get.moddy.gg`**.
 
 That's it. Moddy appears in the Decky panel. It's **alpha software** — please [report anything that breaks](#reporting-issues). Mods are third-party software and run with full access to your system. **Please read the [Disclaimer](#disclaimer) before installing anything.**
@@ -19,6 +19,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 ## Features
 
 - Browse and install mods without leaving Game Mode
+- One-click install of entire Nexus collections
 - Mod loader installation and management (MelonLoader, BepInEx, Lovely, REFramework, SMAPI, UE4SS, and more)
 - Version selection with rollback support
 - Dependency resolution and cascade disable/uninstall
