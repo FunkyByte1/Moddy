@@ -27,7 +27,7 @@ async def _install_mod_zip_dir(game: GameProfile, install_dir: str, mods_path: s
 
     tmp_zip = os.path.join(mods_path, f"{mod.filename}_tmp.zip")
     try:
-        decky.logger.info(f"Downloading {mod.name} from {url}")
+        decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_zip, game.appid)
 
         with zipfile.ZipFile(tmp_zip, "r") as z:
@@ -83,6 +83,7 @@ def _merge_zip_into_tree(install_dir: str, mod: ModInfo, version: str | None, tm
                 rel = select(member)
                 if rel is None:
                     continue
+                rel = mods_archive.safe_rel(rel)  # reject Zip Slip before it escapes staging/install dir
                 staged_abs = os.path.join(staging, rel)
                 os.makedirs(os.path.dirname(staged_abs), exist_ok=True)
                 with z.open(member) as src, open(staged_abs, "wb") as out:
@@ -210,7 +211,7 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
     # transaction below — NOT before the download — so a dead link can't destroy the old install.
     old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
     try:
-        decky.logger.info(f"Downloading {mod.name} from {url}")
+        decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_zip, game.appid)
 
         # Extract to staging (outside the live tree), computing each file's destination with a
@@ -232,6 +233,7 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
                 rel = m[len(strip):] if strip and m.startswith(strip) else m
                 if not rel:
                     continue
+                rel = mods_archive.safe_rel(rel)  # reject Zip Slip before it escapes staging/install dir
                 staged_abs = os.path.join(staging, rel)
                 os.makedirs(os.path.dirname(staged_abs), exist_ok=True)
                 with z.open(m) as src, open(staged_abs, "wb") as out:
@@ -342,7 +344,7 @@ async def _install_mod_zip_folder(game: GameProfile, install_dir: str, mods_path
     # download), so a dead link or cancel can't destroy the old install before the new one is ready.
     old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
     try:
-        decky.logger.info(f"Downloading {mod.name} from {url}")
+        decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_archive, game.appid)
         mods_archive.extract_archive(tmp_archive, tmp_extract)
         return _folder_commit(install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
@@ -412,7 +414,7 @@ async def _install_mod_zip_smod(game: GameProfile, install_dir: str, mods_path: 
     # download), so a dead link or cancel can't destroy the old install before the new one is ready.
     old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
     try:
-        decky.logger.info(f"Downloading {mod.name} from {url}")
+        decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_archive, game.appid)
         mods_archive.extract_archive(tmp_archive, tmp_extract)   # .smod is a PK zip
         target = _smod_plugin_root(tmp_extract, mod)
@@ -486,7 +488,7 @@ async def _install_mod_loose_merge(
         else:
             if os.path.exists(tmp_extract):
                 shutil.rmtree(tmp_extract)
-            decky.logger.info(f"Downloading {mod.name} from {url}")
+            decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
             await utils.download(url, tmp_archive, game.appid)
             mods_archive.extract_archive(tmp_archive, tmp_extract)
 

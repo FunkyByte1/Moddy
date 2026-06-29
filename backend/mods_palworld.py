@@ -251,7 +251,7 @@ async def _install_mod_zip_palworld(game: GameProfile, install_dir: str, mods_pa
         if os.path.exists(p):
             shutil.rmtree(p)
     try:
-        decky.logger.info(f"Downloading {mod.name} from {url}")
+        decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_archive, game.appid)
         mods_archive.extract_archive(tmp_archive, tmp_extract)
         return _palworld_commit(install_dir, mods_path, mod, version,
@@ -288,7 +288,7 @@ async def install_palworld_files(game: GameProfile, install_dir: str, mod: ModIn
             arch = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_{i}.archive")
             ext = os.path.join(tmp_root, str(i))
             try:
-                decky.logger.info(f"Downloading {mod.name} file {i + 1}/{len(urls)} from {url}")
+                decky.logger.info(f"Downloading {mod.name} file {i + 1}/{len(urls)} from {utils.redact_url(url)}")
                 await utils.download(url, arch, game.appid)
                 mods_archive.extract_archive(arch, ext)
                 placements += (_palworld_placements(ext, mod) or [])

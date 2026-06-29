@@ -3,6 +3,7 @@ import asyncio
 import threading
 import urllib.request
 import urllib.error
+import urllib.parse
 import decky
 
 import fetch
@@ -40,6 +41,20 @@ class InstallCancelledError(Exception):
     pass
 
 
+def redact_url(url: str) -> str:
+    """Strip the query string from a URL for logging. Nexus CDN download links carry a signed
+    `md5`/`expires` token in the query — short-lived and single-file, but it has no business in a
+    log file the user may export and share (the alpha has a log-export feature). The scheme/host/
+    path stay, which is what's actually useful for debugging a failed download."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        if parts.query:
+            return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+        return url
+    except Exception:
+        return "<url>"
+
+
 async def download(url: str, dest: str, appid: int) -> None:
     """
     Download a URL to a file with progress reporting and cancellation support.
@@ -55,6 +70,14 @@ async def download(url: str, dest: str, appid: int) -> None:
     Raises InstallCancelledError if cancelled, or Exception if the download truly stalls.
     """
     _cancel_event.clear()
+
+    # Only fetch over HTTP(S). A venue's API response ultimately decides this URL, so a compromised
+    # or buggy venue could hand back a `file://` (local file exfiltration) or other urllib-supported
+    # scheme; every real venue (Nexus/Thunderstore/GitHub/Ficsit CDN) is https.
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in ("https", "http"):
+        raise Exception(f"refusing to download from non-HTTP(S) URL (scheme: {scheme or 'none'!r})")
+
     ctx = fetch.ssl_context()
     chunk_size = 65536  # 64KB chunks
     loop = asyncio.get_event_loop()

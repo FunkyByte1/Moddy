@@ -191,7 +191,7 @@ async def _install_mod_file(game: GameProfile, install_dir: str, mods_path: str,
     tmp = dst + ".tmp"
     backed_up = None
     try:
-        decky.logger.info(f"Downloading {mod.name} from {url}")
+        decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp, game.appid)
 
         if os.path.isfile(dst):

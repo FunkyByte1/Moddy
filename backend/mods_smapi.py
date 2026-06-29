@@ -110,7 +110,7 @@ async def _install_mod_zip_smapi(game: GameProfile, install_dir: str, mods_path:
     # NOT before the download — so a dead link or cancel can't destroy the old install before ready.
     old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
     try:
-        decky.logger.info(f"Downloading {mod.name} from {url}")
+        decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_archive, game.appid)
         mods_archive.extract_archive(tmp_archive, tmp_extract)
         return _smapi_commit(install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
@@ -149,7 +149,7 @@ async def install_smapi_files(game: GameProfile, install_dir: str, mod: ModInfo,
         for i, url in enumerate(urls):
             archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_f{i}.archive")
             try:
-                decky.logger.info(f"Downloading {mod.name} file {i + 1}/{len(urls)} from {url}")
+                decky.logger.info(f"Downloading {mod.name} file {i + 1}/{len(urls)} from {utils.redact_url(url)}")
                 await utils.download(url, archive, game.appid)
                 # Each archive into its own subdir so same-named folders across files don't collide
                 # before placement; _smapi_commit walks the whole tree.

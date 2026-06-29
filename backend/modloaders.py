@@ -582,7 +582,7 @@ async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, m
             resolved_version = latest["version"]
             url = latest["download_url"]
 
-        decky.logger.info(f"Downloading {ml.name} {resolved_version} from {url}")
+        decky.logger.info(f"Downloading {ml.name} {resolved_version} from {utils.redact_url(url)}")
         await utils.download(url, tmp_zip, game.appid)
 
         if os.path.exists(tmp_dir):
@@ -762,7 +762,7 @@ async def _install_smapi_modloader(game: GameProfile, install_dir: str, ml: Modl
     tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_extract")
     tmp_payload = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_payload")
     try:
-        decky.logger.info(f"Downloading {ml.name} {resolved_version} from {url}")
+        decky.logger.info(f"Downloading {ml.name} {resolved_version} from {utils.redact_url(url)}")
         await utils.download(url, tmp_zip, game.appid)
 
         for d in (tmp_dir, tmp_payload):
@@ -845,7 +845,7 @@ async def _install_github_modloader(game: GameProfile, install_dir: str, ml: Mod
     tmp_dir = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_extract")
 
     try:
-        decky.logger.info(f"Downloading {ml.name} {resolved_version} from {url}")
+        decky.logger.info(f"Downloading {ml.name} {resolved_version} from {utils.redact_url(url)}")
         await utils.download(url, tmp_zip, game.appid)
 
         decky.logger.info(f"Extracting {ml.name}")

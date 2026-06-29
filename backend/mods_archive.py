@@ -12,6 +12,39 @@ def _system_env() -> dict:
     return {k: v for k, v in os.environ.items() if k not in ("LD_LIBRARY_PATH", "LD_PRELOAD")}
 
 
+def safe_rel(rel: str) -> str:
+    """Normalise an archive-derived relative destination and reject anything that would escape
+    its target dir — absolute paths or `..` traversal (the "Zip Slip" class). Returns the
+    normalised relative path, safe to join under ANY base.
+
+    Used by the manual extraction loops (z.open + os.path.join) that build a destination from the
+    raw zip member name. Python's zipfile.extractall/extract sanitise `..` themselves, but those
+    hand-rolled loops bypass that, so a member like `BepInEx/../../../../home/deck/.bashrc` would
+    otherwise land outside the staging dir AND outside the install dir at placement time."""
+    norm = os.path.normpath(rel.replace("\\", "/"))
+    if os.path.isabs(norm) or norm == ".." or norm.startswith(".." + os.sep):
+        raise ValueError(f"archive entry escapes target dir: {rel!r}")
+    return norm
+
+
+def _reject_unsafe_links(dest_dir: str) -> None:
+    """After a SYSTEM extractor (7z/unrar/bsdtar) runs, refuse any symlink that points outside
+    dest_dir. zipfile never materialises links, but the CLI extractors do — and a link such as
+    `foo -> /home/deck` would let a later copy-through escape the mod's target tree (the
+    CVE-2022-30333 unrar class). We can't undo a tool that wrote through `..` during extraction,
+    but modern 7z/bsdtar block that, so neutralising escaping symlinks closes the realistic hole."""
+    base = os.path.realpath(dest_dir)
+    for root, dirs, files in os.walk(dest_dir):  # followlinks=False: won't recurse into linked dirs
+        for name in dirs + files:
+            p = os.path.join(root, name)
+            if os.path.islink(p):
+                target = os.path.realpath(p)
+                if target != base and not target.startswith(base + os.sep):
+                    raise Exception(
+                        f"archive contains a symlink escaping the target dir: {os.path.relpath(p, dest_dir)!r}"
+                    )
+
+
 def _find_bin(*names: str) -> str | None:
     """Resolve the first of `names` to an executable path, falling back to /usr/bin (PATH may be
     sparse under Steam's launch env)."""
@@ -106,6 +139,7 @@ def extract_archive(archive_path: str, dest_dir: str) -> None:
         name = os.path.basename(binary)
         if result.returncode == 0:
             if _has_extracted_files(dest_dir):
+                _reject_unsafe_links(dest_dir)
                 return
             errors.append(f"{name}: exited 0 but extracted no files (incomplete codec support?)")
             continue
