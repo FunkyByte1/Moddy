@@ -107,8 +107,16 @@ async def _emit_state() -> None:
 async def enqueue(appid: int, name: str, ref: str, kind: str, run, rollback=None, cleanup=None) -> int:
     """Register a job and hand it to the worker. Returns the new job_id immediately. `rollback`
     (async rollback(job)) and `cleanup` (sync) are invoked if a parked job is cancelled."""
-    global _next_id
+    global _next_id, _order
     _ensure_worker()
+    # Re-installing the same thing (e.g. a collection's "Re-install" button) shouldn't leave its old
+    # finished row alongside the new run — drop any prior finished job for this game + ref first.
+    stale = [i for i in _order if _jobs.get(i) and _jobs[i].appid == appid
+             and _jobs[i].ref == ref and _jobs[i].status in _FINISHED]
+    for jid in stale:
+        _jobs.pop(jid, None)
+    if stale:
+        _order = [i for i in _order if i in _jobs]
     job = Job(_next_id, appid, name, ref, kind, run)
     job.rollback = rollback
     job.cleanup = cleanup
