@@ -338,7 +338,7 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
 
     mods_list = collection_mods(manifest, domain)
     required = installable_mods(game, mods_list, domain)  # required, minus the modloader
-    optional_skipped = sum(1 for m in mods_list if m["optional"])  # the modloader is skipped silently
+    optional_mods = [m for m in mods_list if m["optional"]]  # curator-optional picks; not auto-installed
     # Provenance stamped on every mod this collection installs, so the Installed page can group them
     # (name + tile icon) and offer a ref-counted "Uninstall collection". Name from the manifest;
     # tile image from the collection card (cosmetic — failures fall back to manifest name / slug).
@@ -382,8 +382,11 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
             return None  # cancelled mid-download
         else:
             await download_queue.note_warning(f"Couldn't install {m['name']}")
-    if optional_skipped:
-        await download_queue.note_warning(f"{optional_skipped} optional mod(s) skipped")
+    if optional_mods:
+        names = ", ".join(m["name"] for m in optional_mods)
+        decky.logger.info(f"collection {slug}: skipped {len(optional_mods)} optional mod(s): {names}")
+        # Name them — a bare count left the user unable to tell what was left out / install by hand.
+        await download_queue.note_warning(f"Skipped {len(optional_mods)} optional mod(s): {names}")
     decky.logger.info(f"collection {slug}: installed {installed}/{len(required)} required mods")
     return installed > 0
 
