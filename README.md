@@ -178,47 +178,12 @@ A large portion of this codebase was made with the help of AI. I'm a single pers
 
 ## Development
 
-### Requirements
-
-- Node.js v20+
-- pnpm v9 (`npm i -g pnpm@9`)
-- A Steam Deck (or SteamOS VM) running [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader)
-
-### Build
-
 ```bash
 pnpm i
 pnpm run build
 ```
 
-### Deploy to Steam Deck
-
-Create a `deploy.sh` in the project root (gitignored — do not commit your IP address):
-
-```bash
-#!/bin/bash
-DECK="deck@YOUR_DECK_IP"
-PLUGIN_DIR="/home/deck/homebrew/plugins/moddy"
-TMP="/home/deck/moddy_tmp"
-
-pnpm run build
-
-ssh $DECK "mkdir -p $TMP/backend $TMP/dist && rm -rf $TMP/registry"
-scp main.py plugin.json package.json "$DECK:$TMP/"
-scp -r registry "$DECK:$TMP/"
-scp backend/*.py "$DECK:$TMP/backend/"
-scp dist/index.js dist/index.js.map "$DECK:$TMP/dist/"
-ssh $DECK "rm -f $PLUGIN_DIR/registry.json && cp -r $TMP/* $PLUGIN_DIR/ && rm -rf $TMP"
-ssh $DECK "sudo systemctl restart plugin_loader"
-```
-
-Then `chmod +x deploy.sh && ./deploy.sh`.
-
-For passwordless deploys, take ownership of the plugin dir once (`sudo chown -R deck:deck /home/deck/homebrew/plugins/moddy`) and whitelist the restart command via sudoers (`echo 'deck ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart plugin_loader' | sudo tee /etc/sudoers.d/moddy-deploy && sudo chmod 0440 /etc/sudoers.d/moddy-deploy`).
-
-### Adding a Game
-
-Drop a JSON file into `registry/games/` describing the game (id, Steam appid, mods dir, mod loader ids, and curated mod list). If the game uses a new mod loader, also add its definition under `registry/modloaders/`. No Python edits required. See existing entries for the schema.
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full setup — requirements, deploying a build to a Steam Deck, running the backend tests, and how games get added (many are pure JSON; some need backend code).
 
 ## License
 
