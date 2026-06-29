@@ -3,6 +3,7 @@ import { FC, RefObject, useState } from 'react';
 
 import { InstalledCollection } from '../lib/modSources';
 import CollectionMods from './CollectionMods';
+import { useQueueFooterProps } from './DownloadQueueModal';
 
 // Steam's gamepad-scrollable container; falls back to a plain Focusable. The right stick only scrolls
 // it when focus is INSIDE it — the Uninstall button below is that focus anchor, so d-pad right from
@@ -24,12 +25,16 @@ const CollectionDetailPanel: FC<{
   onCancelButton?: () => void;           // B pressed here → return focus to the collection row on the left
 }> = ({ appid, collection, busy, onEnableAll, onDisableAll, onReinstall, onUninstall, panelRef, onCancelButton }) => {
   const [summary, setSummary] = useState('');
+  // So Y opens the download queue while focused here (e.g. right after pressing Re-install) — without
+  // it the prompt only worked on the left pane, leaving the queued collection unviewable from here.
+  const queueFooter = useQueueFooterProps(appid);
 
   return (
     <ScrollArea focusable={false} style={{ flex: 1, minHeight: 0, height: '100%' }}>
       <Focusable
         ref={panelRef}
         noFocusRing
+        {...queueFooter}
         onCancelButton={onCancelButton}
         style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 16px 60px' }}
       >
