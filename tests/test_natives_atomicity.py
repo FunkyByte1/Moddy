@@ -105,9 +105,25 @@ class NativesAtomicityTest(unittest.TestCase):
             ["reframework/autorun/mymod.lua", "reframework/autorun/mymod/data.json"],
         )
 
-    def test_unrecognized_archive_without_lua_still_fails(self):
-        # The autorun fallback is gated on a .lua being present, so a junk archive (no natives/,
-        # no reframework/, no .pak, no .lua) is still rejected rather than dumped into autorun/.
+    def test_bare_plugin_dll_wraps_into_plugins(self):
+        # A REFramework native plugin (e.g. nexus monsterhunterrise/848 FirstNatives) zips a single
+        # loose .dll with no reframework/ wrapper — the author expects you to drop it in
+        # reframework/plugins/. Previously this failed ("nothing to install"); now it's wrapped there.
+        res, mod = self._install({"FirstNatives.dll": b"dll", "readme.txt": "x"}, "1.0.0")
+        self.assertTrue(res)
+        self.assertTrue(self.exists("reframework/plugins/firstnatives.dll"))
+        self.assertFalse(self.exists("readme.txt"))  # readme beside the dll isn't installed
+        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["reframework/plugins/firstnatives.dll"])
+
+    def test_bare_plugin_dll_in_wrapper_dir_descended(self):
+        # The dll wrapped in a single "<Mod Name>/" dir still lands flat in reframework/plugins/.
+        res, _ = self._install({"FirstNatives/FirstNatives.dll": b"dll"}, "1.0.0")
+        self.assertTrue(res)
+        self.assertTrue(self.exists("reframework/plugins/firstnatives.dll"))
+
+    def test_unrecognized_archive_without_lua_or_dll_still_fails(self):
+        # The bare-payload fallbacks are gated on a .lua / .dll being present, so a junk archive (no
+        # natives/, no reframework/, no .pak, no .lua, no .dll) is still rejected, not dumped.
         res, _ = self._install({"random.dat": b"x", "notes.txt": "y"}, "1.0.0")
         self.assertFalse(res)
 

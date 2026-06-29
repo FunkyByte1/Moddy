@@ -567,26 +567,39 @@ async def _install_mod_loose_merge(
                     full = os.path.join(root, fn)
                     natives_placements.append(_place(full, os.path.relpath(full, payload_root), folders[0]))
         if not natives_placements and "reframework" in folders:
-            # REFramework script mod packaged WITHOUT the reframework/ wrapper — a bare autorun
-            # script (foo.lua) or a loose `autorun/` tree at the archive root. The author expects
-            # the user to drop it into reframework/autorun/ by hand; REFramework loads Lua from
-            # there, so wrap the payload under reframework/autorun/ (companion data files alongside
-            # the script come too; metadata/readmes are skipped). Gated on a .lua actually being
-            # present so a genuinely-unrecognized archive still fails rather than dumping junk there.
+            # A REFramework mod packaged WITHOUT the reframework/ wrapper — the author expects the
+            # user to drop the payload into a reframework/ subdir by hand. Two bare shapes:
+            #  - a Lua script (foo.lua) / a loose `autorun/` tree -> reframework/autorun/ (REFramework
+            #    loads Lua from there). Companion data files alongside the script come too.
+            #  - a native plugin (foo.dll, e.g. FirstNatives — nexus monsterhunterrise/848) ->
+            #    reframework/plugins/ (REFramework loads native plugins from there).
+            # Gated on the marker file (.lua / .dll) actually being present so a genuinely
+            # unrecognized archive still fails rather than dumping junk into the loader dirs;
+            # metadata/readmes beside the payload are skipped.
             payload_root = mods_archive._strip_loose_wrapper(search_root)
             autorun_dirs = sorted(
                 (os.path.join(r, d) for r, ds, _f in os.walk(payload_root) for d in ds if d.lower() == "autorun"),
                 key=lambda p: p.count(os.sep),
             )
-            base = autorun_dirs[0] if autorun_dirs else payload_root
-            if any(fn.lower().endswith(".lua") for _r, _d, fs in os.walk(base) for fn in fs):
-                for root, _dirs, files in os.walk(base):
+            autorun_base = autorun_dirs[0] if autorun_dirs else payload_root
+            has_lua = any(fn.lower().endswith(".lua") for _r, _d, fs in os.walk(autorun_base) for fn in fs)
+            has_dll = any(fn.lower().endswith(".dll") for _r, _d, fs in os.walk(payload_root) for fn in fs)
+            if has_lua:
+                for root, _dirs, files in os.walk(autorun_base):
                     for fn in files:
-                        rel = os.path.relpath(os.path.join(root, fn), base)
+                        rel = os.path.relpath(os.path.join(root, fn), autorun_base)
                         if mods_archive._is_loose_metadata(rel):
                             continue
                         natives_placements.append(
                             _place(os.path.join(root, fn), os.path.join("autorun", rel), "reframework"))
+            elif has_dll:
+                for root, _dirs, files in os.walk(payload_root):
+                    for fn in files:
+                        rel = os.path.relpath(os.path.join(root, fn), payload_root)
+                        if mods_archive._is_loose_metadata(rel):
+                            continue
+                        natives_placements.append(
+                            _place(os.path.join(root, fn), os.path.join("plugins", rel), "reframework"))
 
         # 2. .pak content mods (RE4 only). Skip any .pak inside a <folder>/ tree (those are assets,
         #    copied above).
