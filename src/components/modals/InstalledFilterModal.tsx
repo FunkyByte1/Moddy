@@ -129,20 +129,6 @@ const InstalledFilterModal: FC<{
             onChange={(v) => update({ ...local, disabled: v })}
           />
         </Section>
-        <Section title="Updates">
-          <DialogCheckbox
-            label="Updates available only"
-            checked={local.onlyUpdates}
-            onChange={(v) => update({ ...local, onlyUpdates: v })}
-          />
-        </Section>
-        <Section title="Libraries">
-          <DialogCheckbox
-            label="Hide Libraries"
-            checked={local.hideLibraries}
-            onChange={(v) => update({ ...local, hideLibraries: v })}
-          />
-        </Section>
         {collections && collections.length > 0 && (
           <Section title="Collections">
             <DialogCheckbox
@@ -150,15 +136,12 @@ const InstalledFilterModal: FC<{
               checked={local.showCollectionEntries}
               onChange={(v) => update({ ...local, showCollectionEntries: v })}
             />
-            <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em', margin: '6px 0 2px' }}>
-              Show mods from
-            </div>
             {collections.map((c) => {
               const shown = !local.hiddenCollections.includes(c.slug);
               return (
                 <DialogCheckbox
                   key={c.slug}
-                  label={c.name}
+                  label={`Show mods from ${c.name}`}
                   checked={shown}
                   onChange={(v) => update({
                     ...local,
@@ -171,6 +154,18 @@ const InstalledFilterModal: FC<{
             })}
           </Section>
         )}
+        <Section title="Misc">
+          <DialogCheckbox
+            label="Updates available only"
+            checked={local.onlyUpdates}
+            onChange={(v) => update({ ...local, onlyUpdates: v })}
+          />
+          <DialogCheckbox
+            label="Hide Libraries"
+            checked={local.hideLibraries}
+            onChange={(v) => update({ ...local, hideLibraries: v })}
+          />
+        </Section>
       </div>
     </ModalRoot>
   );

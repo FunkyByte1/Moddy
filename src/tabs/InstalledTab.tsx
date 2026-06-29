@@ -162,13 +162,11 @@ const InstalledTab: FC<{
 
   // Re-install / top up a collection: re-runs its install (pops the optional picker, pre-checked with
   // what's already on disk) to restore deleted mods and add optionals. enqueue → the queue worker
-  // parks on the optional checklist, which ModPage's queue watcher auto-pops.
+  // parks on the optional checklist, which ModPage's queue watcher auto-pops. No "re-installing…"
+  // toast — the queue watcher's completion toast is the only one we want (avoids a double push).
   const reinstallCollection = async (c: InstalledCollection) => {
     const jobId = await enqueueCollection(game.appid, c.slug);
-    toaster.toast({
-      title: 'Moddy',
-      body: jobId < 0 ? `Couldn’t re-queue ${c.name}` : `Re-installing ${c.name}…`,
-    });
+    if (jobId < 0) toaster.toast({ title: 'Moddy', body: `Couldn’t re-queue ${c.name}` });
   };
 
   // Uninstall a whole collection from its detail panel — confirm first, showing the ref-counted
