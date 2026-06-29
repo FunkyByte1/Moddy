@@ -452,6 +452,12 @@ class Plugin:
         summary/mod_count/endorsements/tile_image). Adult collections gated by the NSFW setting."""
         return nexus_collections.list_collections_for_game(appid, query, page)
 
+    async def game_has_collections(self, appid: int) -> bool:
+        """Whether this game's Nexus venue has ANY collections (adult or not) — gates the Collections
+        tab so games with none (e.g. Slime Rancher 2) don't show an empty tab. The list still filters
+        adult content per the NSFW setting."""
+        return nexus_collections.game_has_collections(appid)
+
     async def get_collection_detail(self, appid: int, slug: str) -> dict:
         """A collection's detail — {name, image, summary, mod_count, mods:[{mod_id,name,thumbnail,
         optional}]} — for the Collections browse-tab detail and the Installed-tab collection panel."""

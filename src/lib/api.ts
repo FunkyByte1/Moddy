@@ -325,6 +325,10 @@ export const enqueueCollection =
 // A page (~25) of Nexus collections for the game's Collections browse tab.
 export const getCollectionsCatalog =
   callable<[appid: number, query: string, page: number], CollectionItem[]>('get_collections_catalog');
+// Whether the game's Nexus venue has ANY collections (adult or not) — gates whether the Collections
+// tab shows at all, independent of the NSFW setting (the list inside still filters NSFW).
+export const gameHasCollections =
+  callable<[appid: number], boolean>('game_has_collections');
 // A collection's detail — name/image/description + its mod list (name + thumbnail + optional). One
 // light GraphQL call; drives the browse-tab "mods in this collection" list and the Installed-tab panel.
 export const getCollectionDetail =

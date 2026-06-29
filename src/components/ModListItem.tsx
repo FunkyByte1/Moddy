@@ -3,7 +3,7 @@ import { FC, memo } from 'react';
 
 import { ModEntry } from './ModEntry';
 import { centerInView } from './centerInView';
-import { primaryCollection } from '../lib/modSources';
+import { collectionSources } from '../lib/modSources';
 
 // memo() so a focus move (which only changes `selected`/`isChecked` on the two affected
 // rows) re-renders just those rows instead of the whole list. Effective only because the
@@ -72,17 +72,23 @@ const ModListItem: FC<{
         <div style={{ fontSize: '0.75em', color: '#f8a623' }}>⚠ Missing dependency</div>
       )}
       {(() => {
-        const tag = primaryCollection(entry.sources);
-        return tag ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7em', color: 'var(--gpColorTextSecondary)', overflow: 'hidden' }}>
-            {tag.image && (
-              <img src={tag.image} alt="" loading="lazy" style={{ width: '12px', height: '12px', borderRadius: '2px', objectFit: 'cover', flexShrink: 0 }} />
-            )}
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {tag.name}{tag.extra > 0 ? ` +${tag.extra}` : ''}
-            </span>
+        // Collection provenance shown as small tile images only (no name — it cluttered the row); one
+        // per collection the mod came from, capped with a +N overflow.
+        const cols = collectionSources(entry.sources);
+        if (cols.length === 0) return null;
+        const shown = cols.slice(0, 4);
+        const extra = cols.length - shown.length;
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
+            {shown.map(c => (
+              <div key={c.slug} title={c.name}
+                style={{ width: '14px', height: '14px', borderRadius: '2px', overflow: 'hidden', background: 'rgba(255,255,255,0.08)', flexShrink: 0 }}>
+                {c.image && <img src={c.image} alt={c.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+              </div>
+            ))}
+            {extra > 0 && <span style={{ fontSize: '0.65em', color: 'var(--gpColorTextSecondary)' }}>+{extra}</span>}
           </div>
-        ) : null;
+        );
       })()}
     </div>
     {entry.hasUpdate && (

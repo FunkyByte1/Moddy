@@ -59,6 +59,28 @@ def _esc(s: str) -> str:
 _COLLECTIONS_PAGE = 25
 
 
+def game_has_collections(appid: int) -> bool:
+    """Whether this game's Nexus venue has ANY collections at all — adult OR not, ignoring the NSFW
+    setting. Drives whether to show the Collections tab: presence reflects "this game has collections"
+    (so a game with none, e.g. Slime Rancher 2, hides the tab), while the list inside still filters
+    adult content per the setting. False for non-Nexus games / no API key / on error."""
+    game = registry.get_game_by_appid(appid)
+    if not game or game.catalog.get("type") != "nexus":
+        return False
+    domain = game.catalog.get("nexus_domain", "")
+    if not domain:
+        return False
+    gql = ('{ collectionsV2(count:1, filter:{gameDomain:{value:"%s",op:EQUALS}}){ nodes { slug } } }'
+           % _esc(domain))
+    try:
+        data = fetch.post_json(nexus.GRAPHQL_URL, {"query": gql}, headers=nexus._headers())
+    except nexus.MissingApiKey:
+        return False
+    if not isinstance(data, dict) or data.get("errors"):
+        return False
+    return bool((((data.get("data") or {}).get("collectionsV2") or {}).get("nodes")) or [])
+
+
 def list_collections_for_game(appid: int, query: str = "", page: int = 1) -> list:
     """A page of collections for a game whose Browse source is Nexus, for the in-app collections
     list. Sorted by endorsements; adult collections excluded unless the NSFW setting is on (matching

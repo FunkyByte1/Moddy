@@ -7,7 +7,7 @@ import { useQueueFooterProps, promptVariant } from '../components/DownloadQueueM
 import { useDownloadQueue } from '../lib/downloadQueue';
 
 import { GameStatus, ModUpdate } from '../types';
-import { getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, setGameToProton, applyVanillaMode, getSetting, NSFW_ENABLED, NSFW_DEFAULT_ON } from '../lib/api';
+import { getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, setGameToProton, applyVanillaMode, getSetting, gameHasCollections, NSFW_ENABLED, NSFW_DEFAULT_ON } from '../lib/api';
 import InstalledTab from '../tabs/InstalledTab';
 import ModLoaderTab from '../tabs/ModLoaderTab';
 import ProfilesTab from '../tabs/ProfilesTab';
@@ -16,7 +16,7 @@ import { nexusAdapter } from '../tabs/browse/nexusAdapter';
 import { workshopAdapter } from '../tabs/browse/workshopAdapter';
 import { thunderstoreAdapter, bmiAdapter } from '../tabs/browse/catalogAdapter';
 import { ficsitAdapter } from '../tabs/browse/ficsitAdapter';
-import { collectionsAdapterFor, venueHasCollections } from '../tabs/browse/collectionVenues';
+import { collectionsAdapterFor, venueHasCollections, COLLECTIONS_HINT } from '../tabs/browse/collectionVenues';
 import { installedCollections } from '../lib/modSources';
 import OptionsModal from '../components/modals/OptionsModal';
 import VanillaView from '../components/VanillaView';
@@ -38,6 +38,14 @@ const autoPromptedVariants = new Set<number>();
 // time Configure Mods is reopened. Job ids are monotonic and never reused.
 const handledJobs = new Set<number>();
 
+// Whether a game's Nexus venue actually has any collections is a runtime fact (the live catalog), so
+// the Collections tab is gated on a one-shot probe rather than shown for every Nexus game and left
+// empty (e.g. Slime Rancher 2 has none). The probe ignores the NSFW setting — tab presence reflects
+// "this game has collections" (so RE4, which has both NSFW and non-NSFW ones, always shows it); the
+// list inside still filters adult content per the setting. A hardcoded per-game hint (COLLECTIONS_HINT)
+// seeds the first paint so the tab doesn't pop in; the probe result (cached per session) overrides it.
+const _collectionsProbedCache = new Map<number, boolean>();
+
 const ModPage: FC = () => {
   const appid = parseInt(window.location.pathname.split('/').pop() ?? '0');
   const [game, setGame] = useState<GameStatus | null>(null);
@@ -50,6 +58,8 @@ const ModPage: FC = () => {
   const [modloaderReadyOverride, setModloaderReadyOverride] = useState(false);
   const [updates, setUpdates] = useState<ModUpdate[]>([]);
   const [selectedTab, setSelectedTab] = useState<string | null>(null);
+  // null = not yet probed (fall back to the hardcoded hint); true/false = live probe result.
+  const [collectionsProbed, setCollectionsProbed] = useState<boolean | null>(_collectionsProbedCache.get(appid) ?? null);
   const [installedFilter, setInstalledFilter] = useState<InstalledFilter>(defaultInstalledFilter);
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>(defaultBrowseFilter);
   const [nexusFilter, setNexusFilter] = useState<NexusFilter>(defaultNexusFilter);
@@ -141,6 +151,20 @@ const ModPage: FC = () => {
       setNsfwSeedResolved(true);
     })();
   }, []);
+
+  // Probe whether this game's venue actually has collections, to confirm/correct the hardcoded hint
+  // (the tab shows from the hint on first paint; the probe overrides it if reality differs or no hint
+  // exists). The probe ignores NSFW; the list inside still filters adult content per the setting.
+  useEffect(() => {
+    if (!game || !venueHasCollections(game)) return;
+    const cached = _collectionsProbedCache.get(appid);
+    if (cached !== undefined) { setCollectionsProbed(cached); return; }
+    let cancelled = false;
+    gameHasCollections(appid)
+      .then(has => { if (!cancelled) { _collectionsProbedCache.set(appid, has); setCollectionsProbed(has); } })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [appid, game?.catalog_type]);
 
   useEffect(() => {
     refresh();
@@ -567,7 +591,7 @@ const ModPage: FC = () => {
     // adapter is picked from the game's venue (Nexus collections today; Thunderstore modpacks etc.
     // later), so this stays one top-level tab that lights up wherever the venue has a collections
     // concept. No per-item filter — adult collections are gated server-side by the NSFW setting.
-    ...(venueHasCollections(game) ? [{
+    ...(venueHasCollections(game) && (collectionsProbed ?? COLLECTIONS_HINT[appid] ?? false) ? [{
       id: 'collections',
       title: 'Collections',
       content: (

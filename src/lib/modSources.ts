@@ -44,24 +44,6 @@ export function inCollection(sources: ModSources | null | undefined, slug: strin
   return !!sources && (COLLECTION_PREFIX + slug) in sources;
 }
 
-/** Short tag for a mod row: the collection name (with "+N" if it's in several), or null when the
- *  mod is only a direct install — those need no tag ("yours" is the implicit default). */
-export function sourceTagLabel(sources?: ModSources | null): string | null {
-  const cols = collectionSources(sources);
-  if (cols.length === 0) return null;
-  const first = [...cols].sort(byName)[0];
-  return cols.length === 1 ? first.name : `${first.name} +${cols.length - 1}`;
-}
-
-/** The primary collection to badge a mod row with — its tile image + name, plus how many OTHER
- *  collections also include the mod ("+N"). Null when the mod came from no collection. */
-export function primaryCollection(sources?: ModSources | null): { name: string; image: string; extra: number } | null {
-  const cols = collectionSources(sources);
-  if (cols.length === 0) return null;
-  const first = [...cols].sort(byName)[0];
-  return { name: first.name, image: first.image, extra: cols.length - 1 };
-}
-
 /** The distinct collections present across a set of installed mods, with how many mods each brought
  *  in, sorted by name — drives the Installed page's Collections section. `mods` is anything carrying
  *  a `sources` map (InstalledMod / ModEntry). */

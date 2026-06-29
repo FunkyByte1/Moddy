@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  collectionSources, inCollection, sourceTagLabel, primaryCollection, installedCollections,
+  collectionSources, inCollection, installedCollections,
 } from './modSources';
 
 // modSources turns a mod's flat {sourceId -> name} provenance map into the Installed page's
@@ -33,37 +33,6 @@ describe('inCollection', () => {
     expect(inCollection({ 'collection:abc': { name: 'Worldly' } }, 'abc')).toBe(true);
     expect(inCollection({ 'collection:abc': { name: 'Worldly' } }, 'xyz')).toBe(false);
     expect(inCollection(null, 'abc')).toBe(false);
-  });
-});
-
-describe('sourceTagLabel', () => {
-  it('is null for a manual-only / untracked mod (no tag needed)', () => {
-    expect(sourceTagLabel(null)).toBeNull();
-    expect(sourceTagLabel({ manual: { name: 'You' } })).toBeNull();
-  });
-  it('shows the collection name for a single membership', () => {
-    expect(sourceTagLabel({ 'collection:abc': { name: 'Worldly' } })).toBe('Worldly');
-  });
-  it('shows name +N for multiple memberships, name-sorted', () => {
-    expect(sourceTagLabel({
-      'collection:a': { name: 'Renn’s' }, 'collection:b': { name: 'Aloy' }, manual: { name: 'You' },
-    })).toBe('Aloy +1');
-  });
-});
-
-describe('primaryCollection', () => {
-  it('is null for a manual-only / untracked mod', () => {
-    expect(primaryCollection(null)).toBeNull();
-    expect(primaryCollection({ manual: { name: 'You' } })).toBeNull();
-  });
-  it('returns the first collection (name-sorted) with image + extra count', () => {
-    expect(primaryCollection({ 'collection:abc': { name: 'Worldly', image: 'w.png' } }))
-      .toEqual({ name: 'Worldly', image: 'w.png', extra: 0 });
-    expect(primaryCollection({
-      'collection:a': { name: 'Zebra', image: 'z.png' },
-      'collection:b': { name: 'Apple', image: 'a.png' },
-      manual: { name: 'You' },
-    })).toEqual({ name: 'Apple', image: 'a.png', extra: 1 });
   });
 });
 
