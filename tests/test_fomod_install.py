@@ -52,6 +52,42 @@ COLOR_WRITES = {
 }
 
 
+def select_color_and_size():
+    """Required Core + TWO SelectExactlyOne groups in one step (Colour: Red default/Blue; Size: Small
+    default/Large). Lets a collection name ONE group and leave the other to its default — exercising
+    the merge-over-defaults in selections_from_choices."""
+    return module_config(
+        '<installStep name="Opts"><optionalFileGroups>'
+        '<group name="Pick" type="SelectExactlyOne"><plugins>'
+        '<plugin name="Red"><description>r</description>'
+        '<files><folder source="01 Red\\nativePC" destination=""/></files>'
+        '<typeDescriptor><type name="Optional"/></typeDescriptor></plugin>'
+        '<plugin name="Blue"><description>b</description>'
+        '<files><folder source="02 Blue\\nativePC" destination=""/></files>'
+        '<typeDescriptor><type name="Optional"/></typeDescriptor></plugin>'
+        '</plugins></group>'
+        '<group name="Size" type="SelectExactlyOne"><plugins>'
+        '<plugin name="Small"><description>s</description>'
+        '<files><folder source="03 Small\\nativePC" destination=""/></files>'
+        '<typeDescriptor><type name="Optional"/></typeDescriptor></plugin>'
+        '<plugin name="Large"><description>l</description>'
+        '<files><folder source="04 Large\\nativePC" destination=""/></files>'
+        '<typeDescriptor><type name="Optional"/></typeDescriptor></plugin>'
+        '</plugins></group>'
+        '</optionalFileGroups></installStep>',
+        required='<folder source="00 Core\\nativePC" destination=""/>')
+
+
+TWO_GROUP_WRITES = {
+    "fomod/ModuleConfig.xml": select_color_and_size(),
+    "00 Core/nativePC/pl/core.tex": b"core",
+    "01 Red/nativePC/pl/red.tex": b"red",
+    "02 Blue/nativePC/pl/blue.tex": b"blue",
+    "03 Small/nativePC/pl/small.tex": b"small",
+    "04 Large/nativePC/pl/large.tex": b"large",
+}
+
+
 class FomodInstallTest(unittest.TestCase):
     def setUp(self):
         reset_store()
@@ -125,6 +161,42 @@ class FomodInstallTest(unittest.TestCase):
         res, _ = self._install(COLOR_WRITES, variant=mods_fomod.COLLECTION_AUTO)
         self.assertIs(res, True)
         self.assertTrue(self.exists("nativePC/pl/red.tex"))   # default = Red
+        self.assertFalse(self.exists("nativePC/pl/blue.tex"))
+
+    def test_collection_unmatched_choice_name_silently_uses_default(self):
+        # THE risky path: a curator's choice whose step/group names don't match this ModuleConfig
+        # (e.g. the mod was re-authored). selections_from_choices skips the unmatched names, so the
+        # install proceeds under DEFAULTS — it must NOT park, crash, or install nothing. Verifying
+        # the placed files (default Red) is the only way to catch a silent wrong-variant install.
+        choices = {"options": [{"name": "WrongStep", "groups": [
+            {"name": "WrongGroup", "choices": [{"name": "Blue", "idx": 1}]}]}]}
+        res, _ = self._install(COLOR_WRITES, variant=json.dumps(choices))
+        self.assertIs(res, True)
+        self.assertTrue(self.exists("nativePC/pl/core.tex"))
+        self.assertTrue(self.exists("nativePC/pl/red.tex"), "unmatched names fall back to default Red")
+        self.assertFalse(self.exists("nativePC/pl/blue.tex"))
+
+    def test_collection_partial_choices_keep_defaults_for_unnamed_groups(self):
+        # Curator names only the Colour group (Blue); the Size group it doesn't mention must keep its
+        # default (Small), not get wiped. Guards the `defaults.update(curator)` merge.
+        choices = {"options": [{"name": "Opts", "groups": [
+            {"name": "Pick", "choices": [{"name": "Blue", "idx": 1}]}]}]}
+        res, _ = self._install(TWO_GROUP_WRITES, variant=json.dumps(choices))
+        self.assertIs(res, True)
+        self.assertTrue(self.exists("nativePC/pl/blue.tex"), "named group -> curator pick (Blue)")
+        self.assertTrue(self.exists("nativePC/pl/small.tex"), "unnamed group -> default (Small)")
+        self.assertFalse(self.exists("nativePC/pl/red.tex"))
+        self.assertFalse(self.exists("nativePC/pl/large.tex"))
+
+    def test_collection_invalid_choice_falls_back_to_defaults(self):
+        # Curator names the right group but an out-of-range plugin idx (stale vs a changed config):
+        # the pick is dropped, leaving the SelectExactlyOne empty -> resolve raises -> the collection
+        # path retries with defaults rather than failing the whole collection. Installs default Red.
+        choices = {"options": [{"name": "Colour", "groups": [
+            {"name": "Pick", "choices": [{"name": "Gone", "idx": 5}]}]}]}
+        res, _ = self._install(COLOR_WRITES, variant=json.dumps(choices))
+        self.assertIs(res, True)
+        self.assertTrue(self.exists("nativePC/pl/red.tex"), "invalid pick -> defaults (Red)")
         self.assertFalse(self.exists("nativePC/pl/blue.tex"))
 
     # --- no real choice still auto-installs (Phase 2 behaviour) --------------
