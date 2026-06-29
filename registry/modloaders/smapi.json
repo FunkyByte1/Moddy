@@ -5,6 +5,7 @@
   "dirs": [],
   "indicator": "StardewModdingAPI.dll",
   "ready_indicator": null,
+  "nexus_skip_ids": ["2400"],
   "launch_options": "echo \"%command%\" | sed 's/Stardew Valley.exe/StardewModdingAPI.exe/' | sh",
   "source": {
     "type": "github",

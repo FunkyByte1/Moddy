@@ -31,8 +31,35 @@ def _smapi_commit(install_dir: str, mods_path: str, extract_root: str, staging: 
         if not any(o != d and (d + os.sep).startswith(o + os.sep) for o in manifest_dirs)
     ]
     if not roots:
-        decky.logger.error(f"{mod.name}: no manifest.json in archive — not a SMAPI mod, refusing to install")
-        return False
+        # No manifest.json anywhere — not a standalone mod, but Stardew/Nexus collections ship
+        # "overlay" archives (config presets like "VERY Configured …", content/patch updates) whose
+        # top folders are named after OTHER mods and merge into their folders under Mods/. Place the
+        # tree file-by-file into Mods/ (preserving structure) and track it with per-file zip_natives
+        # semantics so presence/toggle/uninstall work. The install txn backs up anything it overwrites
+        # (.moddy-orig), so removing the overlay restores the base mod's original file.
+        overlay: list[tuple[str, str]] = []
+        for sub_root, _d, files in os.walk(extract_root):
+            for fn in files:
+                src = os.path.join(sub_root, fn)
+                rel = os.path.relpath(src, extract_root)
+                staged_abs = os.path.join(staging, rel)
+                os.makedirs(os.path.dirname(staged_abs), exist_ok=True)
+                shutil.copyfile(src, staged_abs)
+                overlay.append((staged_abs, os.path.relpath(os.path.join(mods_path, rel), install_dir)))
+        if not overlay:
+            decky.logger.error(f"{mod.name}: empty archive — nothing to install")
+            return False
+        is_foreign = mods_common._overwrite_guard(install_dir, mods_path, mod, [r for _s, r in overlay])
+        with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
+            for p in old_paths:
+                txn.retire(p)
+                txn.retire(p + ".disabled")
+            for staged_abs, install_rel in overlay:
+                txn.place(staged_abs, install_rel)
+        paths = sorted(r for _s, r in overlay)
+        mods.set_installed_record(mod.id, version or "latest", mod.filename, paths=paths, mod=mod, install_type="zip_natives")
+        decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) as a config/content overlay — {len(paths)} file(s) merged into Mods/")
+        return True
 
     placements: list[tuple[str, str]] = []   # (staged abs, install-dir-relative dest)
     created_tops: set[str] = set()

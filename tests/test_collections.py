@@ -77,6 +77,19 @@ class InstallableModsTest(unittest.TestCase):
         result = nc.installable_mods(game, mods, "monsterhunterworld")
         self.assertEqual([m["mod_id"] for m in result], ["5076"])
 
+    def test_skips_smapi_loader_even_though_installed_from_github(self):
+        # SMAPI is Stardew's loader but installed from GitHub, not Nexus — a collection references it
+        # by its Nexus id (stardewvalley/2400), which nexus_skip_ids must catch so it isn't installed
+        # as a mod (the "couldn't install SMAPI" bug).
+        game = registry.get_game_by_appid(413150)  # Stardew Valley
+        self.assertIsNotNone(game)
+        mods = [
+            {"mod_id": "2400", "optional": False, "name": "SMAPI"},                 # the loader -> skip
+            {"mod_id": "3753", "optional": False, "name": "Stardew Valley Expanded"},  # a real mod -> keep
+        ]
+        result = nc.installable_mods(game, mods, "stardewvalley")
+        self.assertEqual([m["mod_id"] for m in result], ["3753"])
+
 
 if __name__ == "__main__":
     unittest.main()

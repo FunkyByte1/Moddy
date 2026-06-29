@@ -31,9 +31,13 @@ PREMIUM_REQUIRED = "premium_required"
 def _is_game_modloader(game, domain: str, mod_id) -> bool:
     """True if (domain, mod_id) is this game's modloader sourced from Nexus (e.g. MHW's Stracker's
     Loader = monsterhunterworld/1982). Such a Nexus requirement is the loader, not a mod, so the
-    cascade skips it — it's installed/managed by the modloader system."""
+    cascade skips it — it's installed/managed by the modloader system. Also matches a loader installed
+    from elsewhere (e.g. SMAPI from GitHub) but referenced by its Nexus id via `nexus_skip_ids`."""
+    game_domain = game.catalog.get("nexus_domain", "")
     for ml in game.modloaders:
         if ml.source.type == "nexus" and ml.source.nexus_domain == domain and str(ml.source.mod_id) == str(mod_id):
+            return True
+        if domain == game_domain and str(mod_id) in ml.nexus_skip_ids:
             return True
     return False
 

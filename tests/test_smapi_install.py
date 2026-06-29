@@ -111,15 +111,38 @@ class SmapiInstallTest(unittest.TestCase):
         self.assertTrue(self.exists("Mods/Loose Mod/content.json"))
         self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["Mods/Loose Mod"])
 
-    def test_no_manifest_refuses(self):
-        # An archive without any manifest.json is not a SMAPI mod — refuse and place nothing.
+    def test_no_manifest_installs_as_overlay(self):
+        # A manifest-less archive is a config/content overlay (Nexus collections ship these — e.g.
+        # "VERY Configured …"): merge it into Mods/ file-by-file, preserving structure, tracked with
+        # per-file (zip_natives) semantics so it can be removed cleanly.
         res, mod = self._install({
-            "readme.txt": b"hello",
-            "stuff/data.bin": b"\x00",
+            "ChestsAnywhere/config.json": b"{\"x\":1}",
+            "Some Mod/[CP] Pack/content.json": b"{}",
         })
-        self.assertIs(res, False)
+        self.assertIs(res, True)
+        self.assertTrue(self.exists("Mods/ChestsAnywhere/config.json"))
+        self.assertTrue(self.exists("Mods/Some Mod/[CP] Pack/content.json"))
+        rec = mods.get_installed_record(mod.id)
+        self.assertEqual(rec["install_type"], "zip_natives")  # tracked as a per-file overlay, not a folder mod
+        self.assertEqual(sorted(rec["paths"]),
+                         ["Mods/ChestsAnywhere/config.json", "Mods/Some Mod/[CP] Pack/content.json"])
+        # Uninstall removes the overlay's files (and prunes the now-empty folders).
+        self.assertIs(run(mods.uninstall_mod(self.game, self.install_dir, mod.id)), True)
+        self.assertFalse(self.exists("Mods/ChestsAnywhere/config.json"))
         self.assertIsNone(mods.get_installed_record(mod.id))
-        self.assertEqual(os.listdir(os.path.join(self.install_dir, "Mods")), [])
+
+    def test_overlay_merges_into_an_existing_mod_without_clobbering_it(self):
+        # Install a real mod, then an overlay that drops a config into its folder — the mod's own
+        # files survive, and uninstalling the overlay leaves the mod intact.
+        self._install({"ChestsAnywhere/manifest.json": MANIFEST, "ChestsAnywhere/c.dll": b"MZ"},
+                      mod_id="base", filename="Base")
+        res, ov = self._install({"ChestsAnywhere/config.json": b"{}"}, mod_id="ov", filename="Overlay")
+        self.assertIs(res, True)
+        self.assertTrue(self.exists("Mods/ChestsAnywhere/manifest.json"))
+        self.assertTrue(self.exists("Mods/ChestsAnywhere/config.json"))
+        run(mods.uninstall_mod(self.game, self.install_dir, "ov"))
+        self.assertFalse(self.exists("Mods/ChestsAnywhere/config.json"))  # overlay gone
+        self.assertTrue(self.exists("Mods/ChestsAnywhere/manifest.json"))  # base mod untouched
 
     # ── toggle (dot-prefix) ──────────────────────────────────────────────────
     def test_toggle_uses_dot_prefix(self):
