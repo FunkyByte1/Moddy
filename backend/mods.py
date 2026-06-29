@@ -448,7 +448,7 @@ async def install_synthetic_workshop(game: GameProfile, mod_id: str, fileid: str
 # The atomic file-placement primitive lives in install_txn so the modloader installers can share
 # it without importing this (much larger) module. Re-exported here since the installers below and
 # the test suite reference them as mods._StagedInstall etc.
-from install_txn import _MODDY_ORIG_SUFFIX, _STAGED_BAK_SUFFIX, _discard, _StagedInstall  # noqa: E402,F401
+from install_txn import _MODDY_ORIG_SUFFIX, _STAGED_BAK_SUFFIX, _discard, _StagedInstall, recover_journals  # noqa: E402,F401
 
 
 # Re-export the split submodules' public API so `mods.<name>` keeps working for main.py / other

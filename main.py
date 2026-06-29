@@ -693,6 +693,10 @@ class Plugin:
         # (restore set-aside backups whose file is gone, drop stale ones and scratch). Safe here
         # because nothing is installing yet; never run while a job is in flight.
         try:
+            # First: replay any write-ahead install journal a crash stranded mid-commit — roll an
+            # interrupted install back (or a fully-placed one forward). Runs before the crumb sweep so
+            # it restores displaced originals (the sweep would otherwise "commit forward" half a mod).
+            mods.recover_journals()
             mods.sweep_runtime_scratch()
             for game in registry.SUPPORTED_GAMES:
                 install_dir = steam.find_game_install_dir(game.appid)
