@@ -134,6 +134,9 @@ export interface VanillaResult {
 
 // A selectable payload inside a multi-variant mod archive (e.g. the RE4 stack-size .pak options).
 export interface NexusVariant { id: string; label: string }
+// A collection's optional mod, offered while the install job is parked on the optional-mod checklist
+// (only ones not already installed are offered).
+export interface CollectionOption { id: string; name: string; file_id: string }
 export interface NeedsVariant { needs_variant: true; variants: NexusVariant[] }
 
 // ── FOMOD install wizard ───────────────────────────────────────────────────
@@ -216,6 +219,7 @@ export interface QueueJob {
   variants: NexusVariant[]; // present while status is 'needs_input' — the choices to offer
   multi_select?: boolean;   // the parked choice is a Nexus file picker (checklist), not a single-pick variant
   fomod?: FomodModel | null; // present while parked on a FOMOD install wizard (instead of variants)
+  collection_options?: CollectionOption[]; // present while parked on a collection's optional-mod checklist
 }
 
 export interface WorkshopCatalogItem {

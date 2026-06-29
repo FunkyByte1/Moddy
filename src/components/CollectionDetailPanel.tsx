@@ -18,10 +18,11 @@ const CollectionDetailPanel: FC<{
   busy: boolean;
   onEnableAll: () => void;
   onDisableAll: () => void;
+  onReinstall: () => void;
   onUninstall: () => void;
   panelRef?: RefObject<HTMLDivElement | null>;  // so the row's A press can jump focus into here (the first action)
   onCancelButton?: () => void;           // B pressed here → return focus to the collection row on the left
-}> = ({ appid, collection, busy, onEnableAll, onDisableAll, onUninstall, panelRef, onCancelButton }) => {
+}> = ({ appid, collection, busy, onEnableAll, onDisableAll, onReinstall, onUninstall, panelRef, onCancelButton }) => {
   const [summary, setSummary] = useState('');
 
   return (
@@ -62,6 +63,11 @@ const CollectionDetailPanel: FC<{
           <PanelSectionRow>
             <ButtonItem layout="below" disabled={busy} onClick={onDisableAll}>
               Disable all mods
+            </ButtonItem>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={busy} onClick={onReinstall}>
+              Re-install / add mods
             </ButtonItem>
           </PanelSectionRow>
           <PanelSectionRow>

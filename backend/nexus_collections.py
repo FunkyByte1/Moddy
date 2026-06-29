@@ -338,15 +338,52 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
 
     mods_list = collection_mods(manifest, domain)
     required = installable_mods(game, mods_list, domain)  # required, minus the modloader
-    optional_mods = [m for m in mods_list if m["optional"]]  # curator-optional picks; not auto-installed
+    optional_mods = [m for m in mods_list
+                     if m["optional"] and not install_cascade._is_game_modloader(game, domain, m["mod_id"])]
+    coll_name = (manifest.get("info") or {}).get("name") or slug
+    job.name = f"Collection: {coll_name}"  # nicer than the bare slug in the queue + the optional picker
+
+    # Let the user pick which curator-optional mods to add (cosmetic / mutually-exclusive variant
+    # picks). Park ONCE on the first run to ask — nothing is installed yet, so a cancel/dismiss leaves
+    # the game untouched; the resume carries the chosen mod_ids (comma-joined; empty = add none). Rides
+    # the same park/resume rails as the FOMOD wizard / file picker. Skipped when there are no optionals.
+    def _present(m) -> bool:
+        return mods.installed_files_present(game, install_dir, f"nexus.{domain}.{m['mod_id']}")
+
+    chosen_optional: list = []
+    if optional_mods:
+        if getattr(job, "variant", None) is None:
+            # Offer only optionals NOT already on disk — a re-install shouldn't re-list ones you have.
+            # Already-installed optionals stay put (they're skipped below as present). No new ones to
+            # offer (all present) → don't park, just top up the required mods.
+            offerable = [m for m in optional_mods if not _present(m)]
+            if offerable:
+                return {"needs_options": True, "options": [
+                    {"id": m["mod_id"], "name": m["name"], "file_id": m["file_id"]} for m in offerable]}
+        else:
+            chosen_ids = {x for x in (job.variant or "").split(",") if x}
+            chosen_optional = [m for m in optional_mods if m["mod_id"] in chosen_ids]
+    to_install = required + chosen_optional
+
     # Provenance stamped on every mod this collection installs, so the Installed page can group them
-    # (name + tile icon) and offer a ref-counted "Uninstall collection". Name from the manifest;
-    # tile image from the collection card (cosmetic — failures fall back to manifest name / slug).
+    # (name + tile icon) and offer a ref-counted "Uninstall collection". Tile image from the collection
+    # card (cosmetic — failures fall back to no image).
     card = collection_card(domain, slug)
-    coll_name = (manifest.get("info") or {}).get("name") or card.get("name") or slug
     sid = f"collection:{slug}"
     source = {"id": sid, "name": coll_name, "image": card.get("image", "")}
-    await download_queue.note_total(len(required))
+
+    # A re-install / top-up: members already on disk (a prior install, or a mod installed manually /
+    # by another collection) are CLAIMED for this collection (so uninstall-collection ref-counts them)
+    # and skipped — only the missing ones are (re)downloaded. That's what lets a re-install cheaply
+    # restore deleted mods and add newly-chosen optionals without re-fetching the whole set.
+    to_install_missing = []
+    for m in to_install:
+        if _present(m):
+            mods.add_record_source(f"nexus.{domain}.{m['mod_id']}", source)
+        else:
+            to_install_missing.append(m)
+    already_present = len(to_install) - len(to_install_missing)
+    await download_queue.note_total(len(to_install_missing))
     installed = 0
     installed_ids: list[str] = []  # mods THIS run placed — torn down if the user cancels
 
@@ -362,7 +399,7 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
             except Exception as e:  # noqa: BLE001 — best-effort cleanup
                 decky.logger.warning(f"collection {slug}: rollback of {mid} failed: {e}")
 
-    for m in required:
+    for m in to_install_missing:
         if getattr(job, "cancel_requested", False):
             await _rollback_run()
             return None
@@ -382,13 +419,16 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
             return None  # cancelled mid-download
         else:
             await download_queue.note_warning(f"Couldn't install {m['name']}")
-    if optional_mods:
-        names = ", ".join(m["name"] for m in optional_mods)
-        decky.logger.info(f"collection {slug}: skipped {len(optional_mods)} optional mod(s): {names}")
-        # Name them — a bare count left the user unable to tell what was left out / install by hand.
-        await download_queue.note_warning(f"Skipped {len(optional_mods)} optional mod(s): {names}")
-    decky.logger.info(f"collection {slug}: installed {installed}/{len(required)} required mods")
-    return installed > 0
+    # Optionals the user left out — but only the ones not already installed (an installed optional they
+    # didn't re-select isn't "skipped", it's still there). Name them so they can be added by hand.
+    skipped_optional = [m for m in optional_mods if m not in chosen_optional and not _present(m)]
+    if skipped_optional:
+        names = ", ".join(m["name"] for m in skipped_optional)
+        decky.logger.info(f"collection {slug}: skipped {len(skipped_optional)} optional mod(s): {names}")
+        await download_queue.note_warning(f"Skipped {len(skipped_optional)} optional mod(s): {names}")
+    decky.logger.info(f"collection {slug}: {installed} newly installed, {already_present} already present "
+                      f"(of {len(to_install)})")
+    return installed > 0 or already_present > 0
 
 
 async def enqueue_collection(appid: int, ref_text: str) -> int:

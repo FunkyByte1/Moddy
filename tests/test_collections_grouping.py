@@ -179,5 +179,91 @@ class CancelRollbackTest(unittest.TestCase):
         self.assertIsNone(mods.get_installed_record(f"nexus.{self.DOMAIN}.200"))  # never reached
 
 
+class OptionalSelectionTest(unittest.TestCase):
+    """A collection with optional mods parks once to ask which to add; the resume installs the
+    required mods plus only the chosen optionals."""
+    DOMAIN = "monsterhunterworld"
+
+    def setUp(self):
+        reset_store()
+        self._save = {k: getattr(nc, k) for k in
+                      ("fetch_manifest", "collection_mods", "installable_mods", "collection_card", "_install_one")}
+        self._save_notes = (download_queue.note_total, download_queue.note_item, download_queue.note_warning)
+        nc.steam.find_game_install_dir = lambda appid: "/tmp/fake-coll-install"
+        async def _noop(*a, **k): return None
+        download_queue.note_total = _noop
+        download_queue.note_item = _noop
+        download_queue.note_warning = _noop
+        nc.fetch_manifest = lambda d, s: {"info": {"name": "Test Coll"}}
+        nc.collection_card = lambda d, s: {"name": "Test Coll", "image": ""}
+        nc.collection_mods = lambda mani, dom: self.mods_list
+        nc.installable_mods = lambda game, ml, dom: [m for m in ml if not m["optional"]]
+        self.mods_list = [
+            {"mod_id": "1", "name": "Req", "optional": False, "file_id": "f1", "author": "", "version": None, "choices": None},
+            {"mod_id": "2", "name": "OptA", "optional": True, "file_id": "f2", "author": "", "version": None, "choices": None},
+            {"mod_id": "3", "name": "OptB", "optional": True, "file_id": "f3", "author": "", "version": None, "choices": None},
+        ]
+
+    def tearDown(self):
+        for k, v in self._save.items():
+            setattr(nc, k, v)
+        download_queue.note_total, download_queue.note_item, download_queue.note_warning = self._save_notes
+
+    def test_first_run_parks_listing_the_optionals(self):
+        job = types.SimpleNamespace(variant=None, cancel_requested=False)
+        res = asyncio.run(nc.run_collection(582010, self.DOMAIN, "slug", job))
+        self.assertTrue(res["needs_options"])
+        self.assertEqual([(o["id"], o["name"]) for o in res["options"]], [("2", "OptA"), ("3", "OptB")])
+        self.assertEqual(job.name, "Collection: Test Coll")  # nicer than the slug
+
+    def test_resume_installs_required_plus_chosen_optionals_only(self):
+        installed = []
+        async def fake_install_one(game, install_dir, dom, m, source):
+            installed.append(m["mod_id"]); return True
+        nc._install_one = fake_install_one
+        job = types.SimpleNamespace(variant="2", cancel_requested=False)  # chose OptA, not OptB
+        res = asyncio.run(nc.run_collection(582010, self.DOMAIN, "slug", job))
+        self.assertIs(res, True)
+        self.assertEqual(sorted(installed), ["1", "2"])  # required + OptA; OptB skipped
+
+    def test_resume_with_no_choice_installs_only_required(self):
+        installed = []
+        async def fake_install_one(game, install_dir, dom, m, source):
+            installed.append(m["mod_id"]); return True
+        nc._install_one = fake_install_one
+        job = types.SimpleNamespace(variant="", cancel_requested=False)  # skipped all optionals
+        res = asyncio.run(nc.run_collection(582010, self.DOMAIN, "slug", job))
+        self.assertIs(res, True)
+        self.assertEqual(installed, ["1"])
+
+    def test_park_omits_already_installed_optionals(self):
+        orig_present = mods.installed_files_present
+        mods.installed_files_present = lambda game, install_dir, mid: mid == f"nexus.{self.DOMAIN}.2"  # OptA on disk
+        try:
+            job = types.SimpleNamespace(variant=None, cancel_requested=False)
+            res = asyncio.run(nc.run_collection(582010, self.DOMAIN, "slug", job))
+        finally:
+            mods.installed_files_present = orig_present
+        self.assertEqual([o["id"] for o in res["options"]], ["3"])  # only OptB offered; OptA already installed
+
+    def test_reinstall_skips_present_mods_and_claims_them(self):
+        installed = []
+        async def fake_install_one(game, install_dir, dom, m, source):
+            installed.append(m["mod_id"]); return True
+        nc._install_one = fake_install_one
+        orig_present, orig_add = mods.installed_files_present, mods.add_record_source
+        claimed = []
+        mods.installed_files_present = lambda game, install_dir, mid: mid == f"nexus.{self.DOMAIN}.1"  # req already on disk
+        mods.add_record_source = lambda mid, src: claimed.append(mid)
+        try:
+            job = types.SimpleNamespace(variant="2", cancel_requested=False)  # chose OptA
+            res = asyncio.run(nc.run_collection(582010, self.DOMAIN, "slug", job))
+        finally:
+            mods.installed_files_present, mods.add_record_source = orig_present, orig_add
+        self.assertIs(res, True)
+        self.assertEqual(installed, ["2"])                       # present required skipped; only missing OptA installed
+        self.assertIn(f"nexus.{self.DOMAIN}.1", claimed)         # present member claimed for the collection
+
+
 if __name__ == "__main__":
     unittest.main()

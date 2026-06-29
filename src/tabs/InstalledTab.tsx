@@ -8,7 +8,7 @@ import {
 import {
   installMod, installThunderstoreMod, enqueueFicsit, uninstallMod, toggleMod,
   getModReleases, getBackedUpVersions, deleteModVersion, getBrowseDenylist,
-  uninstallCollection, previewUninstallCollection,
+  uninstallCollection, previewUninstallCollection, enqueueCollection,
 } from '../lib/api';
 import { installedCollections, inCollection, InstalledCollection } from '../lib/modSources';
 import CollectionListItem from '../components/CollectionListItem';
@@ -158,6 +158,17 @@ const InstalledTab: FC<{
     });
     await onRefresh();
     setBusy(false);
+  };
+
+  // Re-install / top up a collection: re-runs its install (pops the optional picker, pre-checked with
+  // what's already on disk) to restore deleted mods and add optionals. enqueue → the queue worker
+  // parks on the optional checklist, which ModPage's queue watcher auto-pops.
+  const reinstallCollection = async (c: InstalledCollection) => {
+    const jobId = await enqueueCollection(game.appid, c.slug);
+    toaster.toast({
+      title: 'Moddy',
+      body: jobId < 0 ? `Couldn’t re-queue ${c.name}` : `Re-installing ${c.name}…`,
+    });
   };
 
   // Uninstall a whole collection from its detail panel — confirm first, showing the ref-counted
@@ -617,6 +628,7 @@ const InstalledTab: FC<{
           appid={game.appid} collection={focusedCollection} busy={busy}
           onEnableAll={() => runBulkEnable(collectionModIds(focusedCollection.slug).filter(id => !enabledLowerSet.has(id.toLowerCase())))}
           onDisableAll={() => runBulkDisable(collectionModIds(focusedCollection.slug).filter(id => enabledLowerSet.has(id.toLowerCase())))}
+          onReinstall={() => reinstallCollection(focusedCollection)}
           onUninstall={() => confirmUninstallCollection(focusedCollection)}
           panelRef={detailRef} onCancelButton={focusCollectionRow}
         />

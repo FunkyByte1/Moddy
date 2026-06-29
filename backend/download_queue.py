@@ -53,6 +53,7 @@ class Job:
         self.variants: list = []                # options to present while parked
         self.multi_select: bool = False         # parked choice is a checklist (file picker), not single-pick
         self.fomod: "dict | None" = None        # serialized FOMOD wizard model, present while parked on it
+        self.collection_options: list = []      # a collection's optional mods to pick from, present while parked on them
         self.installed: list = []               # ids freshly installed this job (survives a park)
         self.rollback = None                    # optional async rollback(job) for a parked cancel
         self.cleanup = None                     # optional sync cleanup() (e.g. drop a cached extract)
@@ -74,6 +75,7 @@ class Job:
             "variants": self.variants,
             "multi_select": self.multi_select,
             "fomod": self.fomod,
+            "collection_options": self.collection_options,
         }
 
 
@@ -164,6 +166,7 @@ async def resume(job_id: int, variant: str) -> bool:
     job.variants = []
     job.multi_select = False
     job.fomod = None
+    job.collection_options = []
     job.cancel_requested = False
     job.status = STATUS_QUEUED
     _ensure_worker()
@@ -295,6 +298,9 @@ async def _worker() -> None:
             elif isinstance(result, dict) and result.get("needs_fomod"):
                 job.fomod = result.get("fomod")  # serialized wizard model for the UI
                 job.status = STATUS_NEEDS_INPUT  # parked on the FOMOD wizard
+            elif isinstance(result, dict) and result.get("needs_options"):
+                job.collection_options = result.get("options") or []  # optional mods to pick from
+                job.status = STATUS_NEEDS_INPUT  # parked on the collection's optional-mod checklist
 
             elif isinstance(result, str):
                 job.status = STATUS_FAILED

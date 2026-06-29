@@ -8,17 +8,29 @@ import { useDownloadQueue, useGameDownloadQueue, summarize, isActiveStatus, jobS
 import VariantModal from './modals/VariantModal';
 import FileChoiceModal from './modals/FileChoiceModal';
 import FomodWizardModal from './modals/FomodWizardModal';
+import CollectionOptionsModal from './modals/CollectionOptionsModal';
 
-/** Resolve a parked (needs_input) job's choice, then resume it. A FOMOD job shows the install
- *  wizard (resume with the chosen plugin indices as JSON); a multi-select job is a Nexus file
- *  picker (resume with ids comma-joined); otherwise it's a single-pick archive variant. All ride
- *  the same resume channel. */
+/** Resolve a parked (needs_input) job's choice, then resume it. A FOMOD job shows the install wizard
+ *  (resume with the chosen plugin indices as JSON); a collection-options job shows the optional-mod
+ *  checklist (resume with the chosen mod_ids comma-joined; empty = none); a multi-select job is a
+ *  Nexus file picker (resume with ids comma-joined); otherwise it's a single-pick archive variant.
+ *  All ride the same resume channel. */
 export function promptVariant(job: QueueJob): void {
   if (job.fomod) {
     showModal(
       <FomodWizardModal
         model={job.fomod}
         onInstall={(selections, close) => { close(); resumeDownloadJob(job.job_id, JSON.stringify(selections)); }}
+      />
+    );
+    return;
+  }
+  if (job.collection_options?.length) {
+    showModal(
+      <CollectionOptionsModal
+        collectionName={job.name.replace(/^Collection:\s*/i, '')}
+        options={job.collection_options}
+        onConfirm={(ids, close) => { close(); resumeDownloadJob(job.job_id, ids.join(',')); }}
       />
     );
     return;
