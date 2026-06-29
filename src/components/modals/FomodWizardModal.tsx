@@ -3,7 +3,7 @@ import { useMemo, useState, FC, ReactNode } from 'react';
 
 import { FomodModel, FomodGroup } from '../../types';
 import {
-  Selections, gkey, evalWizard, effType, defaultSelections, encodeSelections, isComplete,
+  Selections, gkey, evalWizard, effType, defaultSelections, encodeSelections, isComplete, normalize,
 } from '../../lib/fomodWizard';
 
 // The FOMOD install wizard. A scripted-installer mod with real choices parks the install and ships
@@ -28,13 +28,15 @@ const FomodWizardModal: FC<{
   closeModal?: () => void;
 }> = ({ model, onInstall, closeModal }) => {
   const close = closeModal ?? (() => {});
-  const [sel, setSel] = useState<Selections>(() => defaultSelections(model));
+  // normalize: fill defaults for visible groups (incl. any a choice reveals) so state matches the
+  // controls and the Install button isn't blocked by an "empty" group that's actually showing a pick.
+  const [sel, setSel] = useState<Selections>(() => normalize(model, defaultSelections(model)));
 
   const { visibleSteps, flags } = useMemo(() => evalWizard(model, sel), [model, sel]);
   const complete = useMemo(() => isComplete(model, sel), [model, sel]);
 
   const setGroup = (si: number, gi: number, plugins: number[]) =>
-    setSel(prev => ({ ...prev, [gkey(si, gi)]: plugins }));
+    setSel(prev => normalize(model, { ...prev, [gkey(si, gi)]: plugins }));
 
   const renderGroup = (si: number, gi: number, group: FomodGroup) => {
     const key = gkey(si, gi);

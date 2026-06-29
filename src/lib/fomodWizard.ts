@@ -57,6 +57,58 @@ export function encodeSelections(sel: Selections): [number, number, number[]][] 
   });
 }
 
+function normalizeOnce(model: FomodModel, sel: Selections): Selections {
+  const { visibleSteps, flags } = evalWizard(model, sel);
+  let next = sel;
+  const ensure = (key: string, value: number[]) => {
+    const a = [...value].sort((x, y) => x - y);
+    const prev = [...(sel[key] ?? [])].sort((x, y) => x - y);
+    if (JSON.stringify(a) !== JSON.stringify(prev)) {
+      if (next === sel) next = { ...sel };
+      next[key] = a;
+    }
+  };
+  for (const si of visibleSteps) {
+    model.steps[si].groups.forEach((group, gi) => {
+      const usable = group.plugins.map((p, pi) => ({ pi, t: effType(p, flags) })).filter(x => x.t !== 'NotUsable');
+      const usableIdx = new Set(usable.map(u => u.pi));
+      const required = usable.filter(u => u.t === 'Required').map(u => u.pi);
+      let picked = (sel[gkey(si, gi)] ?? []).filter(pi => usableIdx.has(pi));  // drop NotUsable/stale
+      if (group.type === 'SelectAll') {
+        picked = usable.map(u => u.pi);
+      } else if (group.type === 'SelectExactlyOne') {
+        if (picked.length !== 1) {
+          const pick = usable.find(u => u.t === 'Recommended') ?? usable.find(u => u.t === 'Required') ?? usable[0];
+          picked = pick ? [pick.pi] : [];
+        }
+      } else if (group.type === 'SelectAtLeastOne') {
+        picked = Array.from(new Set([...picked, ...required]));
+        if (picked.length === 0 && usable[0]) picked = [usable[0].pi];
+      } else { // SelectAny / SelectAtMostOne
+        picked = Array.from(new Set([...picked, ...required]));
+        if (group.type === 'SelectAtMostOne' && picked.length > 1) picked = [picked[0]];
+      }
+      ensure(gkey(si, gi), picked);
+    });
+  }
+  return next;
+}
+
+// Fill in the implied selection for every VISIBLE group (a pick-one with no/invalid choice gets its
+// recommended/first option; a SelectAll gets everything; Required plugins are forced in; NotUsable
+// ones dropped). Iterated to a fixpoint because filling one group's default can set a flag that
+// reveals another step. Keeps the wizard's state consistent with what the controls display — so a
+// step revealed by a choice doesn't leave the Install button disabled on an "empty" group.
+export function normalize(model: FomodModel, sel: Selections): Selections {
+  let cur = sel;
+  for (let i = 0; i <= model.steps.length + 1; i++) {
+    const next = normalizeOnce(model, cur);
+    if (next === cur) return cur;  // stable (same ref) — done
+    cur = next;
+  }
+  return cur;
+}
+
 // Whether every VISIBLE group satisfies its constraint — gates the Install button so we never send
 // the backend a selection resolve() would reject (e.g. an empty SelectAtLeastOne).
 export function isComplete(model: FomodModel, sel: Selections): boolean {
