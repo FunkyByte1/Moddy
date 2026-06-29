@@ -7,13 +7,16 @@ and stamps the collection provenance. Other types fall back to sequential instal
 the limitation. These stub the network + installers and assert the routing/record behaviour.
 """
 import asyncio
+import os
+import tempfile
 import types
 import unittest
 
-from _harness import reset_store  # noqa: F401 — installs the fake decky
+from _harness import reset_store, make_game, make_mod, build_zip  # noqa: F401 — installs the fake decky
 import registry
 import nexus
 import mods
+import utils
 import nexus_collections as nc
 
 
@@ -28,15 +31,19 @@ class InstallGroupTest(unittest.TestCase):
             "get_download_url": nexus.get_download_url, "get_mod": nexus.get_mod,
             "install_smapi_files": mods.install_smapi_files,
             "install_palworld_files": mods.install_palworld_files,
+            "install_folder_files": mods.install_folder_files,
             "add_record_source": mods.add_record_source, "_install_one": nc._install_one,
         }
-        self.smapi, self.palworld, self.sources, self.one = [], [], [], []
+        self.smapi, self.palworld, self.folder, self.sources, self.one = [], [], [], [], []
 
         async def fake_smapi(game, install_dir, mod, version, urls):
             self.smapi.append((mod.id, version, list(urls))); return True
 
         async def fake_palworld(game, install_dir, mod, version, urls):
             self.palworld.append((mod.id, version, list(urls))); return True
+
+        async def fake_folder(game, install_dir, mod, version, urls):
+            self.folder.append((mod.id, version, list(urls))); return True
 
         async def fake_one(game, install_dir, domain, m, source=None):
             self.one.append(m["file_id"]); return True
@@ -45,6 +52,7 @@ class InstallGroupTest(unittest.TestCase):
         nexus.get_download_url = lambda domain, mod_id, file_id: f"https://cdn/{mod_id}/{file_id}"
         mods.install_smapi_files = fake_smapi
         mods.install_palworld_files = fake_palworld
+        mods.install_folder_files = fake_folder
         mods.add_record_source = lambda mid, src: self.sources.append((mid, src))
         nc._install_one = fake_one
 
@@ -53,6 +61,7 @@ class InstallGroupTest(unittest.TestCase):
         nexus.get_mod = self._orig["get_mod"]
         mods.install_smapi_files = self._orig["install_smapi_files"]
         mods.install_palworld_files = self._orig["install_palworld_files"]
+        mods.install_folder_files = self._orig["install_folder_files"]
         mods.add_record_source = self._orig["add_record_source"]
         nc._install_one = self._orig["_install_one"]
 
@@ -89,13 +98,25 @@ class InstallGroupTest(unittest.TestCase):
         self.assertEqual(self.one, ["100"], "single file goes through the unchanged _install_one path")
         self.assertEqual(self.smapi, [], "no multi-file installer for a lone file")
 
-    def test_unsupported_type_falls_back_sequential_and_warns(self):
-        game = registry.get_game_by_appid(275850)  # No Man's Sky — zip_folder, no multi-file installer
+    def test_folder_multifile_routes_to_folder_installer(self):
+        game = registry.get_game_by_appid(275850)  # No Man's Sky — zip_folder (Phase 2)
         res = run(nc._install_group(game, "/x", "nomanssky", self._entries("1649", "5", "6"), self.SRC))
+        self.assertIs(res, True)
+        self.assertEqual(len(self.folder), 1)
+        self.assertEqual(self.folder[0][2], ["https://cdn/1649/5", "https://cdn/1649/6"])
+        self.assertEqual(self.sources, [("nexus.nomanssky.1649", self.SRC)])
+        self.assertEqual(self.smapi, [])
+        self.assertEqual(self.palworld, [])
+        self.assertEqual(self.one, [], "did not fall back to per-file single installs")
+
+    def test_unsupported_type_falls_back_sequential_and_warns(self):
+        game = registry.get_game_by_appid(582010)  # MHW — zip_nativepc, still no multi-file installer
+        res = run(nc._install_group(game, "/x", "monsterhunterworld", self._entries("5076", "5", "6"), self.SRC))
         self.assertIs(res, True)
         self.assertEqual(self.one, ["5", "6"], "both files attempted sequentially (Phase 2 limitation)")
         self.assertEqual(self.smapi, [])
         self.assertEqual(self.palworld, [])
+        self.assertEqual(self.folder, [])
 
     def test_premium_during_url_resolution_propagates(self):
         def boom(domain, mod_id, file_id):
@@ -175,6 +196,40 @@ class RunCollectionGroupingTest(unittest.TestCase):
                                          ["https://cdn/3753/100", "https://cdn/3753/200"]))
         # ...and the lone mod 1063 went through the normal single-file path.
         self.assertEqual(self.single, ["nexus.stardewvalley.1063"])
+
+
+class InstallFolderFilesTest(unittest.TestCase):
+    """The real install_folder_files (NMS zip_folder): several files of one mod overlaid into a single
+    mod folder, one record, all files present — the actual Phase 2 behaviour, no stubbing the installer."""
+
+    def setUp(self):
+        reset_store()
+        self.install_dir = tempfile.mkdtemp(prefix="moddy-nms-")
+        self.game = make_game(mods_dir="GAMEDATA/MODS")
+        self._orig_download = utils.download
+
+    def tearDown(self):
+        utils.download = self._orig_download
+
+    def _multi_download(self, mapping):
+        async def _dl(url, dest, appid, expected_hash=None):
+            build_zip(dest, mapping[url])
+        return _dl
+
+    def test_two_files_merge_into_one_folder(self):
+        # Two pinned files of mod 1649: one .pak each (the q8gqsb "In The Wild" / "Near Shelters" shape).
+        utils.download = self._multi_download({
+            "u0": {"InTheWild.pak": b"wild"},
+            "u1": {"NearShelters.pak": b"shelters"},
+        })
+        mod = make_mod(mod_id="nexus.nomanssky.1649", filename="nexus-1649", install_type="zip_folder")
+        res = run(mods.install_folder_files(self.game, self.install_dir, mod, "1.0", ["u0", "u1"]))
+        self.assertIs(res, True)
+        folder = os.path.join(self.install_dir, "GAMEDATA", "MODS", "nexus-1649")
+        self.assertTrue(os.path.isfile(os.path.join(folder, "InTheWild.pak")), "first file present")
+        self.assertTrue(os.path.isfile(os.path.join(folder, "NearShelters.pak")), "second file present (not overwritten)")
+        rec = mods.get_installed_record(mod.id)
+        self.assertEqual(rec["paths"], ["GAMEDATA/MODS/nexus-1649"], "one tracked folder for the merged mod")
 
 
 if __name__ == "__main__":

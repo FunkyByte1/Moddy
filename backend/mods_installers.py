@@ -362,6 +362,49 @@ async def _install_mod_zip_folder(game: GameProfile, install_dir: str, mods_path
                 shutil.rmtree(p)
 
 
+async def install_folder_files(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, urls: list) -> "bool | None":
+    """Install MULTIPLE files of ONE folder-per-mod (No Man's Sky) Nexus mod as a single record — the
+    multi-file analogue of _install_mod_zip_folder, for a collection that pins several files of one mod
+    page (e.g. two .pak variants). Installed one-at-a-time they'd each replace the mod's single folder
+    nexus-<modId>/ and only the last would survive; instead every file is extracted OVERLAID into one
+    tree and placed together as that one folder (NMS scans MODS/ recursively, so several paks/folders
+    under it all load). Reuses _folder_commit (one transaction, one record, combined contents). Same-path
+    collisions across files resolve last-file-wins. Returns True/False/None(cancel)."""
+    import shutil
+    mods_path = mods.resolve_mods_path(game, install_dir)
+    combined = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_folder_multi")
+    staging = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_folder_staging")
+    for p in (combined, staging):
+        if os.path.exists(p):
+            shutil.rmtree(p)
+    # Previous install's tracked folder — retired inside _folder_commit's transaction, never before the
+    # downloads, so a dead link or cancel can't destroy the old install before the new one is ready.
+    old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
+    archives: list[str] = []
+    try:
+        for i, url in enumerate(urls):
+            arch = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_{i}.archive")
+            archives.append(arch)
+            decky.logger.info(f"Downloading {mod.name} file {i + 1}/{len(urls)} from {utils.redact_url(url)}")
+            await utils.download(url, arch, game.appid)
+            # Overlay every file into ONE tree so _folder_commit places their union as a single folder.
+            mods_archive.extract_archive(arch, combined)
+        return _folder_commit(install_dir, mods_path, combined, staging, mod, version, old_paths)
+    except utils.InstallCancelledError:
+        decky.logger.info(f"Install of {mod.name} was cancelled")
+        return None
+    except Exception as e:
+        decky.logger.error(f"Failed to install {mod.name}: {e}")
+        return False
+    finally:
+        for a in archives:
+            if os.path.exists(a):
+                os.remove(a)
+        for p in (combined, staging):
+            if os.path.exists(p):
+                shutil.rmtree(p)
+
+
 def _smod_plugin_root(extract_root: str, mod: ModInfo) -> "tuple[str, str] | None":
     """Locate the UE plugin inside an extracted .smod and decide where it installs, mirroring
     ficsit-cli. Returns (target_subfolder, plugin_root_dir): the Mods/ subfolder — the ModReference,

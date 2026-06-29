@@ -317,8 +317,8 @@ async def _install_one(game, install_dir: str, domain: str, m: dict, source: dic
 
 
 # Install types that can place SEVERAL files of one mod under a single record (combined paths). The
-# Browse file-picker already uses these; collections route multi-file mods through them too.
-_MULTIFILE_INSTALL_TYPES = {"zip_smapi", "zip_palworld"}
+# Browse file-picker uses zip_smapi/zip_palworld; collections add zip_folder (NMS) via install_folder_files.
+_MULTIFILE_INSTALL_TYPES = {"zip_smapi", "zip_palworld", "zip_folder"}
 
 
 async def _install_group(game, install_dir: str, domain: str, entries: list, source: dict | None = None):
@@ -362,6 +362,8 @@ async def _install_group(game, install_dir: str, domain: str, entries: list, sou
     version = entries[0].get("version")
     if install_type == "zip_palworld":
         res = await mods.install_palworld_files(game, install_dir, mod, version, urls)
+    elif install_type == "zip_folder":
+        res = await mods.install_folder_files(game, install_dir, mod, version, urls)
     else:
         res = await mods.install_smapi_files(game, install_dir, mod, version, urls)
     # The multi-file installers write the record but don't stamp provenance (install_mod does that for
