@@ -316,6 +316,61 @@ async def _install_one(game, install_dir: str, domain: str, m: dict, source: dic
     return await mods.install_mod(game, install_dir, mod, m.get("version"), url, variant, source=source)
 
 
+# Install types that can place SEVERAL files of one mod under a single record (combined paths). The
+# Browse file-picker already uses these; collections route multi-file mods through them too.
+_MULTIFILE_INSTALL_TYPES = {"zip_smapi", "zip_palworld"}
+
+
+async def _install_group(game, install_dir: str, domain: str, entries: list, source: dict | None = None):
+    """Install all of a collection's pinned files for ONE mod. A collection can pin several files of a
+    single Nexus mod (a main file + an add-on, two option packs, …). Installing them one-by-one makes
+    each OVERWRITE the previous one — they share the record id `nexus.<domain>.<modId>` AND the on-disk
+    folder `nexus-<modId>` — so only the last survives. When the game's install type has a multi-file
+    installer, place them together under the one record (combined paths), reusing the same machinery as
+    the Browse file-picker. Returns True/False/None(cancel)/PREMIUM_REQUIRED."""
+    if len(entries) == 1:
+        return await _install_one(game, install_dir, domain, entries[0], source)
+
+    mod_id = entries[0]["mod_id"]
+    install_type = game.catalog.get("install_type", "zip_flat")
+    if install_type not in _MULTIFILE_INSTALL_TYPES:
+        # No multi-file installer for this type yet (Phase 2). Don't regress — install sequentially as
+        # before (only the last file persists) — but make the limitation visible instead of silent.
+        decky.logger.warning(
+            f"collection: mod {mod_id} pins {len(entries)} files but install_type {install_type!r} has "
+            f"no multi-file installer — installing sequentially, only the last file will persist")
+        result = False
+        for e in entries:
+            r = await _install_one(game, install_dir, domain, e, source)
+            if r == install_cascade.PREMIUM_REQUIRED or r is None:
+                return r
+            result = result or (r is True)
+        return result
+
+    # Resolve a download URL for each pinned file, then place them all under the one record.
+    urls: list[str] = []
+    for e in entries:
+        try:
+            url = nexus.get_download_url(domain, mod_id, e["file_id"])
+        except nexus.PremiumRequired:
+            return install_cascade.PREMIUM_REQUIRED
+        if url:
+            urls.append(url)
+    if not urls:
+        return False
+    mod = _mod_info(game, domain, mod_id, entries[0]["name"], entries[0]["author"])
+    version = entries[0].get("version")
+    if install_type == "zip_palworld":
+        res = await mods.install_palworld_files(game, install_dir, mod, version, urls)
+    else:
+        res = await mods.install_smapi_files(game, install_dir, mod, version, urls)
+    # The multi-file installers write the record but don't stamp provenance (install_mod does that for
+    # the single-file path), so claim the mod for this collection here.
+    if res is True and source:
+        mods.add_record_source(mod.id, source)
+    return res
+
+
 async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | None | str":
     """Install every required mod in a collection (best-effort). Returns True if any installed,
     False if none did, None on cancel, "premium_required" if the account isn't Premium."""
@@ -383,7 +438,13 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
         else:
             to_install_missing.append(m)
     already_present = len(to_install) - len(to_install_missing)
-    await download_queue.note_total(len(to_install_missing))
+    # Group a mod's multiple pinned files so they install as ONE record (combined paths) instead of
+    # overwriting each other — see _install_group. First-seen order; entries of one modId need not be
+    # adjacent in the manifest. Progress is per-mod (per group), not per-file.
+    groups: "dict[str, list]" = {}
+    for m in to_install_missing:
+        groups.setdefault(m["mod_id"], []).append(m)
+    await download_queue.note_total(len(groups))
     installed = 0
     installed_ids: list[str] = []  # mods THIS run placed — torn down if the user cancels
 
@@ -399,26 +460,28 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
             except Exception as e:  # noqa: BLE001 — best-effort cleanup
                 decky.logger.warning(f"collection {slug}: rollback of {mid} failed: {e}")
 
-    for m in to_install_missing:
+    for mod_id, entries in groups.items():
         if getattr(job, "cancel_requested", False):
             await _rollback_run()
             return None
-        await download_queue.note_item(m["name"])
+        first = entries[0]
+        label = first["name"] if len(entries) == 1 else f"{first['name']} (+{len(entries) - 1} more file(s))"
+        await download_queue.note_item(label)
         try:
-            res = await _install_one(game, install_dir, domain, m, source)
+            res = await _install_group(game, install_dir, domain, entries, source)
         except Exception as e:  # noqa: BLE001 — one bad mod must not abort the collection
-            decky.logger.error(f"collection {slug}: {m['name']} errored: {e}")
+            decky.logger.error(f"collection {slug}: {first['name']} errored: {e}")
             res = False
         if res is True:
             installed += 1
-            installed_ids.append(f"nexus.{domain}.{m['mod_id']}")  # the id _mod_info/install_mod recorded
+            installed_ids.append(f"nexus.{domain}.{mod_id}")  # the id _mod_info/install_group recorded
         elif res == install_cascade.PREMIUM_REQUIRED:
             return "premium_required"
         elif res is None:
             await _rollback_run()
             return None  # cancelled mid-download
         else:
-            await download_queue.note_warning(f"Couldn't install {m['name']}")
+            await download_queue.note_warning(f"Couldn't install {first['name']}")
     # Optionals the user left out — but only the ones not already installed (an installed optional they
     # didn't re-select isn't "skipped", it's still there). Name them so they can be added by hand.
     skipped_optional = [m for m in optional_mods if m not in chosen_optional and not _present(m)]
