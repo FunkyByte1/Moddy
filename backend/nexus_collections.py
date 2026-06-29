@@ -187,18 +187,30 @@ def collection_mods(manifest: dict, domain: str) -> list:
     return out
 
 
+def installable_mods(game, mods_list: list, domain: str) -> list:
+    """The required mods a collection install should actually place: required (not optional), minus
+    the game's modloader (e.g. MHW's Stracker's Loader, nexus 1982) — that's managed by the modloader
+    system, not installed as a mod, so a collection must skip it (else it shows up as a stray mod)."""
+    return [m for m in mods_list
+            if not m["optional"] and not install_cascade._is_game_modloader(game, domain, m["mod_id"])]
+
+
 def _mod_info(game, domain: str, mod_id: str, name: str, author: str) -> registry.ModInfo:
+    # Fetch the mod's page info so the Installed entry has a description + thumbnail (the manifest
+    # only carries name/author); fall back to the manifest values if the lookup fails.
+    info = nexus.get_mod(domain, mod_id) or {}
     return registry.ModInfo(
         id=f"nexus.{domain}.{mod_id}",
-        name=name,
-        description="",
+        name=info.get("name") or name,
+        description=info.get("summary", "") or "",
         filename=f"nexus-{mod_id}",
         source=registry.ModSource(
             type="nexus", install_type=game.catalog.get("install_type", "zip_flat"),
             nexus_domain=domain, mod_id=str(mod_id),
         ),
-        author=author,
+        author=info.get("author") or info.get("uploaded_by") or author,
         homepage=f"https://www.nexusmods.com/{domain}/mods/{mod_id}",
+        thumbnail=info.get("picture_url", "") or "",
         modloader=game.modloaders[0].id if game.modloaders else "",
     )
 
@@ -240,7 +252,7 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
         return False
 
     mods_list = collection_mods(manifest, domain)
-    required = [m for m in mods_list if not m["optional"]]
+    required = installable_mods(game, mods_list, domain)  # required, minus the modloader
     skipped = len(mods_list) - len(required)
     await download_queue.note_total(len(required))
     installed = 0

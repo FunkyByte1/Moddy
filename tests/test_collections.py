@@ -6,6 +6,7 @@ pulling the right Nexus mods, with their pinned files + FOMOD choices, out of a 
 import unittest
 
 from _harness import reset_store  # noqa: F401 (installs the fake decky)
+import registry
 import nexus_collections as nc
 
 
@@ -62,6 +63,19 @@ class CollectionModsTest(unittest.TestCase):
 
     def test_domain_match_is_case_insensitive(self):
         self.assertEqual(len(nc.collection_mods(self.MANIFEST, "MonsterHunterWorld")), 2)
+
+
+class InstallableModsTest(unittest.TestCase):
+    def test_skips_the_modloader_and_optional_mods(self):
+        game = registry.get_game_by_appid(582010)  # MHW — modloader is Stracker's Loader (nexus 1982)
+        self.assertIsNotNone(game)
+        mods = [
+            {"mod_id": "1982", "optional": False, "name": "Stracker's Loader"},  # the modloader -> skip
+            {"mod_id": "5076", "optional": False, "name": "Grada's Paradise"},   # a real mod -> keep
+            {"mod_id": "200", "optional": True, "name": "Optional Skin"},        # optional -> skip
+        ]
+        result = nc.installable_mods(game, mods, "monsterhunterworld")
+        self.assertEqual([m["mod_id"] for m in result], ["5076"])
 
 
 if __name__ == "__main__":
