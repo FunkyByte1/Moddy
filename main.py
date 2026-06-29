@@ -447,6 +447,11 @@ class Plugin:
             out.append(it)
         return out
 
+    async def get_collections_catalog(self, appid: int, query: str = "", page: int = 1) -> list:
+        """A page of Nexus collections for the game's Collections browse tab (slug/name/author/
+        summary/mod_count/endorsements/tile_image). Adult collections gated by the NSFW setting."""
+        return nexus_collections.list_collections_for_game(appid, query, page)
+
     async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None,
                                 variant: str | None = None, installed: "list | None" = None):
         """Install a Nexus mod by its `nexus.<domain>.<mod_id>` catalog id, via the Premium

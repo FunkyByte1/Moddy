@@ -50,7 +50,7 @@ export interface BrowseSecondaryAction {
 // are OPTIONAL — Nexus/Workshop omit them and keep their exact behavior; Thunderstore/BMI (Phase 2)
 // implement the filtering / category / dependency-cascade hooks.
 export interface PagedVenueAdapter {
-  id: 'nexus' | 'workshop' | 'thunderstore' | 'bmi' | 'ficsit';
+  id: 'nexus' | 'workshop' | 'thunderstore' | 'bmi' | 'ficsit' | 'collections';
   searchLabel: string;                 // "Search Nexus"
   catalogName: string;                 // human label for messages, e.g. "Nexus" / "Workshop"
   sourceLabel: 'nexus' | 'workshop' | 'thunderstore' | 'bmi' | 'ficsit';  // <CatalogSourceLabel source=...>

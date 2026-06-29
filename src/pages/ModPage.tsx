@@ -16,6 +16,7 @@ import { nexusAdapter } from '../tabs/browse/nexusAdapter';
 import { workshopAdapter } from '../tabs/browse/workshopAdapter';
 import { thunderstoreAdapter, bmiAdapter } from '../tabs/browse/catalogAdapter';
 import { ficsitAdapter } from '../tabs/browse/ficsitAdapter';
+import { collectionsAdapter } from '../tabs/browse/collectionsAdapter';
 import OptionsModal from '../components/modals/OptionsModal';
 import VanillaView from '../components/VanillaView';
 import ModLoaderModal from '../components/modals/ModLoaderModal';
@@ -554,6 +555,21 @@ const ModPage: FC = () => {
         onMenuActionDescription: 'Options',
         onSecondaryButton: handleNexusFilterMenu,
         onSecondaryActionDescription: 'Filter',
+      },
+    }] : []),
+    // Nexus collections: browse curated collections and install a whole one (its required mods at
+    // pinned files, with the curator's FOMOD choices replayed) as a single queued job. No per-item
+    // filter — adult collections are gated server-side by the NSFW setting.
+    ...(game.catalog_type === 'nexus' ? [{
+      id: 'collections',
+      title: 'Collections',
+      content: (
+        <BrowsePagedTab adapter={collectionsAdapter} game={game} onRefresh={refresh} />
+      ),
+      footer: {
+        ...queueFooter,
+        onMenuButton: handleOptionsMenu,
+        onMenuActionDescription: 'Options',
       },
     }] : []),
     // ficsit.app (Satisfactory): server-paginated like Nexus (anonymous), with a sort/status filter.

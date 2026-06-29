@@ -21,6 +21,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import decky
 
 import registry
+import app_settings as settings  # bare `settings` collides with decky_loader.settings
 import steam
 import nexus
 import fetch
@@ -53,6 +54,52 @@ def parse_ref(text: str, default_domain: str) -> "tuple[str | None, str | None]"
 
 def _esc(s: str) -> str:
     return json.dumps(s)[1:-1]  # escape for inlining into the GraphQL string
+
+
+_COLLECTIONS_PAGE = 25
+
+
+def list_collections_for_game(appid: int, query: str = "", page: int = 1) -> list:
+    """A page of collections for a game whose Browse source is Nexus, for the in-app collections
+    list. Sorted by endorsements; adult collections excluded unless the NSFW setting is on (matching
+    the mods catalog). Returns [] for non-Nexus games / no API key / on error."""
+    game = registry.get_game_by_appid(appid)
+    if not game or game.catalog.get("type") != "nexus":
+        return []
+    domain = game.catalog.get("nexus_domain", "")
+    if not domain:
+        return []
+    include_adult = bool(settings.get_setting("nexus_include_adult", False))
+    offset = max(0, (page - 1) * _COLLECTIONS_PAGE)
+    parts = ['gameDomain:{value:"%s",op:EQUALS}' % _esc(domain)]
+    if query and len(query) >= 2:
+        parts.append('generalSearch:{value:"%s",op:WILDCARD}' % _esc(query))
+    if not include_adult:
+        parts.append("adultContent:{value:false,op:EQUALS}")
+    gql = ('{ collectionsV2(count:%d, offset:%d, filter:{%s}, sort:[{endorsements:{direction:DESC}}]){ '
+           'nodes { slug name summary endorsements tileImage{url} user{name} '
+           'latestPublishedRevision{ modCount } } } }' % (_COLLECTIONS_PAGE, offset, ",".join(parts)))
+    try:
+        data = fetch.post_json(nexus.GRAPHQL_URL, {"query": gql}, headers=nexus._headers())
+    except nexus.MissingApiKey:
+        return []
+    if not isinstance(data, dict) or data.get("errors"):
+        decky.logger.error(f"collections list error: {data.get('errors') if isinstance(data, dict) else data}")
+        return []
+    nodes = (((data.get("data") or {}).get("collectionsV2") or {}).get("nodes")) or []
+    out = []
+    for n in nodes:
+        rev = n.get("latestPublishedRevision") or {}
+        out.append({
+            "slug": n.get("slug", ""),
+            "name": n.get("name", "") or n.get("slug", ""),
+            "author": (n.get("user") or {}).get("name", "") or "",
+            "summary": n.get("summary", "") or "",
+            "mod_count": rev.get("modCount", 0) or 0,
+            "endorsements": n.get("endorsements", 0) or 0,
+            "tile_image": (n.get("tileImage") or {}).get("url", "") or "",
+        })
+    return out
 
 
 def _download_link_path(domain: str, slug: str) -> "tuple[str, str] | None":

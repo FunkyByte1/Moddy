@@ -1,7 +1,7 @@
 import { callable } from '@decky/api';
 import {
   GameStatus, ModRelease, ModloaderUpdate, ModUpdate, ResetResult, VanillaResult,
-  NeedsVariant, QueueJob, ThunderstorePackage, WorkshopCatalogItem, Profile,
+  NeedsVariant, QueueJob, ThunderstorePackage, WorkshopCatalogItem, Profile, CollectionItem,
 } from '../types';
 
 export const setLaunchOptions = (appid: number, options: string) => {
@@ -321,6 +321,9 @@ export const enqueueNexus =
 // or -1 if the game isn't a Nexus game / the ref is unparseable or for a different game.
 export const enqueueCollection =
   callable<[appid: number, ref: string], number>('enqueue_collection');
+// A page (~25) of Nexus collections for the game's Collections browse tab.
+export const getCollectionsCatalog =
+  callable<[appid: number, query: string, page: number], CollectionItem[]>('get_collections_catalog');
 // ficsit.app (Satisfactory) catalog — server-paginated/searched (~25 items per page), in the shared
 // ThunderstorePackage item shape. Anonymous (no API key); installs cascade dependencies server-side
 // and are drained by the same background queue as Nexus/Thunderstore (kind 'ficsit').

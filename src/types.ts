@@ -156,6 +156,18 @@ export interface FomodModel {
   default: [number, number, number[]][];                      // [stepIdx, groupIdx, pluginIdx[]]
 }
 
+// A Nexus collection in the in-app Collections browse list. Installing one enqueues its whole
+// required mod set (pinned files + replayed FOMOD choices) as a single background job.
+export interface CollectionItem {
+  slug: string;
+  name: string;
+  author: string;
+  summary: string;
+  mod_count: number;
+  endorsements: number;
+  tile_image: string;
+}
+
 // ── Background download queue ──────────────────────────────────────────────
 // Catalog installs that fetch archives server-side (Thunderstore / Nexus / BMI) are enqueued
 // and drained by a single serial backend worker, so the UI can show a queue + per-item

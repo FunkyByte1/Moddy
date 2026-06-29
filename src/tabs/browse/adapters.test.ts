@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { nexusItem, nexusDetail } from './nexusAdapter';
 import { ficsitItem, ficsitDetail } from './ficsitAdapter';
 import { workshopItem, workshopDetail, fmtSubs } from './workshopAdapter';
-import type { ThunderstorePackage, WorkshopCatalogItem } from '../../types';
+import { collectionBrowseItem, collectionsAdapter } from './collectionsAdapter';
+import type { ThunderstorePackage, WorkshopCatalogItem, CollectionItem } from '../../types';
 
 // The adapters' pure mappers normalize each venue's payload into the shared BrowseItem/BrowseDetail.
 // (importing the adapters pulls in @decky, mocked in vitest-setup/setup.ts.)
@@ -73,5 +74,28 @@ describe('workshop adapter mappers', () => {
     expect(d.description).toBe('a bold map');
     expect(d.tags).toEqual(['Maps', 'Co-op']);
     expect(d.byline).toBe('1.5k subscribers · updated 2023-11-14');
+  });
+});
+
+const coll = (over: Partial<CollectionItem> = {}): CollectionItem => ({
+  slug: 'vmu2j4', name: 'Worldly Improvements', author: 'Kap', summary: 'better world',
+  mod_count: 5, endorsements: 42, tile_image: 'http://tile', ...over,
+});
+
+describe('collectionsAdapter', () => {
+  it('maps a collection to a browse item keyed for the queue job ref', () => {
+    const it0 = collectionBrowseItem(coll());
+    // key/installId must mirror the backend job ref `collection:<slug>` so the busy mark hands off.
+    expect(it0.key).toBe('collection:vmu2j4');
+    expect(it0.installId).toBe('collection:vmu2j4');
+    expect(it0.title).toBe('Worldly Improvements');
+    expect(it0.subtitle).toBe('by Kap · 5 mods');
+    expect(it0.iconUrl).toBe('http://tile');
+  });
+  it('detail bylines mods + endorsements; collections are never "installed"', () => {
+    const d = collectionsAdapter.detail(collectionBrowseItem(coll({ mod_count: 1, endorsements: 0 })));
+    expect(d.byline).toBe('by Kap · 1 mod');                 // singular, no endorsement clause
+    expect(d.description).toBe('better world');
+    expect(collectionsAdapter.installedIds({} as any).size).toBe(0);
   });
 });
