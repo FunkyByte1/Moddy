@@ -2,7 +2,9 @@ import { toaster } from '@decky/api';
 
 import { CollectionItem } from '../../types';
 import { getCollectionsCatalog, enqueueCollection } from '../../lib/api';
+import { installedCollections } from '../../lib/modSources';
 import { BrowseItem, BrowseDetail, PagedVenueAdapter } from './types';
+import CollectionBrowseDetail from './CollectionBrowseDetail';
 
 // Browse-and-install Nexus collections. Reuses the shared paged Browse tab: list collections for the
 // game (server-paginated), and installing one enqueues its WHOLE required mod set (pinned files +
@@ -28,6 +30,9 @@ export const collectionsAdapter: PagedVenueAdapter = {
   sourceLabel: 'nexus',
   installModel: 'queue',
   hasFilter: false,
+  // A collection is installed as a whole set; it's managed/removed from the Installed tab, not
+  // item-by-item here — so an already-installed collection shows a disabled "Installed", not "Uninstall".
+  noUninstall: true,
   emptyText: 'No collections found — set your Nexus API key in the Moddy panel and check your network.',
   installNotice: 'Installs every required mod in this collection (with the curator’s installer choices). This can take a while; watch the download queue.',
 
@@ -35,9 +40,11 @@ export const collectionsAdapter: PagedVenueAdapter = {
     const data = await getCollectionsCatalog(game.appid, query, page);
     return data.map(collectionBrowseItem);
   },
-  // Collections aren't tracked as installed — the install action always installs the whole set.
-  installedIds() {
-    return new Set<string>();
+  // A collection counts as installed once any of its mods are present (tagged collection:<slug> on
+  // their records) — so the button flips to "Installed" after the queue job finishes. installId is
+  // `collection:<slug>`, matching the item key.
+  installedIds(game) {
+    return new Set(installedCollections(game.installed_mods).map(c => `collection:${c.slug}`));
   },
   detail(item): BrowseDetail {
     const c = item.raw as CollectionItem;
@@ -45,6 +52,8 @@ export const collectionsAdapter: PagedVenueAdapter = {
       + (c.endorsements ? ` · ${c.endorsements} endorsement${c.endorsements === 1 ? '' : 's'}` : '');
     return { byline, tags: [], description: c.summary };
   },
+  // Under the description, list the collection's mods (lazily fetched).
+  DetailExtra: CollectionBrowseDetail,
   uninstallId(_game, item) {
     return item.key;
   },

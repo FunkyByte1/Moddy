@@ -452,6 +452,11 @@ class Plugin:
         summary/mod_count/endorsements/tile_image). Adult collections gated by the NSFW setting."""
         return nexus_collections.list_collections_for_game(appid, query, page)
 
+    async def get_collection_detail(self, appid: int, slug: str) -> dict:
+        """A collection's detail — {name, image, summary, mod_count, mods:[{mod_id,name,thumbnail,
+        optional}]} — for the Collections browse-tab detail and the Installed-tab collection panel."""
+        return nexus_collections.get_collection_detail(appid, slug)
+
     async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None,
                                 variant: str | None = None, installed: "list | None" = None):
         """Install a Nexus mod by its `nexus.<domain>.<mod_id>` catalog id, via the Premium
@@ -629,6 +634,17 @@ class Plugin:
         the curator's FOMOD choices replayed. `ref` is a collection URL or slug. Returns the job id,
         or -1 if the game isn't a Nexus game or the ref is unparseable / for a different game."""
         return await nexus_collections.enqueue_collection(appid, ref)
+
+    async def preview_uninstall_collection(self, slug: str) -> dict:
+        """Preview "Uninstall collection <slug>": {remove:[names], keep:[names]} — keep = mods also
+        installed manually or in another collection, so the UI can warn before removing."""
+        return nexus_collections.preview_uninstall_collection(slug)
+
+    async def uninstall_collection(self, appid: int, slug: str) -> dict:
+        """Ref-counted removal of a whole collection: drop each member's collection:<slug> tag,
+        uninstall mods whose last source it was, keep those still wanted elsewhere. Returns
+        {removed:[ids], kept:[ids]}."""
+        return await nexus_collections.uninstall_collection(appid, slug)
 
     async def _rollback_job(self, appid: int, ids: list) -> None:
         game = registry.get_game_by_appid(appid)

@@ -179,6 +179,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                 "meta": record.get("meta"),
                 "is_library": record.get("is_library", False),
                 "added_at": record.get("added_at"),
+                "sources": record.get("sources"),
             })
         return installed
 
@@ -244,6 +245,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             "version": record.get("version"),
             "meta": record.get("meta"),
             "added_at": record.get("added_at"),
+            "sources": record.get("sources"),
         })
 
     # 3) Filesystem scan for legacy / manually-placed entries we haven't tracked.
@@ -273,7 +275,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
     return installed
 
 
-async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None = None, url: str | None = None, variant: str | None = None) -> "bool | None | dict":
+async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None = None, url: str | None = None, variant: str | None = None, source: dict | None = None) -> "bool | None | dict":
     """
     Download and install a mod into the game's mods directory.
     Supports two install types:
@@ -281,10 +283,22 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
     - "zip_dir": extracts zip as a folder into the mods directory
     Returns True=success, False=failed, None=cancelled. For "zip_natives" with multiple variants
     and no `variant` chosen, returns {"needs_variant": True, "variants": [...]}.
+
+    `source` records provenance for the Installed-page grouping: {"id": "collection:<slug>",
+    "name": <display>} for a collection install, defaulting to {"id":"manual"} for a direct
+    install. It's stamped only on a fully-successful install (result is True) so a parked /
+    failed / cancelled install never groups a mod that isn't there.
     """
     mods_path = mods.resolve_mods_path(game, install_dir)
     os.makedirs(mods_path, exist_ok=True)
 
+    result = await _install_dispatch(game, install_dir, mods_path, mod, version, url, variant)
+    if result is True:
+        mods.add_record_source(mod.id, source or {"id": "manual", "name": "You"})
+    return result
+
+
+async def _install_dispatch(game: GameProfile, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, url: str | None, variant: str | None) -> "bool | None | dict":
     if mod.source.install_type == "zip_dir":
         return await mods_installers._install_mod_zip_dir(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_flat":

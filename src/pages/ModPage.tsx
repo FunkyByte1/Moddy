@@ -16,7 +16,8 @@ import { nexusAdapter } from '../tabs/browse/nexusAdapter';
 import { workshopAdapter } from '../tabs/browse/workshopAdapter';
 import { thunderstoreAdapter, bmiAdapter } from '../tabs/browse/catalogAdapter';
 import { ficsitAdapter } from '../tabs/browse/ficsitAdapter';
-import { collectionsAdapter } from '../tabs/browse/collectionsAdapter';
+import { collectionsAdapterFor, venueHasCollections } from '../tabs/browse/collectionVenues';
+import { installedCollections } from '../lib/modSources';
 import OptionsModal from '../components/modals/OptionsModal';
 import VanillaView from '../components/VanillaView';
 import ModLoaderModal from '../components/modals/ModLoaderModal';
@@ -227,7 +228,11 @@ const ModPage: FC = () => {
 
   const handleInstalledFilterMenu = () => {
     showModal(
-      <InstalledFilterModal filter={installedFilter} onChange={setInstalledFilter} />
+      <InstalledFilterModal
+        filter={installedFilter}
+        onChange={setInstalledFilter}
+        collections={installedCollections(game.installed_mods)}
+      />
     );
   };
 
@@ -557,14 +562,16 @@ const ModPage: FC = () => {
         onSecondaryActionDescription: 'Filter',
       },
     }] : []),
-    // Nexus collections: browse curated collections and install a whole one (its required mods at
-    // pinned files, with the curator's FOMOD choices replayed) as a single queued job. No per-item
-    // filter — adult collections are gated server-side by the NSFW setting.
-    ...(game.catalog_type === 'nexus' ? [{
+    // Collections: browse curated sets and install a whole one (its required mods at pinned files,
+    // with the curator's installer choices replayed) as a single queued job. Venue-agnostic — the
+    // adapter is picked from the game's venue (Nexus collections today; Thunderstore modpacks etc.
+    // later), so this stays one top-level tab that lights up wherever the venue has a collections
+    // concept. No per-item filter — adult collections are gated server-side by the NSFW setting.
+    ...(venueHasCollections(game) ? [{
       id: 'collections',
       title: 'Collections',
       content: (
-        <BrowsePagedTab adapter={collectionsAdapter} game={game} onRefresh={refresh} />
+        <BrowsePagedTab adapter={collectionsAdapterFor(game.catalog_type)!} game={game} onRefresh={refresh} />
       ),
       footer: {
         ...queueFooter,

@@ -7,14 +7,15 @@ import type { ModEntry } from '../ModEntry';
 // (importing the modal pulls in @decky/ui, mocked in vitest-setup/setup.ts.)
 
 const entry = (
-  { enabled = true, hasUpdate = false, isLibrary = false } = {},
+  { enabled = true, hasUpdate = false, isLibrary = false, sources = undefined as ModEntry['sources'] } = {},
 ): ModEntry => ({
   id: 'm', name: 'm', installed: true, enabled, version: '1.0', hasUpdate,
-  dependenciesMet: true, isLibrary, info: {} as ModEntry['info'],
+  dependenciesMet: true, isLibrary, sources, info: {} as ModEntry['info'],
 }) as ModEntry;
 
 const filter = (over: Partial<InstalledFilter> = {}): InstalledFilter =>
-  ({ enabled: true, disabled: true, onlyUpdates: false, hideLibraries: false, sortBy: 'name', ...over });
+  ({ enabled: true, disabled: true, onlyUpdates: false, hideLibraries: false, sortBy: 'name',
+     hiddenCollections: [], showCollectionEntries: true, ...over });
 
 describe('installedMatchesFilter', () => {
   describe('enabled/disabled visibility', () => {
@@ -46,6 +47,25 @@ describe('installedMatchesFilter', () => {
     });
     it('ignores updates when off', () => {
       expect(installedMatchesFilter(entry({ hasUpdate: false }), filter({ onlyUpdates: false }))).toBe(true);
+    });
+  });
+
+  describe('hiddenCollections', () => {
+    const col = (slug: string) => ({ [`collection:${slug}`]: { name: slug, image: '' } });
+    it('hides a mod owned only by a hidden collection', () => {
+      expect(installedMatchesFilter(entry({ sources: col('abc') }), filter({ hiddenCollections: ['abc'] }))).toBe(false);
+    });
+    it('keeps a mod also installed manually even if its collection is hidden', () => {
+      const sources = { ...col('abc'), manual: { name: 'You', image: '' } };
+      expect(installedMatchesFilter(entry({ sources }), filter({ hiddenCollections: ['abc'] }))).toBe(true);
+    });
+    it('keeps a mod that is also in a shown collection', () => {
+      const sources = { ...col('abc'), ...col('xyz') };
+      expect(installedMatchesFilter(entry({ sources }), filter({ hiddenCollections: ['abc'] }))).toBe(true);
+    });
+    it('does not touch manual-only / no-source mods', () => {
+      expect(installedMatchesFilter(entry({ sources: { manual: { name: 'You' } } }), filter({ hiddenCollections: ['abc'] }))).toBe(true);
+      expect(installedMatchesFilter(entry({ sources: undefined }), filter({ hiddenCollections: ['abc'] }))).toBe(true);
     });
   });
 

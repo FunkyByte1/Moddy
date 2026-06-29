@@ -1,3 +1,4 @@
+import type { FC } from 'react';
 import { GameStatus, InstalledMod } from '../../types';
 import type { BrowsePagedFilter } from './pagedFilter';
 
@@ -90,4 +91,13 @@ export interface PagedVenueAdapter {
   // InstallContext so visibility can be computed against the live in-flight set (ctx.game / .pending /
   // .queuedRefs) — the same data its run() needs — not just (item, installed).
   secondaryActions?(item: BrowseItem, installed: boolean, ctx: InstallContext): BrowseSecondaryAction[];
+
+  // Extra detail-panel content rendered below the description for the selected item (e.g. Collections
+  // lists the mods you'd install). Omitted → nothing extra. A component so it can fetch lazily.
+  DetailExtra?: FC<{ item: BrowseItem; game: GameStatus }>;
+
+  // When true, an item reported by installedIds() shows a disabled "Installed" button instead of
+  // "Uninstall" — the venue has no per-item uninstall here (Collections: a whole-set install you
+  // manage/remove from the Installed tab, not item-by-item from Browse).
+  noUninstall?: boolean;
 }

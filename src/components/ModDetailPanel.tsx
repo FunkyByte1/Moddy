@@ -10,6 +10,7 @@ import { GameStatus, ModInfo, ModUpdate } from '../types';
 import { ModEntry } from './ModEntry';
 import { useQueueFooterProps } from './DownloadQueueModal';
 import { SHOW_VERSION_OPTIONS } from '../lib/featureFlags';
+import { collectionSources } from '../lib/modSources';
 
 const ModDetailPanel: FC<{
   entry: ModEntry;
@@ -25,10 +26,11 @@ const ModDetailPanel: FC<{
   onCancel: () => void;
   onMenuButton: () => void;
   onFilterButton: () => void;
+  onCancelButton?: () => void;  // B pressed in the detail → return focus to the left list (the selected row)
   // Install ids (lowercase) that aren't real dependencies — modloaders / mod-manager apps like
   // Fluffy — so they're not listed or flagged as a missing dependency.
   denylist?: Set<string>;
-}> = ({ entry, game, busy, installing, progress, updates, onInstall, onDelete, onUpdate, onChangeVersion, onCancel, onMenuButton, onFilterButton, denylist }) => {
+}> = ({ entry, game, busy, installing, progress, updates, onInstall, onDelete, onUpdate, onChangeVersion, onCancel, onMenuButton, onFilterButton, onCancelButton, denylist }) => {
   const update = updates.find(u => u.id === entry.id);
   // A dep id may be a versioned Thunderstore full_name ("Owner-Mod-1.2.3") or a base id
   // ("nexus.<domain>.<id>"); test both forms against the denylist.
@@ -37,6 +39,7 @@ const ModDetailPanel: FC<{
     return !!denylist && (denylist.has(lower) || denylist.has(lower.split('-').slice(0, -1).join('-')));
   };
   const shownDeps = (entry.info.dependencies ?? []).filter(d => !isDenylisted(d));
+  const fromCollections = collectionSources(entry.sources);
   const queueFooter = useQueueFooterProps(game.appid);
 
   return (
@@ -47,6 +50,7 @@ const ModDetailPanel: FC<{
       onMenuActionDescription="Options"
       onSecondaryButton={onFilterButton}
       onSecondaryActionDescription="Filter"
+      onCancelButton={onCancelButton}
     >
       {installing && (
         <div style={{ marginBottom: '12px' }}>
@@ -105,6 +109,22 @@ const ModDetailPanel: FC<{
               </div>
             );
           })}
+        </div>
+      )}
+
+      {fromCollections.length > 0 && (
+        <div style={{ fontSize: '0.85em', marginBottom: '12px' }}>
+          <div style={{ color: 'var(--gpColorTextSecondary)', marginBottom: '4px' }}>
+            {fromCollections.length === 1 ? 'From collection:' : 'From collections:'}
+          </div>
+          {fromCollections.map(c => (
+            <div key={c.slug} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <div style={{ width: '24px', height: '24px', flexShrink: 0, borderRadius: '3px', overflow: 'hidden', background: 'rgba(255,255,255,0.08)' }}>
+                {c.image && <img src={c.image} alt="" loading="lazy" style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }} />}
+              </div>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+            </div>
+          ))}
         </div>
       )}
 

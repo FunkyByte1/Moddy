@@ -2,6 +2,7 @@ import { callable } from '@decky/api';
 import {
   GameStatus, ModRelease, ModloaderUpdate, ModUpdate, ResetResult, VanillaResult,
   NeedsVariant, QueueJob, ThunderstorePackage, WorkshopCatalogItem, Profile, CollectionItem,
+  CollectionDetail,
 } from '../types';
 
 export const setLaunchOptions = (appid: number, options: string) => {
@@ -324,6 +325,18 @@ export const enqueueCollection =
 // A page (~25) of Nexus collections for the game's Collections browse tab.
 export const getCollectionsCatalog =
   callable<[appid: number, query: string, page: number], CollectionItem[]>('get_collections_catalog');
+// A collection's detail — name/image/description + its mod list (name + thumbnail + optional). One
+// light GraphQL call; drives the browse-tab "mods in this collection" list and the Installed-tab panel.
+export const getCollectionDetail =
+  callable<[appid: number, slug: string], CollectionDetail>('get_collection_detail');
+// Preview a collection uninstall: {remove, keep} display-name lists (keep = mods also installed
+// manually or in another collection, so they'd be kept). Lets the UI warn before removing.
+export const previewUninstallCollection =
+  callable<[slug: string], { remove: string[]; keep: string[] }>('preview_uninstall_collection');
+// Ref-counted "remove this collection": drops each member's collection:<slug> tag, uninstalls a mod
+// only if that was its last source. Returns {removed, kept} mod-id lists.
+export const uninstallCollection =
+  callable<[appid: number, slug: string], { removed: string[]; kept: string[] }>('uninstall_collection');
 // ficsit.app (Satisfactory) catalog — server-paginated/searched (~25 items per page), in the shared
 // ThunderstorePackage item shape. Anonymous (no API key); installs cascade dependencies server-side
 // and are drained by the same background queue as Nexus/Thunderstore (kind 'ficsit').

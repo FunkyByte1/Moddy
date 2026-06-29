@@ -8,7 +8,11 @@ import {
 import {
   installMod, installThunderstoreMod, enqueueFicsit, uninstallMod, toggleMod,
   getModReleases, getBackedUpVersions, deleteModVersion, getBrowseDenylist,
+  uninstallCollection, previewUninstallCollection,
 } from '../lib/api';
+import { installedCollections, inCollection, InstalledCollection } from '../lib/modSources';
+import CollectionListItem from '../components/CollectionListItem';
+import CollectionDetailPanel from '../components/CollectionDetailPanel';
 import { useQueueFooterProps } from '../components/DownloadQueueModal';
 import { ModEntry } from '../components/ModEntry';
 import ModDetailPanel from '../components/ModDetailPanel';
@@ -86,6 +90,7 @@ const InstalledTab: FC<{
       dependenciesMet,
       isLibrary: !!im.is_library,
       addedAt: im.added_at ?? 0,
+      sources: im.sources ?? null,
       info: {
         id: im.id, name, description: meta?.description ?? '', filename: im.filename,
         source: { type: 'unknown', owner: '', repo: '', asset: '' },
@@ -93,6 +98,22 @@ const InstalledTab: FC<{
       },
     };
   }), [game.installed_mods, modDeps, enabledLowerSet, updatesById]);
+
+  // Collections installed for this game (name + tile + how many of their mods are present). A mod is
+  // shown ONCE regardless of how many collections include it; the filter's per-collection toggles
+  // (installedMatchesFilter) narrow which mods show.
+  const collections = useMemo(() => installedCollections(game.installed_mods), [game.installed_mods]);
+  // When a collection row is focused, the right pane shows its detail (image + description + mods +
+  // uninstall) instead of a mod's detail. Tracked by slug (derived back to the live entry) so it stays
+  // fresh on refresh and falls away if the collection is uninstalled. Cleared when a mod regains focus.
+  const [focusedSlug, setFocusedSlug] = useState<string | null>(null);
+  useEffect(() => { if (selectionMode) setFocusedSlug(null); }, [selectionMode]);
+  const focusedCollection = focusedSlug ? collections.find(c => c.slug === focusedSlug) ?? null : null;
+  // The installed mod ids that belong to a collection — for its bulk Enable/Disable all actions.
+  const collectionModIds = useCallback(
+    (slug: string) => game.installed_mods.filter(im => inCollection(im.sources, slug)).map(im => im.id),
+    [game.installed_mods],
+  );
 
   const modEntries = useMemo(
     () => sortInstalledEntries(allEntries.filter(e => installedMatchesFilter(e, filter)), filter.sortBy),
@@ -125,6 +146,39 @@ const InstalledTab: FC<{
   // than auto-prompted after every removal — removing a mod no longer interrupts with an orphan modal.
   const unusedLibraries = useMemo(() => findUnusedLibraries(game, denylist), [game, denylist]);
   const showLibraryCleanup = () => showUnusedLibrariesCleanup({ game, denylist, onRefresh, setBusy });
+
+  const handleUninstallCollection = async (slug: string, name: string) => {
+    setBusy(true);
+    const res = await uninstallCollection(game.appid, slug);
+    const removed = res?.removed?.length ?? 0;
+    const kept = res?.kept?.length ?? 0;
+    toaster.toast({
+      title: 'Moddy',
+      body: `Removed ${name}: ${removed} mod${removed === 1 ? '' : 's'} uninstalled${kept > 0 ? `, ${kept} kept` : ''}`,
+    });
+    await onRefresh();
+    setBusy(false);
+  };
+
+  // Uninstall a whole collection from its detail panel — confirm first, showing the ref-counted
+  // outcome (a member also installed manually / in another collection is kept, not removed).
+  const confirmUninstallCollection = async (c: InstalledCollection) => {
+    const preview = await previewUninstallCollection(c.slug).catch(() => ({ remove: [], keep: [] }));
+    const removeN = preview.remove.length || c.count;
+    const keepN = preview.keep.length;
+    showModal(
+      <ConfirmModal
+        strTitle={`Uninstall ${c.name}?`}
+        strDescription={keepN > 0
+          ? `Removes ${removeN} mod${removeN === 1 ? '' : 's'} from disk; keeps ${keepN} also installed elsewhere.`
+          : `Removes ${removeN} mod${removeN === 1 ? '' : 's'} from disk.`}
+        strOKButtonText="Uninstall"
+        strCancelButtonText="Cancel"
+        bDestructiveWarning
+        onOK={() => handleUninstallCollection(c.slug, c.name)}
+      />
+    );
+  };
 
   const handleToggleMod = async (id: string, enable: boolean) => {
     if (enable) {
@@ -326,7 +380,6 @@ const InstalledTab: FC<{
         await toggleMod(game.appid, ordered[i], true);
       }
       setBulkStep(null);
-      toaster.toast({ title: 'Moddy', body: `Enabled ${ordered.length} mod${ordered.length === 1 ? '' : 's'}` });
       setSelectionMode(false);
       await onRefresh(); setBusy(false);
     };
@@ -359,7 +412,6 @@ const InstalledTab: FC<{
         await toggleMod(game.appid, ordered[i], false);
       }
       setBulkStep(null);
-      toaster.toast({ title: 'Moddy', body: `Disabled ${ordered.length} mod${ordered.length === 1 ? '' : 's'}` });
     };
 
     if (dependents.length > 0) {
@@ -427,14 +479,44 @@ const InstalledTab: FC<{
   const handleToggleRef = useRef(handleToggleMod);
   handleToggleRef.current = handleToggleMod;
   const onItemToggle = useCallback((id: string, enable: boolean) => handleToggleRef.current(id, enable), []);
-  const onItemFocus = useCallback((index: number) => setSelectedIndex(index), []);
+  const onItemFocus = useCallback((index: number) => { setSelectedIndex(index); setFocusedSlug(null); }, []);
+
+  // Gamepad focus hand-off between the left list and the right detail pane. Mods toggle on A, so they
+  // can't use A to move right — but B in either detail returns to the originating row. A collection
+  // (no toggle) uses A to jump focus to its Uninstall button. Row DOM is registered via stable
+  // per-key callbacks so memo(ModListItem) isn't busted by a new ref identity each render.
+  const detailRef = useRef<HTMLDivElement>(null);  // the single mounted right panel (mod OR collection)
+  const modRowRefs = useRef<Map<number, HTMLElement>>(new Map());
+  const modRowCbs = useRef<Map<number, (el: HTMLDivElement | null) => void>>(new Map());
+  const colRowRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const colRowCbs = useRef<Map<string, (el: HTMLDivElement | null) => void>>(new Map());
+  // Latest values mirrored into refs so the stable focus callbacks below never need to re-create.
+  const selectedIndexRef = useRef(selectedIndex); selectedIndexRef.current = selectedIndex;
+  const focusedSlugRef = useRef(focusedSlug); focusedSlugRef.current = focusedSlug;
+  const modEntriesRef = useRef(modEntries); modEntriesRef.current = modEntries;
+  const registerModRow = useCallback((i: number) => {
+    let cb = modRowCbs.current.get(i);
+    if (!cb) { cb = (el) => { if (el) modRowRefs.current.set(i, el); else modRowRefs.current.delete(i); }; modRowCbs.current.set(i, cb); }
+    return cb;
+  }, []);
+  const registerColRow = useCallback((slug: string) => {
+    let cb = colRowCbs.current.get(slug);
+    if (!cb) { cb = (el) => { if (el) colRowRefs.current.set(slug, el); else colRowRefs.current.delete(slug); }; colRowCbs.current.set(slug, cb); }
+    return cb;
+  }, []);
+  const focusDetail = useCallback(() => (detailRef.current?.querySelector('button, [tabindex]') as HTMLElement | null)?.focus(), []);
+  const focusModRow = useCallback(() => {
+    if (!modEntriesRef.current.length) return;
+    modRowRefs.current.get(Math.min(selectedIndexRef.current, modEntriesRef.current.length - 1))?.focus();
+  }, []);
+  const focusCollectionRow = useCallback(() => { if (focusedSlugRef.current) colRowRefs.current.get(focusedSlugRef.current)?.focus(); }, []);
 
   const queueFooter = useQueueFooterProps(game.appid);
 
   return (
     <Focusable style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
       <Focusable
-        style={{ width: '30%', overflowY: 'auto', paddingBottom: '60px', borderRight: '1px solid var(--gpColorSeparator)', padding: '8px' }}
+        style={{ width: '34%', flexShrink: 0, overflowY: 'auto', paddingBottom: '60px', borderRight: '1px solid var(--gpColorSeparator)', padding: '8px' }}
         {...queueFooter}
         onMenuButton={onMenuButton}
         onMenuActionDescription="Options"
@@ -448,6 +530,17 @@ const InstalledTab: FC<{
             </ButtonItem>
           </div>
         )}
+        {collections.length > 0 && !selectionMode && filter.showCollectionEntries && (
+          <div style={{ marginBottom: '8px' }}>
+            <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em', padding: '2px 4px', marginBottom: '2px' }}>
+              Collections
+            </div>
+            {collections.map(c => (
+              <CollectionListItem key={c.slug} collection={c} disabled={busy} innerRef={registerColRow(c.slug)}
+                onFocusCollection={() => setFocusedSlug(c.slug)} onActivate={focusDetail} />
+            ))}
+          </div>
+        )}
         {modEntries.length === 0 ? (
           <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', padding: '24px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', textAlign: 'center' }}>
             <span style={{ fontSize: '2.6em', opacity: 0.55, lineHeight: 1 }}>∅</span>
@@ -457,7 +550,7 @@ const InstalledTab: FC<{
           <ModListItem key={entry.id} index={i} entry={entry} selected={i === selectedIndex}
             selectionMode={selectionMode} isChecked={selectedIds.has(entry.id)}
             showThumbnail onToggle={onItemToggle} onSelectToggle={toggleSelected}
-            onFocus={onItemFocus} />
+            onFocus={onItemFocus} innerRef={registerModRow(i)} />
         ))}
       </Focusable>
 
@@ -519,13 +612,21 @@ const InstalledTab: FC<{
             </PanelSectionRow>
           </PanelSection>
         </Focusable>
+      ) : focusedCollection ? (
+        <CollectionDetailPanel
+          appid={game.appid} collection={focusedCollection} busy={busy}
+          onEnableAll={() => runBulkEnable(collectionModIds(focusedCollection.slug).filter(id => !enabledLowerSet.has(id.toLowerCase())))}
+          onDisableAll={() => runBulkDisable(collectionModIds(focusedCollection.slug).filter(id => enabledLowerSet.has(id.toLowerCase())))}
+          onUninstall={() => confirmUninstallCollection(focusedCollection)}
+          panelRef={detailRef} onCancelButton={focusCollectionRow}
+        />
       ) : selectedEntry && (
         <ModDetailPanel
           entry={selectedEntry} game={game} busy={busy} installing={installing} progress={progress}
           updates={updates} onInstall={() => {}} onDelete={handleDeleteMod}
           onUpdate={handleUpdateMod} onChangeVersion={handleChangeVersion}
           onCancel={onCancel} onMenuButton={onMenuButton} onFilterButton={onFilterButton}
-          denylist={denylist}
+          onCancelButton={focusModRow} denylist={denylist}
         />
       )}
     </Focusable>

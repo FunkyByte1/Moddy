@@ -3,7 +3,8 @@ import { nexusItem, nexusDetail } from './nexusAdapter';
 import { ficsitItem, ficsitDetail } from './ficsitAdapter';
 import { workshopItem, workshopDetail, fmtSubs } from './workshopAdapter';
 import { collectionBrowseItem, collectionsAdapter } from './collectionsAdapter';
-import type { ThunderstorePackage, WorkshopCatalogItem, CollectionItem } from '../../types';
+import { collectionsAdapterFor, venueHasCollections } from './collectionVenues';
+import type { ThunderstorePackage, WorkshopCatalogItem, CollectionItem, GameStatus } from '../../types';
 
 // The adapters' pure mappers normalize each venue's payload into the shared BrowseItem/BrowseDetail.
 // (importing the adapters pulls in @decky, mocked in vitest-setup/setup.ts.)
@@ -92,10 +93,29 @@ describe('collectionsAdapter', () => {
     expect(it0.subtitle).toBe('by Kap · 5 mods');
     expect(it0.iconUrl).toBe('http://tile');
   });
-  it('detail bylines mods + endorsements; collections are never "installed"', () => {
+  it('detail bylines mods + endorsements', () => {
     const d = collectionsAdapter.detail(collectionBrowseItem(coll({ mod_count: 1, endorsements: 0 })));
     expect(d.byline).toBe('by Kap · 1 mod');                 // singular, no endorsement clause
     expect(d.description).toBe('better world');
-    expect(collectionsAdapter.installedIds({} as any).size).toBe(0);
+  });
+  it('is installed (terminal, no item-level uninstall) once a member mod is tagged', () => {
+    expect(collectionsAdapter.noUninstall).toBe(true);
+    // No installed mods → not installed.
+    expect(collectionsAdapter.installedIds({ installed_mods: [] } as any).size).toBe(0);
+    // A mod tagged collection:vmu2j4 → the collection reads as installed (matches item.installId).
+    const game = { installed_mods: [{ sources: { 'collection:vmu2j4': { name: 'Worldly', image: '' } } }] } as any;
+    expect(collectionsAdapter.installedIds(game).has('collection:vmu2j4')).toBe(true);
+  });
+});
+
+describe('collectionVenues', () => {
+  it('maps a Nexus game to the collections adapter; other venues have none (yet)', () => {
+    expect(collectionsAdapterFor('nexus')).toBe(collectionsAdapter);
+    expect(collectionsAdapterFor('thunderstore')).toBeNull();
+    expect(collectionsAdapterFor(undefined)).toBeNull();
+  });
+  it('venueHasCollections gates the tab on the game venue', () => {
+    expect(venueHasCollections({ catalog_type: 'nexus' } as GameStatus)).toBe(true);
+    expect(venueHasCollections({ catalog_type: 'workshop' } as GameStatus)).toBe(false);
   });
 });

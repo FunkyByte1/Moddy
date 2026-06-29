@@ -10,9 +10,11 @@ import type { GameStatus, InstalledMod } from '../types';
 
 const mod = (
   id: string,
-  { deps = [], enabled = true, library = false }: { deps?: string[]; enabled?: boolean; library?: boolean } = {},
+  { deps = [], enabled = true, library = false, collection = '' }:
+    { deps?: string[]; enabled?: boolean; library?: boolean; collection?: string } = {},
 ): InstalledMod => ({
   id, filename: id, enabled, version: '1.0.0', is_library: library,
+  sources: collection ? { [`collection:${collection}`]: { name: collection, image: '' } } : undefined,
   meta: { name: id, author: '', description: '', homepage: '', thumbnail: '', modloader: '', dependencies: deps },
 }) as InstalledMod;
 
@@ -56,6 +58,21 @@ describe('findUnusedLibraries', () => {
       mod('HookGenPatcher', { library: true }),
     );
     expect(ids(findUnusedLibraries(g, new Set()))).toEqual(['HookGenPatcher', 'R2API']);
+  });
+
+  it('never flags a library that came from a collection (managed by the collection)', () => {
+    // A collection's frameworks (Content Patcher, SpaceCore, FTM) have no recorded meta deps, so they
+    // look orphaned — but they're managed by the collection, not the manual-cleanup chip.
+    const g = game(mod('SVE', { collection: 'tckf0m' }), mod('ContentPatcher', { library: true, collection: 'tckf0m' }));
+    expect(findUnusedLibraries(g, new Set())).toEqual([]);
+  });
+
+  it('still flags a manually-installed orphan library alongside collection ones', () => {
+    const g = game(
+      mod('ContentPatcher', { library: true, collection: 'tckf0m' }),  // collection-managed → kept
+      mod('OldLib', { library: true }),                                 // manual orphan → flagged
+    );
+    expect(ids(findUnusedLibraries(g, new Set()))).toEqual(['OldLib']);
   });
 
   it('never flags a denylisted (modloader-provided) package as unused', () => {

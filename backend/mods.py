@@ -129,16 +129,26 @@ def set_installed_record(
     filename: str,
     paths: list[str] | None = None,
     mod: ModInfo | None = None,
+    install_type: str | None = None,
 ) -> None:
     """Persist an install record. If `mod` is provided, source/meta/install_type are
     extracted from the ModInfo so the record is self-describing — this is what lets
-    mods be uninstalled, toggled, and update-checked later from the record alone."""
+    mods be uninstalled, toggled, and update-checked later from the record alone.
+    `install_type`, when given, overrides the one derived from the ModInfo — used when an
+    install lands in a different shape than its catalog type (e.g. a manifest-less SMAPI archive
+    placed as a per-file overlay, tracked with zip_natives file semantics)."""
     store = _load_store()
     record: dict = {"version": version, "filename": filename}
     # Stamp when the mod first entered the library so the Installed tab can offer a
     # "recently downloaded" sort. Preserve an existing record's timestamp across version
     # changes / re-installs so updating a mod doesn't reshuffle it to the top.
     record["added_at"] = (store.get(mod_id) or {}).get("added_at", time.time())
+    # Provenance (which collection(s) / manual install brought this mod in) is set separately by
+    # add_record_source after a clean install, so it must survive a re-install / version bump here —
+    # same reasoning as added_at: re-installing a collection mod must not strip its grouping.
+    prev_sources = (store.get(mod_id) or {}).get("sources")
+    if prev_sources:
+        record["sources"] = prev_sources
     if paths:
         record["paths"] = paths
     if mod is not None:
@@ -163,6 +173,8 @@ def set_installed_record(
             "dependencies": list(mod.dependencies),
         }
         record["install_type"] = mod.source.install_type
+    if install_type is not None:
+        record["install_type"] = install_type
     store[mod_id] = record
     _save_store(store)
 
@@ -407,6 +419,59 @@ def clear_installed_record(mod_id: str) -> None:
     if mod_id in store:
         del store[mod_id]
         _save_store(store)
+
+
+def _find_record_key(store: dict, mod_id: str) -> str | None:
+    """Resolve mod_id to an actual store key, case-insensitively (catalog casing can drift)."""
+    if mod_id in store:
+        return mod_id
+    target = mod_id.lower()
+    for k in store:
+        if k.lower() == target:
+            return k
+    return None
+
+
+def add_record_source(mod_id: str, source: dict) -> None:
+    """Record where an installed mod came from: union a provenance source into the record's
+    `sources` map ({id -> {"name", "image"}}). `source` = {"id": "manual" | "collection:<slug>",
+    "name": <display>, "image": <tile url>}. Idempotent: installing a mod that's already present
+    just adds the new membership, never duplicates the mod. A re-add refreshes name/image but keeps
+    a prior non-empty value when the new one is blank. No-op if the mod has no record yet."""
+    sid = (source or {}).get("id")
+    if not sid:
+        return
+    store = _load_store()
+    key = _find_record_key(store, mod_id)
+    if key is None:
+        return
+    sources = store[key].get("sources") or {}
+    prev = sources.get(sid)
+    prev = prev if isinstance(prev, dict) else ({"name": prev} if prev else {})
+    sources[sid] = {
+        "name": source.get("name") or prev.get("name") or sid,
+        "image": source.get("image") or prev.get("image") or "",
+    }
+    store[key]["sources"] = sources
+    _save_store(store)
+
+
+def remove_record_source(mod_id: str, source_id: str) -> dict:
+    """Drop one provenance source from a record's `sources` map (the ref-counting step behind
+    "uninstall collection"). Returns the REMAINING sources map ({} if none left, so the caller
+    can decide whether the mod itself should be removed). No-op-safe on missing record/source."""
+    store = _load_store()
+    key = _find_record_key(store, mod_id)
+    if key is None:
+        return {}
+    sources = store[key].get("sources") or {}
+    sources.pop(source_id, None)
+    if sources:
+        store[key]["sources"] = sources
+    else:
+        store[key].pop("sources", None)
+    _save_store(store)
+    return sources
 
 
 def set_workshop_meta(game: GameProfile, fileid: str, name: str, thumbnail: str, description: str) -> bool:

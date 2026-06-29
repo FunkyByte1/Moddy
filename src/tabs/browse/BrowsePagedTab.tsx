@@ -263,15 +263,23 @@ const BrowsePagedTab: FC<{
             </div>
             <PanelSection>
               <PanelSectionRow>
-                <ButtonItem
-                  layout="below"
-                  disabled={isBusy(selected.key)}
-                  onClick={() => (isInstalled(selected) ? handleUninstall(selected) : handleInstall(selected))}
-                >
-                  {isBusy(selected.key)
-                    ? (isInstalled(selected) ? 'Removing…' : 'Installing…')
-                    : isInstalled(selected) ? 'Uninstall' : 'Install'}
-                </ButtonItem>
+                {(() => {
+                  const installed = isInstalled(selected);
+                  // A venue with no item-level uninstall (Collections) shows a terminal, disabled
+                  // "Installed" once present — it's managed from the Installed tab, not here.
+                  const terminal = installed && adapter.noUninstall;
+                  return (
+                    <ButtonItem
+                      layout="below"
+                      disabled={isBusy(selected.key) || terminal}
+                      onClick={() => { if (!terminal) (installed ? handleUninstall(selected) : handleInstall(selected)); }}
+                    >
+                      {isBusy(selected.key)
+                        ? (installed ? 'Removing…' : 'Installing…')
+                        : terminal ? 'Installed' : installed ? 'Uninstall' : 'Install'}
+                    </ButtonItem>
+                  );
+                })()}
               </PanelSectionRow>
               {/* Venue-supplied secondary actions for the selected item (e.g. Thunderstore's
                   "Install with options…" when there are resolvable missing deps). [] for Nexus/Workshop. */}
@@ -295,6 +303,7 @@ const BrowsePagedTab: FC<{
                 {detail.description}
               </div>
             )}
+            {adapter.DetailExtra && <adapter.DetailExtra item={selected} game={game} />}
           </Focusable>
         )}
       </ScrollArea>

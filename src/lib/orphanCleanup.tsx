@@ -4,6 +4,7 @@ import { GameStatus, InstalledMod } from '../types';
 import { uninstallMod } from './api';
 import { modDisplayName } from './modName';
 import { stripVersion } from './modGraph';
+import { collectionSources } from './modSources';
 import UnusedLibrariesModal from '../components/modals/UnusedLibrariesModal';
 
 // Forward dependency edges among *installed* mods, keyed/valued by lowercase id.
@@ -53,6 +54,12 @@ function buildForwardDeps(game: GameStatus, denylist: Set<string>): Map<string, 
  * are never candidates: every mod depends on them, but those edges are intentionally dropped from the
  * graph (they're not plugin deps), which would otherwise leave them looking dependent-less. They're
  * core infrastructure, not disposable libraries.
+ *
+ * Libraries brought in by a COLLECTION are also excluded: a collection's dependency graph isn't
+ * recorded as per-mod meta deps (so its frameworks — Content Patcher, SpaceCore, FTM — would always
+ * look orphaned), and a collection's libraries are managed by it (removed via "Uninstall collection",
+ * ref-counted), not by this manual-cleanup chip. After a collection is uninstalled the library loses
+ * its collection source and becomes eligible again if it's then genuinely unused.
  */
 export function findUnusedLibraries(game: GameStatus, denylist: Set<string>): InstalledMod[] {
   const fwd = buildForwardDeps(game, denylist);
@@ -72,7 +79,8 @@ export function findUnusedLibraries(game: GameStatus, denylist: Set<string>): In
     }
   }
   return game.installed_mods.filter(m =>
-    m.is_library && !denylist.has(m.id.toLowerCase()) && !used.has(m.id.toLowerCase()));
+    m.is_library && !denylist.has(m.id.toLowerCase()) && !used.has(m.id.toLowerCase())
+    && collectionSources(m.sources).length === 0);
 }
 
 /**

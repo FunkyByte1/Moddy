@@ -3,6 +3,7 @@ import { FC, memo } from 'react';
 
 import { ModEntry } from './ModEntry';
 import { centerInView } from './centerInView';
+import { primaryCollection } from '../lib/modSources';
 
 // memo() so a focus move (which only changes `selected`/`isChecked` on the two affected
 // rows) re-renders just those rows instead of the whole list. Effective only because the
@@ -18,8 +19,10 @@ const ModListItem: FC<{
   onToggle: (id: string, enable: boolean) => void;
   onSelectToggle?: (id: string) => void;
   onFocus: (index: number) => void;
-}> = ({ entry, index, selected, selectionMode, isChecked, showThumbnail, onToggle, onSelectToggle, onFocus }) => (
+  innerRef?: (el: HTMLDivElement | null) => void;  // registers the row DOM so focus can return here (B from detail)
+}> = ({ entry, index, selected, selectionMode, isChecked, showThumbnail, onToggle, onSelectToggle, onFocus, innerRef }) => (
   <Focusable
+    ref={innerRef}
     onFocus={(e) => { onFocus(index); centerInView(e.currentTarget); }}
     onActivate={() => {
       if (selectionMode) {
@@ -68,6 +71,19 @@ const ModListItem: FC<{
       {entry.installed && !entry.dependenciesMet && (
         <div style={{ fontSize: '0.75em', color: '#f8a623' }}>⚠ Missing dependency</div>
       )}
+      {(() => {
+        const tag = primaryCollection(entry.sources);
+        return tag ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7em', color: 'var(--gpColorTextSecondary)', overflow: 'hidden' }}>
+            {tag.image && (
+              <img src={tag.image} alt="" loading="lazy" style={{ width: '12px', height: '12px', borderRadius: '2px', objectFit: 'cover', flexShrink: 0 }} />
+            )}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {tag.name}{tag.extra > 0 ? ` +${tag.extra}` : ''}
+            </span>
+          </div>
+        ) : null;
+      })()}
     </div>
     {entry.hasUpdate && (
       <div style={{ color: 'var(--gpSystemLightBlue)', fontSize: '1.1em', marginRight: '4px' }}>↑</div>

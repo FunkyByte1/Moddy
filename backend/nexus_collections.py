@@ -102,6 +102,68 @@ def list_collections_for_game(appid: int, query: str = "", page: int = 1) -> lis
     return out
 
 
+def collection_card(domain: str, slug: str) -> dict:
+    """A collection's display card — {name, image} — for stamping onto each mod it installs so the
+    Installed page can show the collection's name + tile icon (matching the Collections browse tab).
+    Falls back to {name: slug, image: ""} on any error so an install never fails over cosmetics."""
+    gql = ('{ collection(slug:"%s", domainName:"%s", viewAdultContent:true){ name tileImage{url} } }'
+           % (_esc(slug), _esc(domain)))
+    try:
+        data = fetch.post_json(nexus.GRAPHQL_URL, {"query": gql}, headers=nexus._headers())
+    except Exception:  # noqa: BLE001 — cosmetic; never block an install
+        return {"name": slug, "image": ""}
+    coll = ((data.get("data") or {}).get("collection") or {}) if isinstance(data, dict) else {}
+    return {"name": coll.get("name") or slug, "image": (coll.get("tileImage") or {}).get("url", "") or ""}
+
+
+def get_collection_detail(appid: int, slug: str) -> dict:
+    """A collection's display detail for the UI — name, tile image, description, and its mod list
+    (name + thumbnail + optional flag, deduped by mod). Drives the Collections browse-tab detail
+    (list the mods you'd install) and the Installed-tab collection panel (description + members).
+    Returns {} for a non-Nexus game / no API key / on error. One light GraphQL call (no tar download)."""
+    game = registry.get_game_by_appid(appid)
+    if not game or game.catalog.get("type") != "nexus":
+        return {}
+    domain = game.catalog.get("nexus_domain", "")
+    if not domain:
+        return {}
+    gql = ('{ collection(slug:"%s", domainName:"%s", viewAdultContent:true){ name summary tileImage{url} '
+           'latestPublishedRevision { modCount modFiles { optional file { mod { name modId pictureUrl } } } } } }'
+           % (_esc(slug), _esc(domain)))
+    try:
+        data = fetch.post_json(nexus.GRAPHQL_URL, {"query": gql}, headers=nexus._headers())
+    except nexus.MissingApiKey:
+        return {}
+    if not isinstance(data, dict) or data.get("errors"):
+        decky.logger.error(f"collection {slug} detail error: {data.get('errors') if isinstance(data, dict) else data}")
+        return {}
+    coll = (data.get("data") or {}).get("collection")
+    if not coll:
+        return {}
+    rev = coll.get("latestPublishedRevision") or {}
+    mods_out, seen = [], set()
+    for mf in (rev.get("modFiles") or []):
+        mod = ((mf.get("file") or {}).get("mod")) or {}
+        mid = mod.get("modId")
+        if mid is None or mid in seen:  # a mod can appear via several files — list it once
+            continue
+        seen.add(mid)
+        mods_out.append({
+            "mod_id": str(mid),
+            "name": mod.get("name") or f"mod {mid}",
+            "thumbnail": mod.get("pictureUrl", "") or "",
+            "optional": bool(mf.get("optional")),
+        })
+    return {
+        "slug": slug,
+        "name": coll.get("name") or slug,
+        "image": (coll.get("tileImage") or {}).get("url", "") or "",
+        "summary": coll.get("summary", "") or "",
+        "mod_count": rev.get("modCount", 0) or 0,
+        "mods": mods_out,
+    }
+
+
 def _download_link_path(domain: str, slug: str) -> "tuple[str, str] | None":
     """GraphQL: collection slug -> (name, download_link API path) for its latest published revision."""
     gql = ('{ collection(slug:"%s", domainName:"%s", viewAdultContent:true){ name '
@@ -215,9 +277,10 @@ def _mod_info(game, domain: str, mod_id: str, name: str, author: str) -> registr
     )
 
 
-async def _install_one(game, install_dir: str, domain: str, m: dict):
+async def _install_one(game, install_dir: str, domain: str, m: dict, source: dict | None = None):
     """Install one collection mod at its pinned file, replaying FOMOD choices (or defaults), never
-    parking. Returns True / False / None(cancel) / PREMIUM_REQUIRED."""
+    parking. Returns True / False / None(cancel) / PREMIUM_REQUIRED. `source` stamps the mod's
+    Installed-page provenance (collection:<slug>) so it can be grouped + ref-count-uninstalled."""
     try:
         url = nexus.get_download_url(domain, m["mod_id"], m["file_id"])
     except nexus.PremiumRequired:
@@ -228,7 +291,7 @@ async def _install_one(game, install_dir: str, domain: str, m: dict):
     # FOMOD mods: replay the curator's choices (a dict the engine maps by name); everything else
     # installs non-interactively (FOMOD defaults / first variant) via the COLLECTION_AUTO sentinel.
     variant = json.dumps(m["choices"]) if m.get("choices") else mods_fomod.COLLECTION_AUTO
-    return await mods.install_mod(game, install_dir, mod, m.get("version"), url, variant)
+    return await mods.install_mod(game, install_dir, mod, m.get("version"), url, variant, source=source)
 
 
 async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | None | str":
@@ -254,22 +317,46 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
     mods_list = collection_mods(manifest, domain)
     required = installable_mods(game, mods_list, domain)  # required, minus the modloader
     optional_skipped = sum(1 for m in mods_list if m["optional"])  # the modloader is skipped silently
+    # Provenance stamped on every mod this collection installs, so the Installed page can group them
+    # (name + tile icon) and offer a ref-counted "Uninstall collection". Name from the manifest;
+    # tile image from the collection card (cosmetic — failures fall back to manifest name / slug).
+    card = collection_card(domain, slug)
+    coll_name = (manifest.get("info") or {}).get("name") or card.get("name") or slug
+    sid = f"collection:{slug}"
+    source = {"id": sid, "name": coll_name, "image": card.get("image", "")}
     await download_queue.note_total(len(required))
     installed = 0
+    installed_ids: list[str] = []  # mods THIS run placed — torn down if the user cancels
+
+    async def _rollback_run() -> None:
+        # Cancel means "install nothing": ref-counted teardown of just the mods this run added. A mod
+        # that was already installed (e.g. manually, or by an earlier run) keeps its other sources and
+        # stays — we only drop THIS collection's claim and remove a mod orphaned by that.
+        for mid in installed_ids:
+            try:
+                remaining = mods.remove_record_source(mid, sid)
+                if not remaining:
+                    await mods.uninstall_mod(game, install_dir, mid)
+            except Exception as e:  # noqa: BLE001 — best-effort cleanup
+                decky.logger.warning(f"collection {slug}: rollback of {mid} failed: {e}")
+
     for m in required:
         if getattr(job, "cancel_requested", False):
+            await _rollback_run()
             return None
         await download_queue.note_item(m["name"])
         try:
-            res = await _install_one(game, install_dir, domain, m)
+            res = await _install_one(game, install_dir, domain, m, source)
         except Exception as e:  # noqa: BLE001 — one bad mod must not abort the collection
             decky.logger.error(f"collection {slug}: {m['name']} errored: {e}")
             res = False
         if res is True:
             installed += 1
+            installed_ids.append(f"nexus.{domain}.{m['mod_id']}")  # the id _mod_info/install_mod recorded
         elif res == install_cascade.PREMIUM_REQUIRED:
             return "premium_required"
         elif res is None:
+            await _rollback_run()
             return None  # cancelled mid-download
         else:
             await download_queue.note_warning(f"Couldn't install {m['name']}")
@@ -294,3 +381,49 @@ async def enqueue_collection(appid: int, ref_text: str) -> int:
         appid, f"Collection: {slug}", f"collection:{slug}", "nexus",
         run=lambda job: run_collection(appid, domain, slug, job),
     )
+
+
+def collection_members(slug: str) -> list:
+    """Mod ids currently tagged as belonging to collection `slug` (any game), from their records."""
+    sid = f"collection:{slug}"
+    return [mid for mid, rec in mods._load_store().items() if sid in (rec.get("sources") or {})]
+
+
+def preview_uninstall_collection(slug: str) -> dict:
+    """What "Uninstall collection <slug>" would do, WITHOUT touching anything: which member mods
+    would be removed (sole source is this collection) vs kept (also manual / in another collection).
+    Lets the UI show an honest "removes N · keeps M" summary before the user commits."""
+    sid = f"collection:{slug}"
+    store = mods._load_store()
+    remove, keep = [], []
+    for mid, rec in store.items():
+        sources = rec.get("sources") or {}
+        if sid not in sources:
+            continue
+        name = (rec.get("meta") or {}).get("name") or mid
+        (keep if [k for k in sources if k != sid] else remove).append(name)
+    return {"remove": remove, "keep": keep}
+
+
+async def uninstall_collection(appid: int, slug: str) -> dict:
+    """Ref-counted "remove this collection": drop the collection:<slug> membership from each of its
+    mods; a mod whose last source was this collection is uninstalled, one still wanted by `manual`
+    or another collection STAYS (no surprise removals). Returns {removed, kept} mod-id lists."""
+    game = registry.get_game_by_appid(appid)
+    install_dir = steam.find_game_install_dir(appid)
+    if not game or not install_dir:
+        return {"removed": [], "kept": []}
+    sid = f"collection:{slug}"
+    removed, kept = [], []
+    for mid in collection_members(slug):
+        remaining = mods.remove_record_source(mid, sid)
+        if remaining:
+            kept.append(mid)  # still wanted by manual / another collection — leave its files
+        else:
+            try:
+                await mods.uninstall_mod(game, install_dir, mid)
+                removed.append(mid)
+            except Exception as e:  # noqa: BLE001 — one bad removal must not abort the rest
+                decky.logger.error(f"uninstall collection {slug}: {mid} failed: {e}")
+    decky.logger.info(f"collection {slug}: removed {len(removed)}, kept {len(kept)}")
+    return {"removed": removed, "kept": kept}

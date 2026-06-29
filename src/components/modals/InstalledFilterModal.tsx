@@ -2,6 +2,7 @@ import { ButtonItem, DialogCheckbox, Dropdown, ModalRoot } from '@decky/ui';
 import { useState, FC, ReactNode } from 'react';
 
 import { ModEntry } from '../ModEntry';
+import { InstalledCollection, collectionSources } from '../../lib/modSources';
 
 // Installed-list ordering. 'name' (alphabetical) is the default — it's stable and works for
 // every mod, including ones installed before install timestamps were recorded.
@@ -19,6 +20,8 @@ export interface InstalledFilter {
   onlyUpdates: boolean;
   hideLibraries: boolean;  // hide library/framework mods (default true)
   sortBy: InstalledSort;
+  hiddenCollections: string[];     // collection slugs whose (exclusively-owned) mods are hidden
+  showCollectionEntries: boolean;  // show the Collections group rows at the top of the list (default true)
 }
 
 export const defaultInstalledFilter: InstalledFilter = {
@@ -27,11 +30,25 @@ export const defaultInstalledFilter: InstalledFilter = {
   onlyUpdates: false,
   hideLibraries: true,
   sortBy: 'name',
+  hiddenCollections: [],
+  showCollectionEntries: true,
 };
 
 export function installedMatchesFilter(entry: ModEntry, filter: InstalledFilter): boolean {
   if (filter.hideLibraries && entry.isLibrary) return false;
   if (filter.onlyUpdates && !entry.hasUpdate) return false;
+  // Per-collection visibility: hide a mod only when EVERY collection it came from is hidden AND it
+  // has no other reason to be listed (no manual install, no shown collection) — so hiding a collection
+  // never hides a mod you also installed yourself or that another (shown) collection brought in.
+  if (filter.hiddenCollections?.length) {
+    const cols = collectionSources(entry.sources);
+    if (cols.length > 0) {
+      const hidden = new Set(filter.hiddenCollections);
+      const hasShownCollection = cols.some(c => !hidden.has(c.slug));
+      const hasManual = !!entry.sources && 'manual' in entry.sources;
+      if (!hasShownCollection && !hasManual) return false;
+    }
+  }
   return entry.enabled ? filter.enabled : filter.disabled;
 }
 
@@ -73,8 +90,9 @@ const Section: FC<{ title: string; children: ReactNode }> = ({ title, children }
 const InstalledFilterModal: FC<{
   filter: InstalledFilter;
   onChange: (filter: InstalledFilter) => void;
+  collections?: InstalledCollection[];  // installed collections, for the per-collection show/hide toggles
   closeModal?: () => void;
-}> = ({ filter, onChange, closeModal }) => {
+}> = ({ filter, onChange, collections, closeModal }) => {
   const [local, setLocal] = useState<InstalledFilter>(filter);
   const update = (next: InstalledFilter) => { setLocal(next); onChange(next); };
 
@@ -125,6 +143,34 @@ const InstalledFilterModal: FC<{
             onChange={(v) => update({ ...local, hideLibraries: v })}
           />
         </Section>
+        {collections && collections.length > 0 && (
+          <Section title="Collections">
+            <DialogCheckbox
+              label="Show collection groups"
+              checked={local.showCollectionEntries}
+              onChange={(v) => update({ ...local, showCollectionEntries: v })}
+            />
+            <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em', margin: '6px 0 2px' }}>
+              Show mods from
+            </div>
+            {collections.map((c) => {
+              const shown = !local.hiddenCollections.includes(c.slug);
+              return (
+                <DialogCheckbox
+                  key={c.slug}
+                  label={c.name}
+                  checked={shown}
+                  onChange={(v) => update({
+                    ...local,
+                    hiddenCollections: v
+                      ? local.hiddenCollections.filter((s) => s !== c.slug)
+                      : [...local.hiddenCollections, c.slug],
+                  })}
+                />
+              );
+            })}
+          </Section>
+        )}
       </div>
     </ModalRoot>
   );

@@ -39,6 +39,9 @@ export interface InstalledMod {
   meta?: ModMeta | null;
   is_library?: boolean;  // stamped by the backend from the catalog/frameworks
   added_at?: number | null;  // unix seconds the mod was first installed; absent for legacy/untracked
+  // Provenance for grouping: {sourceId -> {name, image}}. sourceId is "manual" or "collection:<slug>".
+  // A mod brought in by a collection AND installed directly carries both. Absent = treat as "You".
+  sources?: import('./lib/modSources').ModSources | null;
 }
 
 export interface ThunderstorePackageLatest {
@@ -166,6 +169,24 @@ export interface CollectionItem {
   mod_count: number;
   endorsements: number;
   tile_image: string;
+}
+
+export interface CollectionModRef {
+  mod_id: string;
+  name: string;
+  thumbnail: string;
+  optional: boolean;
+}
+
+// A collection's full detail (name/image/description + its mods), fetched on demand for the
+// Collections browse-tab detail and the Installed-tab collection panel.
+export interface CollectionDetail {
+  slug: string;
+  name: string;
+  image: string;
+  summary: string;
+  mod_count: number;
+  mods: CollectionModRef[];
 }
 
 // ── Background download queue ──────────────────────────────────────────────
