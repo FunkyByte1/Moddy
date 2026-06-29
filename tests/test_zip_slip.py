@@ -117,5 +117,35 @@ class DownloadSchemeTest(unittest.TestCase):
         self.assertIn("HTTP", str(cm.exception))
 
 
+class VerifyHashTest(unittest.TestCase):
+    def setUp(self):
+        import utils as _u
+        self.utils = _u
+        self.fd = tempfile.mkdtemp(prefix="moddy-hash-")
+        self.path = os.path.join(self.fd, "blob.bin")
+        with open(self.path, "wb") as f:
+            f.write(b"hello moddy")
+        import hashlib
+        self.sha256 = hashlib.sha256(b"hello moddy").hexdigest()
+        self.md5 = hashlib.md5(b"hello moddy").hexdigest()
+
+    def test_matching_sha256_passes(self):
+        self.utils._verify_hash(self.path, self.sha256)  # no raise
+
+    def test_matching_md5_autodetected_by_length(self):
+        self.utils._verify_hash(self.path, self.md5)  # 32 hex → md5, no raise
+
+    def test_mismatch_raises(self):
+        with self.assertRaises(Exception) as cm:
+            self.utils._verify_hash(self.path, "0" * 64)
+        self.assertIn("integrity check failed", str(cm.exception))
+
+    def test_empty_or_unknown_hash_is_skipped(self):
+        # No digest, or a length we can't map to an algorithm → install rather than block.
+        self.utils._verify_hash(self.path, None)
+        self.utils._verify_hash(self.path, "")
+        self.utils._verify_hash(self.path, "deadbeef")  # 8 chars: unrecognised → skipped
+
+
 if __name__ == "__main__":
     unittest.main()

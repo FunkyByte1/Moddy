@@ -62,7 +62,8 @@ def fetch_json(url: str, headers: dict | None = None) -> dict | list | None:
             _cache[url] = (now, data)
             return data
     except Exception as e:
-        decky.logger.error(f"Failed to fetch {url}: {e}")
+        import utils  # lazy: utils imports fetch, so a top-level import would be circular
+        decky.logger.error(f"Failed to fetch {utils.redact_url(url)}: {e}")
         return None
 
 
@@ -78,5 +79,6 @@ def post_json(url: str, payload: dict, headers: dict | None = None) -> dict | li
         with urllib.request.urlopen(req, context=ssl_context(), timeout=15) as response:
             return json.loads(response.read().decode())
     except Exception as e:
-        decky.logger.error(f"Failed to POST {url}: {e}")
+        import utils  # lazy: utils imports fetch, so a top-level import would be circular
+        decky.logger.error(f"Failed to POST {utils.redact_url(url)}: {e}")
         return None

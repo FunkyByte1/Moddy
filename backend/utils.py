@@ -1,5 +1,6 @@
 import os
 import asyncio
+import hashlib
 import threading
 import urllib.request
 import urllib.error
@@ -41,6 +42,29 @@ class InstallCancelledError(Exception):
     pass
 
 
+def _verify_hash(path: str, expected_hash: str | None) -> None:
+    """Check a downloaded file against a hex digest a venue supplied. The algorithm is inferred from
+    the digest length (md5=32, sha1=40, sha256=64) so callers just forward whatever they got — e.g.
+    Ficsit's version `hash` is a sha256 of the served bytes (verified live). An empty or
+    unrecognised digest is skipped (better to install than to block on a hash we can't interpret); a
+    genuine mismatch raises so the caller's cleanup discards the corrupt/tampered file. This is
+    defence-in-depth behind HTTPS: it catches a truncated download or a CDN serving bytes that don't
+    match what the (separately-fetched) API metadata declared."""
+    digest = (expected_hash or "").strip().lower()
+    algo = {32: "md5", 40: "sha1", 64: "sha256"}.get(len(digest))
+    if not algo or any(c not in "0123456789abcdef" for c in digest):
+        if digest:
+            decky.logger.debug(f"skipping integrity check: unrecognised hash {expected_hash!r}")
+        return
+    h = hashlib.new(algo)
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    actual = h.hexdigest()
+    if actual != digest:
+        raise Exception(f"integrity check failed: expected {algo} {digest}, got {actual}")
+
+
 def redact_url(url: str) -> str:
     """Strip the query string from a URL for logging. Nexus CDN download links carry a signed
     `md5`/`expires` token in the query — short-lived and single-file, but it has no business in a
@@ -55,7 +79,7 @@ def redact_url(url: str) -> str:
         return "<url>"
 
 
-async def download(url: str, dest: str, appid: int) -> None:
+async def download(url: str, dest: str, appid: int, expected_hash: str | None = None) -> None:
     """
     Download a URL to a file with progress reporting and cancellation support.
     Emits 'install_progress' events (0-100) to the frontend.
@@ -135,6 +159,8 @@ async def download(url: str, dest: str, appid: int) -> None:
                         # Clean EOF — done if we have the whole file (or size unknown).
                         if total and downloaded < total:
                             break  # premature close; fall through to resume
+                        f.flush()  # push the buffer to the OS so _verify_hash reads complete bytes
+                        _verify_hash(dest, expected_hash)
                         await decky.emit("install_progress", appid, 100)
                         await _report_queue_progress(100)
                         return

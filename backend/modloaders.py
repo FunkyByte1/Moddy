@@ -497,6 +497,7 @@ async def _install_ficsit_modloader(game: GameProfile, install_dir: str, ml: Mod
             decky.logger.error(f"{ml.name}: version {version} not found on ficsit.app or has no {ficsit.TARGET} build")
             return False
         version_id, resolved_version = match["version_id"], version
+        file_hash = match.get("hash")  # list-versions shape may omit it → integrity check is skipped
     else:
         mod = ficsit.get_mod(ref)
         win = ficsit.windows_version(mod) if mod else None
@@ -504,6 +505,7 @@ async def _install_ficsit_modloader(game: GameProfile, install_dir: str, ml: Mod
             decky.logger.error(f"{ml.name}: no installable Windows build found on ficsit.app ({ref})")
             return False
         version_id, resolved_version = win["version_id"], (win["version"] or "latest")
+        file_hash = win.get("hash")  # ficsit version hash is the served file's sha256
     url = ficsit.download_url(version_id)
 
     tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{ml.id}_tmp.smod")
@@ -517,7 +519,7 @@ async def _install_ficsit_modloader(game: GameProfile, install_dir: str, ml: Mod
     was_disabled = os.path.isdir(parked) and not os.path.isdir(os.path.join(install_dir, target_dir))
     try:
         decky.logger.info(f"Downloading {ml.name} {resolved_version} from ficsit.app")
-        await utils.download(url, tmp_archive, game.appid)
+        await utils.download(url, tmp_archive, game.appid, expected_hash=file_hash)
 
         decky.logger.info(f"Extracting {ml.name}")
         if os.path.exists(tmp_dir):

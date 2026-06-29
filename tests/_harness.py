@@ -144,7 +144,7 @@ def stub_download(*, writes: dict | None = None, raises: Exception | None = None
     """Build a replacement for utils.download. If `raises`, it raises that (e.g. a generic
     Exception or utils.InstallCancelledError) after doing nothing. Otherwise it writes a zip
     built from `writes` (an entries dict) to the requested dest, mimicking a finished download."""
-    async def _download(url, dest, appid):
+    async def _download(url, dest, appid, expected_hash=None):
         if raises is not None:
             raise raises
         build_zip(dest, writes or {})

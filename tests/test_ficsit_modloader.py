@@ -48,7 +48,7 @@ class SmlLoaderTest(unittest.TestCase):
         ficsit.list_versions = self._saved["list_versions"]
 
     def _serve(self, files):
-        async def _dl(url, dest, appid):
+        async def _dl(url, dest, appid, expected_hash=None):
             _make_smod(dest, files)
         utils.download = _dl
 
@@ -111,7 +111,7 @@ class SmlLoaderTest(unittest.TestCase):
         # A failed download mid-update must NOT destroy a working, installed-but-disabled SML.
         self.install({"SML.uplugin": "{}", "keep.txt": b"KEEP"})
         run(modloaders.disable_modloader(self.game, self.install_dir, "sml"))
-        async def _boom(url, dest, appid):
+        async def _boom(url, dest, appid, expected_hash=None):
             raise RuntimeError("network down")
         utils.download = _boom
         self.assertFalse(run(modloaders.install_modloader(self.game, self.install_dir, "sml")))
@@ -127,7 +127,7 @@ class SmlLoaderTest(unittest.TestCase):
             {"version": "3.11.0", "version_id": "vOLD", "targets": ["Windows", "WindowsServer"]},
         ]
         captured = {}
-        async def _dl(url, dest, appid):
+        async def _dl(url, dest, appid, expected_hash=None):
             captured["url"] = url
             _make_smod(dest, {"SML.uplugin": "{}"})
         utils.download = _dl
