@@ -46,6 +46,57 @@ def _pw_remap_ue4ss(parts: "list[str]") -> "list[str]":
 _PW_CANON = {"binaries": "Binaries", "win64": "Win64", "content": "Content", "paks": "Paks",
              "mods": "Mods", "logicmods": "LogicMods", "scripts": "Scripts", "dlls": "dlls"}
 
+# PalSchema (Nexus 2361) is a UE4SS data-mod loader: a data mod is a plain folder of JSON under
+# Pal/Binaries/Win64/ue4ss/Mods/PalSchema/mods/<ModName>/, with files sorted into recognized
+# category subdirs (PalSchema scans these names; verified against okaetsu.github.io/PalSchema docs
+# + real collection mods). NOTE the dir is lowercase `mods` — distinct from UE4SS's own `Mods`, and
+# the case-sensitive Deck FS won't match it if recased (see _pw_canon_tail).
+_PALSCHEMA_DIRS = {"blueprints", "raw", "items", "appearance", "pals", "skins", "translations"}
+_PALSCHEMA_MODS_DIR = os.path.join(_PALWORLD_UE4SS_MODS_DIR, "PalSchema", "mods")
+
+
+def _pw_canon_tail(parts: "list[str]") -> "list[str]":
+    """Canonicalize only the LEADING run of structural UE dir segments (binaries/win64/content/paks/
+    mods/…) to fixed casing, stopping at the first non-structural (free-form) segment. Critical: a
+    deeper `mods` belonging to PalSchema (…/ue4ss/Mods/PalSchema/mods/<name>/) must stay lowercase —
+    blanket-recasing every `mods` to `Mods` sent it to a dir PalSchema never scans on the
+    case-sensitive Deck FS. Stopping at the first free-form segment (e.g. `ue4ss`, a mod name) leaves
+    everything past the structural prefix at its original (already-correct) casing."""
+    out, structural = [], True
+    for p in parts:
+        if structural and p.lower() in _PW_CANON:
+            out.append(_PW_CANON[p.lower()])
+        else:
+            structural = False
+            out.append(p)
+    return out
+
+
+def _pw_is_palschema(rel: str) -> bool:
+    """A PalSchema data file: a .json/.jsonc under one of PalSchema's recognized category subdirs
+    (blueprints/raw/items/…). The category marker + JSON extension together avoid misclassifying an
+    unrelated `raw`/`items` folder of binaries as PalSchema content."""
+    if not rel.lower().endswith((".json", ".jsonc")):
+        return False
+    return any(seg in _PALSCHEMA_DIRS for seg in (p.lower() for p in rel.split("/")))
+
+
+def _pw_palschema_placements(files: "list[tuple[str, str]]", mod: ModInfo) -> "list[tuple[str, str]]":
+    """Place a loose PalSchema data mod's JSON under Pal/Binaries/Win64/ue4ss/Mods/PalSchema/mods/
+    <ModName>/<category>/…. ModName comes from a single shared wrapper dir (the common case — the
+    archive wraps everything in one folder), else the mod's catalog filename. Each file is re-rooted
+    from its category-marker segment on, so a wrapper named oddly (or version-suffixed) is normalized
+    away. `files` must already be the PalSchema subset (see _pw_is_palschema)."""
+    wrappers = {rel.split("/")[0] for _ab, rel in files
+                if "/" in rel and rel.split("/")[0].lower() not in _PALSCHEMA_DIRS}
+    modname = mods_archive._safe_folder_name(next(iter(wrappers)) if len(wrappers) == 1 else mod.filename)
+    out: list[tuple[str, str]] = []
+    for ab, rel in files:
+        segs = [p.lower() for p in rel.split("/")]
+        mi = next(i for i, s in enumerate(segs) if s in _PALSCHEMA_DIRS)
+        out.append((ab, os.path.join(_PALSCHEMA_MODS_DIR, modname, *rel.split("/")[mi:])))
+    return out
+
 
 def _pw_pak_dest(rel: str) -> str:
     """A loose pak's Content/Paks/ destination, basename-flattened with the pak EXTENSION lowercased
@@ -119,19 +170,25 @@ def _palworld_placements(extract_root: str, mod: ModInfo) -> "list[tuple[str, st
             lparts = [p.lower() for p in parts]
             idxs = [lparts.index(s) for s in ("binaries", "content") if s in lparts]
             if idxs:
-                tail = _pw_remap_ue4ss([_PW_CANON.get(p.lower(), p) for p in parts[min(idxs):]])
+                tail = _pw_remap_ue4ss(_pw_canon_tail(parts[min(idxs):]))
                 out.append((ab, os.path.join("Pal", *tail)))
             elif is_pak(rel):
                 out.append((ab, _pw_pak_dest(rel)))
         return out or None
 
     # Loose-root archive (no Binaries/Content wrapper). Route each file:
+    #  - a PalSchema data mod (JSON under blueprints/raw/items/… ) -> ue4ss/Mods/PalSchema/mods/<Name>/
+    #    (shape D — a curated collection staple; e.g. True Monster Rancher, VC_Merchant).
     #  - under a LogicMods/ or ~mods/ segment -> Content/Paks/<that>/<rest>, KEEPING a pak's companion
     #    files next to it — a blueprint mod ships its pak AND its <name>.modconfig.json (+ a preview
     #    .png) loose in LogicMods/, and DekMCM reads that modconfig.json from Content/Paks/LogicMods/.
     #  - else a bare pak -> Content/Paks/~mods/.
     #  - else part of a loose UE4SS Lua/C++ mod -> ue4ss/Mods/<ModName>/ (shape C).
     out: list[tuple[str, str]] = []
+    ps_files = [(ab, rel) for ab, rel in files if _pw_is_palschema(rel)]
+    if ps_files:
+        out += _pw_palschema_placements(ps_files, mod)
+        files = [(ab, rel) for ab, rel in files if not _pw_is_palschema(rel)]
     leftover: list[tuple[str, str]] = []
     for ab, rel in files:
         parts = rel.split("/")

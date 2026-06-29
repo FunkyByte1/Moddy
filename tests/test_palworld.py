@@ -92,6 +92,20 @@ class PalworldInstallTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.g("Pal/Binaries/Win64/ue4ss/Mods/CoolMod/Scripts/main.lua")))
         self.assertFalse(os.path.isdir(self.g("Pal/Binaries/Win64/ue4ss/Mods/CoolMod/CoolMod")))
 
+    # ── Shape D: loose PalSchema data mod (end to end) ───────────────────────────
+    def test_shape_d_palschema_installs_and_uninstalls(self):
+        mod = self._mod(filename="nexus-481")
+        writes = {"True Monster Rancher/blueprints/bp_boar.json": b"{}",
+                  "True Monster Rancher/raw/Bristla.json": b"{}"}
+        self.assertTrue(self.install(writes, mod))
+        bp = self.g("Pal/Binaries/Win64/ue4ss/Mods/PalSchema/mods/True Monster Rancher/blueprints/bp_boar.json")
+        self.assertTrue(os.path.isfile(bp))
+        self.assertTrue(os.path.isfile(
+            self.g("Pal/Binaries/Win64/ue4ss/Mods/PalSchema/mods/True Monster Rancher/raw/Bristla.json")))
+        self.assertTrue(run(mods.uninstall_mod(self.game, self.install_dir, "nexus.palworld.1")))
+        self.assertFalse(os.path.isfile(bp))
+        self.assertIsNone(mods.get_installed_record("nexus.palworld.1"))
+
     def test_empty_or_junk_archive_refused(self):
         self.assertFalse(self.install({"readme.txt": b"hi", "preview.png": b"img"}))
         self.assertIsNone(mods.get_installed_record("nexus.palworld.1"))
@@ -248,6 +262,43 @@ class PalworldPlacementUnitTest(unittest.TestCase):
             ["Pal/Content/Paks/LogicMods/DekBasicMinimap_P.modconfig.json",
              "Pal/Content/Paks/LogicMods/DekBasicMinimap_P.pak",
              "Pal/Content/Paks/LogicMods/DekBasicMinimap_P.png"],
+        )
+
+    # ── Shape D: loose PalSchema data mod (JSON under blueprints/raw/items/…) ─────
+    def test_shape_d_palschema_loose_data(self):
+        # A curated-collection staple (e.g. True Monster Rancher): a bare <ModName>/ wrapper of JSON
+        # data, no pak/lua/Binaries wrapper. Must land under ue4ss/Mods/PalSchema/mods/<Name>/ — the
+        # loose-data shape that previously returned None ("couldn't install").
+        self.assertEqual(
+            self._dests({"MyPals/blueprints/bp_x.jsonc": b"{}", "MyPals/raw/Cat.json": b"{}"}),
+            ["Pal/Binaries/Win64/ue4ss/Mods/PalSchema/mods/MyPals/blueprints/bp_x.jsonc",
+             "Pal/Binaries/Win64/ue4ss/Mods/PalSchema/mods/MyPals/raw/Cat.json"],
+        )
+
+    def test_shape_d_palschema_root_uses_filename(self):
+        # No wrapper dir (category folder at the archive root) — name the PalSchema mod folder from
+        # the catalog filename, mirroring the loose-Lua shape.
+        self.assertEqual(
+            self._dests({"raw/Chips.json": b"{}"}, filename="Legendary"),
+            ["Pal/Binaries/Win64/ue4ss/Mods/PalSchema/mods/Legendary/raw/Chips.json"],
+        )
+
+    def test_shape_d_palschema_drops_sibling_readme_keeps_pak(self):
+        # Real shape: a ReadMe.txt beside the data (dropped — not data) and a bundled pak (still routed
+        # to ~mods/, where UE loads it). Only the JSON goes into the PalSchema mod folder.
+        self.assertEqual(
+            self._dests({"Mod/ReadMe.txt": b"x", "Mod/blueprints/y.jsonc": b"{}", "Mod_P.pak": b"P"}),
+            ["Pal/Binaries/Win64/ue4ss/Mods/PalSchema/mods/Mod/blueprints/y.jsonc",
+             "Pal/Content/Paks/~mods/Mod_P.pak"],
+        )
+
+    def test_structured_palschema_keeps_lowercase_mods(self):
+        # Regression: a structured archive shipping PalSchema's own lowercase `mods` dir must keep it
+        # lowercase — the canon table used to recase it to `Mods`, sending the mod to a dir PalSchema
+        # never scans on the case-sensitive Deck FS (it "installed" but silently never loaded).
+        self.assertEqual(
+            self._dests({"Pal/Binaries/Win64/ue4ss/Mods/PalSchema/mods/Foo/blueprints/x.jsonc": b"{}"}),
+            ["Pal/Binaries/Win64/ue4ss/Mods/PalSchema/mods/Foo/blueprints/x.jsonc"],
         )
 
     def test_shape_a_lua_path_remapped_to_ue4ss(self):
