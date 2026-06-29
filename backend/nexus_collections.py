@@ -253,7 +253,7 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
 
     mods_list = collection_mods(manifest, domain)
     required = installable_mods(game, mods_list, domain)  # required, minus the modloader
-    skipped = len(mods_list) - len(required)
+    optional_skipped = sum(1 for m in mods_list if m["optional"])  # the modloader is skipped silently
     await download_queue.note_total(len(required))
     installed = 0
     for m in required:
@@ -273,8 +273,8 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
             return None  # cancelled mid-download
         else:
             await download_queue.note_warning(f"Couldn't install {m['name']}")
-    if skipped:
-        await download_queue.note_warning(f"{skipped} optional mod(s) skipped")
+    if optional_skipped:
+        await download_queue.note_warning(f"{optional_skipped} optional mod(s) skipped")
     decky.logger.info(f"collection {slug}: installed {installed}/{len(required)} required mods")
     return installed > 0
 
