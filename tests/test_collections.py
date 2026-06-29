@@ -90,6 +90,29 @@ class InstallableModsTest(unittest.TestCase):
         result = nc.installable_mods(game, mods, "stardewvalley")
         self.assertEqual([m["mod_id"] for m in result], ["3753"])
 
+    def test_skips_reframework_loader_even_though_installed_from_github(self):
+        # REFramework is RE4/MH-Rise's loader but installed from GitHub (praydog), not Nexus — a
+        # collection references it by its Nexus id, which nexus_skip_ids must catch so it isn't
+        # installed as a mod (the "couldn't install REFramework" bug). REFramework-D2D (a separate
+        # rendering plugin) is NOT the loader and must still install.
+        re4 = registry.get_game_by_appid(2050650)  # Resident Evil 4 — REFramework = residentevil42023/12
+        self.assertIsNotNone(re4)
+        re4_mods = [
+            {"mod_id": "12", "optional": False, "name": "REFramework"},          # the loader -> skip
+            {"mod_id": "5195", "optional": False, "name": "Some RE4 Mod"},       # a real mod -> keep
+        ]
+        self.assertEqual([m["mod_id"] for m in nc.installable_mods(re4, re4_mods, "residentevil42023")],
+                         ["5195"])
+
+        mhr = registry.get_game_by_appid(1446780)  # Monster Hunter Rise — REFramework = monsterhunterrise/26
+        self.assertIsNotNone(mhr)
+        mhr_mods = [
+            {"mod_id": "26", "optional": False, "name": "REFramework"},          # the loader -> skip
+            {"mod_id": "134", "optional": False, "name": "REFramework-D2D"},     # a plugin, not the loader -> keep
+        ]
+        self.assertEqual([m["mod_id"] for m in nc.installable_mods(mhr, mhr_mods, "monsterhunterrise")],
+                         ["134"])
+
 
 if __name__ == "__main__":
     unittest.main()

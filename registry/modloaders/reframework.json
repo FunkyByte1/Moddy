@@ -11,6 +11,7 @@
   },
   "uninstall_dirs": ["reframework"],
   "uninstall_files": ["re2_fw_config.txt", "re2_framework_log.txt", "reframework_revision.txt", "reframework_loose_files.txt", "reframework_accessed_files.txt"],
+  "nexus_skip_ids": ["12"],
   "source": {
     "type": "github",
     "owner": "praydog",
