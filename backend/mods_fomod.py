@@ -23,6 +23,11 @@ import fomod
 # pulled in as a same-domain dependency, which can't prompt the user mid-cascade.
 FOMOD_DEFAULTS = "__moddy_fomod_defaults__"
 
+# Sentinel `variant` for a non-interactive (collection) install: FOMOD resolves under defaults and a
+# legacy multi-variant archive takes its first payload — NEVER park, since a collection installs many
+# mods in one job and can't stop to prompt. Handled here (FOMOD) and in the loose-merge legacy block.
+COLLECTION_AUTO = "__moddy_collection_auto__"
+
 
 def find_config(extract_dir: str) -> "str | None":
     """Locate fomod/ModuleConfig.xml within an extracted archive, case-insensitively on both the
@@ -136,19 +141,32 @@ def prepare(extract_dir: str, cfg_path: str, mod_name: str, selections_json: "st
             decky.logger.info(f"{mod_name}: FOMOD has options — parking for the install wizard")
             return {"needs_fomod": True, "fomod": fomod.serialize_for_ui(model)}
         selections = fomod.default_selections(model)
-    elif selections_json == FOMOD_DEFAULTS:
+    elif selections_json in (FOMOD_DEFAULTS, COLLECTION_AUTO):
         selections = fomod.default_selections(model)
     else:
         try:
-            selections = fomod.decode_selections(json.loads(selections_json))
-        except (ValueError, TypeError, KeyError, IndexError) as e:
+            data = json.loads(selections_json)
+        except ValueError as e:
             decky.logger.warning(f"{mod_name}: bad FOMOD selections ({e}); using defaults")
+            data = None
+        if isinstance(data, dict) and "options" in data:
+            # a Nexus collection's recorded choices — replay the curator's picks over the defaults
+            selections = fomod.default_selections(model)
+            selections.update(fomod.selections_from_choices(model, data))
+        elif isinstance(data, list):
+            selections = fomod.decode_selections(data)
+        else:
             selections = fomod.default_selections(model)
 
     try:
         plan = fomod.resolve(model, selections)
     except fomod.FomodError as e:
-        decky.logger.warning(f"{mod_name}: FOMOD resolve failed ({e}); falling back to variant handling")
-        return None
+        # a stale / over-specified selection (e.g. collection choices vs a changed ModuleConfig) —
+        # fall back to engine defaults rather than failing the whole collection install.
+        decky.logger.warning(f"{mod_name}: FOMOD resolve failed ({e}); retrying with defaults")
+        try:
+            plan = fomod.resolve(model, fomod.default_selections(model))
+        except fomod.FomodError:
+            return None
     pkg_root = os.path.dirname(os.path.dirname(cfg_path))  # the dir that contains the fomod/ folder
     return _materialize(plan, pkg_root, extract_dir, mod_name)

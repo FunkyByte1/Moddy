@@ -316,6 +316,16 @@ class TestUiSerialization(unittest.TestCase):
         sel = fomod.decode_selections([[0, 0, [1]], ["1", "0", ["0"]]])
         self.assertEqual(sel, {(0, 0): {1}, (1, 0): {0}})
 
+    def test_selections_from_collection_choices(self):
+        # A Nexus collection records picks by step/group NAME + plugin idx; map them onto selections.
+        model = self._choice_model()
+        choices = {"options": [
+            {"name": "S1", "groups": [{"name": "Pick", "choices": [{"name": "B", "idx": 1}]}]},
+        ]}
+        self.assertEqual(fomod.selections_from_choices(model, choices), {(0, 0): {1}})
+        # unknown step/group names are skipped (best-effort)
+        self.assertEqual(fomod.selections_from_choices(model, {"options": [{"name": "Nope", "groups": []}]}), {})
+
     def test_serialized_default_resolves_same_as_default_selections(self):
         model = self._choice_model()
         dto = fomod.serialize_for_ui(model)

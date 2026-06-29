@@ -316,6 +316,11 @@ export const enqueueBmi =
   callable<[appid: number, mod_id: string, name: string, version: string | null], number>('enqueue_bmi');
 export const enqueueNexus =
   callable<[appid: number, full_name: string, name: string, version: string | null], number>('enqueue_nexus');
+// Install a whole Nexus collection (its required mods at pinned files, with the curator's FOMOD
+// choices replayed) as one background job. `ref` is a collection URL or slug. Returns the job id,
+// or -1 if the game isn't a Nexus game / the ref is unparseable or for a different game.
+export const enqueueCollection =
+  callable<[appid: number, ref: string], number>('enqueue_collection');
 // ficsit.app (Satisfactory) catalog — server-paginated/searched (~25 items per page), in the shared
 // ThunderstorePackage item shape. Anonymous (no API key); installs cascade dependencies server-side
 // and are drained by the same background queue as Nexus/Thunderstore (kind 'ficsit').

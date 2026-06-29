@@ -108,6 +108,25 @@ class FomodInstallTest(unittest.TestCase):
         self.assertTrue(self.exists("nativePC/pl/red.tex"), "default (Red) installed")
         self.assertFalse(self.exists("nativePC/pl/blue.tex"))
 
+    # --- collection install: replay choices / never park --------------------
+
+    def test_collection_choices_install_the_curator_pick(self):
+        # A collection passes the curator's choices (by name) as the variant; no park, install Blue.
+        choices = {"options": [{"name": "Colour", "groups": [
+            {"name": "Pick", "choices": [{"name": "Blue", "idx": 1}]}]}]}
+        res, _ = self._install(COLOR_WRITES, variant=json.dumps(choices))
+        self.assertIs(res, True)
+        self.assertTrue(self.exists("nativePC/pl/core.tex"))
+        self.assertTrue(self.exists("nativePC/pl/blue.tex"))
+        self.assertFalse(self.exists("nativePC/pl/red.tex"))
+
+    def test_collection_auto_sentinel_installs_defaults_without_parking(self):
+        # A choice FOMOD with no recorded choices in a collection must use defaults, not park.
+        res, _ = self._install(COLOR_WRITES, variant=mods_fomod.COLLECTION_AUTO)
+        self.assertIs(res, True)
+        self.assertTrue(self.exists("nativePC/pl/red.tex"))   # default = Red
+        self.assertFalse(self.exists("nativePC/pl/blue.tex"))
+
     # --- no real choice still auto-installs (Phase 2 behaviour) --------------
 
     def test_no_choice_fomod_auto_installs_without_parking(self):

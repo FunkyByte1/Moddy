@@ -27,6 +27,7 @@ import plugin_game_status
 import plugin_install_denylists
 import plugin_install_common
 import plugin_nexus_install
+import nexus_collections
 import plugin_thunderstore_install
 import plugin_ficsit_install
 import plugin_frameworks
@@ -617,6 +618,12 @@ class Plugin:
             run=lambda job: self.install_ficsit_mod(appid, full_name, version, installed=job.installed),
             rollback=lambda job: self._rollback_job(appid, job.installed),
         )
+
+    async def enqueue_collection(self, appid: int, ref: str) -> int:
+        """Queue installing a whole Nexus collection — its required mods at their pinned files, with
+        the curator's FOMOD choices replayed. `ref` is a collection URL or slug. Returns the job id,
+        or -1 if the game isn't a Nexus game or the ref is unparseable / for a different game."""
+        return await nexus_collections.enqueue_collection(appid, ref)
 
     async def _rollback_job(self, appid: int, ids: list) -> None:
         game = registry.get_game_by_appid(appid)

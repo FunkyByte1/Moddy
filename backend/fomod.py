@@ -601,3 +601,31 @@ def decode_selections(raw: list) -> Selections:
         si, gi, plugins = entry[0], entry[1], entry[2]
         out[(int(si), int(gi))] = {int(p) for p in plugins}
     return out
+
+
+def selections_from_choices(model: FomodModel, choices: dict) -> Selections:
+    """Map a Nexus COLLECTION's recorded `choices` onto this FOMOD's Selections. The collection
+    stores the curator's picks by NAME — `{options:[{name, groups:[{name, choices:[{name, idx}]}]}]}`
+    where idx is the plugin index — so match step and group by name (the collection pins the file, so
+    the ModuleConfig matches) and take the selected indices. Only covers the groups the collection
+    names; merge over default_selections for the rest. Best-effort: unmatched names are skipped."""
+    steps_by_name: Dict[str, int] = {}
+    for si, s in enumerate(model.install_steps):
+        steps_by_name.setdefault(s.name, si)
+    sel: Selections = {}
+    for opt in (choices.get("options") or []):
+        si = steps_by_name.get(opt.get("name"))
+        if si is None:
+            continue
+        groups = model.install_steps[si].groups
+        groups_by_name: Dict[str, int] = {}
+        for gi, g in enumerate(groups):
+            groups_by_name.setdefault(g.name, gi)
+        for grp in (opt.get("groups") or []):
+            gi = groups_by_name.get(grp.get("name"))
+            if gi is None:
+                continue
+            picked = {ch["idx"] for ch in (grp.get("choices") or [])
+                      if isinstance(ch.get("idx"), int) and 0 <= ch["idx"] < len(groups[gi].plugins)}
+            sel[(si, gi)] = picked
+    return sel

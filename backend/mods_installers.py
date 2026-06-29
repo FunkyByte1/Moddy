@@ -512,7 +512,10 @@ async def _install_mod_loose_merge(
             # Resolve which payload to install. Multiple variants + no choice → ask the UI.
             variants = mods_archive._detect_variants(tmp_extract)
             valid_ids = {v["id"] for v in variants}
-            if variant is not None:
+            if variant == mods_fomod.COLLECTION_AUTO:
+                # non-interactive (collection) install: take the first/default payload, never park
+                search_root = os.path.join(tmp_extract, variants[0]["id"]) if len(variants) > 1 else tmp_extract
+            elif variant is not None:
                 if variant not in valid_ids:
                     decky.logger.error(f"{mod.name}: unknown variant {variant!r}")
                     return False
