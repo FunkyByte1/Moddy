@@ -44,7 +44,7 @@ class FlatAtomicityTest(unittest.TestCase):
         self.assertTrue(ok)
         self.assertTrue(os.path.isfile(os.path.join(self.mods_path, "Cool.dll")))
         self.assertTrue(os.path.isfile(os.path.join(self.mods_path, "assets", "data.bin")))
-        rec = mods.get_installed_record(mod.id)
+        rec = mods.get_installed_record(self.game.appid, mod.id)
         self.assertEqual(rec["paths"], ["Mods/Cool.dll", "Mods/assets"])  # top-level entries
 
     def test_failed_upgrade_midcommit_restores_dir_install(self):
@@ -72,7 +72,7 @@ class FlatAtomicityTest(unittest.TestCase):
         self.assertEqual(snap.get("Cool.dll"), b"v2")
         self.assertNotIn("assets/old.bin", snap, "stale files from the old version must be gone")
         self.assertEqual(bak_crumbs(self.install_dir), [])
-        rec = mods.get_installed_record(mod.id)
+        rec = mods.get_installed_record(self.game.appid, mod.id)
         self.assertEqual(rec["paths"], ["Mods/Cool.dll"])
 
     def test_reinstall_over_disabled_mod(self):

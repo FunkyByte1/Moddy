@@ -74,7 +74,7 @@ class ZipFolderInstallTest(unittest.TestCase):
         self.assertIs(res, True)
         self.assertTrue(self.exists("GAMEDATA/MODS/CoolMod/GLITCH.MBIN"))
         self.assertTrue(self.exists("GAMEDATA/MODS/CoolMod/readme.txt"))  # whole folder kept (isolated)
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["GAMEDATA/MODS/CoolMod"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["GAMEDATA/MODS/CoolMod"])
 
     def test_macos_junk_sibling_does_not_defeat_wrapper_strip(self):
         # macOS-zipped Nexus archive: a real wrapper folder rides next to __MACOSX/ and .DS_Store.
@@ -89,7 +89,7 @@ class ZipFolderInstallTest(unittest.TestCase):
         self.assertFalse(self.exists("GAMEDATA/MODS/CoolMod/RealMod"))   # not double-nested
         self.assertFalse(self.exists("GAMEDATA/MODS/CoolMod/__MACOSX"))  # junk not copied in
         self.assertFalse(self.exists("GAMEDATA/MODS/CoolMod/.DS_Store"))
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["GAMEDATA/MODS/CoolMod"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["GAMEDATA/MODS/CoolMod"])
 
     def test_macos_junk_skipped_in_multi_entry_archive(self):
         # No single wrapper (two real top entries) but junk rides along — junk is skipped, mods kept.
@@ -118,7 +118,7 @@ class ZipFolderInstallTest(unittest.TestCase):
     def test_empty_archive_refuses(self):
         res, mod = self._install({})
         self.assertIs(res, False)
-        self.assertIsNone(mods.get_installed_record(mod.id))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, mod.id))
 
     def test_toggle_moves_folder_out_of_mods(self):
         # NMS scans MODS/ recursively (device-confirmed), so disabling must MOVE the folder out of
@@ -145,7 +145,7 @@ class ZipFolderInstallTest(unittest.TestCase):
         self.assertIs(run(mods.uninstall_mod(self.game, self.install_dir, mod.id)), True)
         self.assertFalse(self.exists(".moddy-disabled-mods/CoolMod"))
         self.assertFalse(self.exists("GAMEDATA/MODS/CoolMod"))
-        self.assertIsNone(mods.get_installed_record(mod.id))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, mod.id))
 
     def test_uninstall_leaves_co_resident_mod(self):
         self._install({"a.mbin": b"A"}, mod_id="a", filename="ModA")
@@ -160,7 +160,7 @@ class ZipFolderInstallTest(unittest.TestCase):
         self.assertIs(res, True)
         self.assertTrue(self.exists("GAMEDATA/MODS/CoolMod/new.mbin"))
         self.assertFalse(self.exists("GAMEDATA/MODS/CoolMod/old.mbin"))
-        self.assertEqual(mods.get_installed_record(mod.id)["version"], "2.0.0")
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["version"], "2.0.0")
 
     def test_failed_commit_rolls_back(self):
         keep = os.path.join(self.install_dir, "GAMEDATA", "MODS", "Keep")
@@ -172,7 +172,7 @@ class ZipFolderInstallTest(unittest.TestCase):
             res = run(mods.install_mod(self.game, self.install_dir, mod, "1.0.0", "http://x"))
         self.assertIs(res, False)
         self.assertEqual(tree_snapshot(self.install_dir), before)   # byte-identical
-        self.assertIsNone(mods.get_installed_record("new"))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, "new"))
         self.assertEqual(bak_crumbs(self.install_dir), [])
 
 
@@ -275,7 +275,7 @@ class WorkshopDecouplingTest(unittest.TestCase):
         g = registry.GameProfile(id="nms", name="NMS", appid=275850, mods_dir="GAMEDATA/MODS",
                                  modloaders=[nms_setup_loader()])
         mod = make_mod(mod_id="m", filename="CoolMod", install_type="zip_folder")
-        mods.set_installed_record("m", "1.0", "CoolMod", paths=["GAMEDATA/MODS/CoolMod"], mod=mod)
+        mods.set_installed_record(g.appid, "m", "1.0", "CoolMod", paths=["GAMEDATA/MODS/CoolMod"], mod=mod)
         write(os.path.join(install_dir, "GAMEDATA", "MODS", "CoolMod", "x.mbin"), b"M")
         listed = mods.get_installed_mods(g, install_dir)
         self.assertEqual([m["id"] for m in listed], ["m"])
@@ -304,7 +304,7 @@ class NmsVanillaTest(unittest.TestCase):
         write(os.path.join(self.install_dir, SENTINEL), b"")
         # One enabled zip_folder mod.
         mod = make_mod(mod_id="modA", filename="CoolMod", install_type="zip_folder")
-        mods.set_installed_record("modA", "1.0", "CoolMod", paths=["GAMEDATA/MODS/CoolMod"], mod=mod)
+        mods.set_installed_record(self.game.appid, "modA", "1.0", "CoolMod", paths=["GAMEDATA/MODS/CoolMod"], mod=mod)
         write(os.path.join(self.install_dir, "GAMEDATA", "MODS", "CoolMod", "x.mbin"), b"M")
 
     def tearDown(self):

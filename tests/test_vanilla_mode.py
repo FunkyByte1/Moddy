@@ -62,7 +62,7 @@ class VanillaModeTest(unittest.TestCase):
 
     def _record(self, mod_id, filename):
         mod = make_mod(mod_id=mod_id, filename=filename, install_type="zip_flat")
-        mods.set_installed_record(mod_id, "1.0", filename,
+        mods.set_installed_record(self.game.appid, mod_id, "1.0", filename,
                                   paths=[f"Mods/{filename}.dll"], mod=mod)
 
     def exists(self, *rel):
@@ -111,7 +111,7 @@ class VanillaModeTest(unittest.TestCase):
     def test_mod_uninstalled_while_vanilla_is_skipped_on_restore(self):
         run(self.plugin.set_game_vanilla_mode(1, True))
         # User removes ModA's record while vanilla (e.g. uninstalled it). Restore must not choke.
-        mods.clear_installed_record("modA")
+        mods.clear_installed_record(self.game.appid, "modA")
         res = run(self.plugin.set_game_vanilla_mode(1, False))
         self.assertTrue(res["ok"])
         self.assertEqual(res["mods_enabled"], 0)
@@ -126,17 +126,17 @@ class VanillaStateStoreTest(unittest.TestCase):
 
     def test_set_get_clear_preserves_other_sections(self):
         mod = make_mod(mod_id="m", filename="M", install_type="zip_flat")
-        mods.set_installed_record("m", "1.0", "M", paths=["Mods/M.dll"], mod=mod)
+        mods.set_installed_record(1, "m", "1.0", "M", paths=["Mods/M.dll"], mod=mod)
 
         mods.set_vanilla_state(7, {"mods": ["m"], "modloader": "ml", "workshop": []})
         self.assertTrue(mods.is_game_vanilla(7))
         self.assertEqual(mods.get_vanilla_state(7)["mods"], ["m"])
         # The mods section is intact after writing the vanilla section.
-        self.assertIsNotNone(mods.get_installed_record("m"))
+        self.assertIsNotNone(mods.get_installed_record(1, "m"))
 
         mods.set_vanilla_state(7, None)
         self.assertFalse(mods.is_game_vanilla(7))
-        self.assertIsNotNone(mods.get_installed_record("m"), "clearing vanilla must not touch mods")
+        self.assertIsNotNone(mods.get_installed_record(1, "m"), "clearing vanilla must not touch mods")
 
 
 if __name__ == "__main__":

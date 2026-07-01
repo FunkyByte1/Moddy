@@ -88,14 +88,15 @@ def _record_target_relpaths(game: GameProfile, install_dir: str, record: dict) -
     return [rel]
 
 
-def _claimed_paths_map(install_dir: str, mods_path: str, exclude_mod_id: str | None = None) -> dict:
-    """Map every install-dir-absolute path Moddy has placed (per installed.json) to the mod_id
-    that claims it. Lets us tell a stock game file (unclaimed) from a Moddy-placed one, and spot
-    mod-vs-mod overwrites. `exclude_mod_id` drops one record (the mod being installed/uninstalled)
-    so its own paths don't count — e.g. on uninstall, to decide whether any OTHER mod still owns a
-    slot before restoring the stock original."""
+def _claimed_paths_map(appid: int, install_dir: str, mods_path: str, exclude_mod_id: str | None = None) -> dict:
+    """Map every install-dir-absolute path Moddy has placed for THIS game (per its
+    installed.json section) to the mod_id that claims it. Lets us tell a stock game file
+    (unclaimed) from a Moddy-placed one, and spot mod-vs-mod overwrites. `exclude_mod_id`
+    drops one record (the mod being installed/uninstalled) so its own paths don't count —
+    e.g. on uninstall, to decide whether any OTHER mod still owns a slot before restoring
+    the stock original."""
     out: dict[str, str] = {}
-    for mod_id, record in (mods._load_store() or {}).items():
+    for mod_id, record in (mods._load_store(appid) or {}).items():
         if mod_id == exclude_mod_id:
             continue
         paths = record.get("paths")
@@ -109,7 +110,7 @@ def _claimed_paths_map(install_dir: str, mods_path: str, exclude_mod_id: str | N
     return out
 
 
-def _overwrite_guard(install_dir: str, mods_path: str, mod: ModInfo, dest_rels: list):
+def _overwrite_guard(appid: int, install_dir: str, mods_path: str, mod: ModInfo, dest_rels: list):
     """Build the `is_foreign` predicate a staged install passes to _StagedInstall, and log any
     mod-vs-mod overwrite among `dest_rels` (warn-and-proceed: the last install wins; the stock
     original, captured the first time any mod overwrote it, stays recoverable). is_foreign(p) is
@@ -117,7 +118,7 @@ def _overwrite_guard(install_dir: str, mods_path: str, mod: ModInfo, dest_rels: 
     transaction preserves it as *.moddy-orig on commit instead of discarding it. The mod's own
     prior paths ARE claimed (not foreign), so an upgrade's displaced old version is dropped as
     before, leaving the .v<ver>.bak version history to handle rollback."""
-    claimed = _claimed_paths_map(install_dir, mods_path)
+    claimed = _claimed_paths_map(appid, install_dir, mods_path)
     for rel in dest_rels:
         owner = claimed.get(os.path.normpath(os.path.join(install_dir, rel)))
         if owner and owner != mod.id:
@@ -127,11 +128,11 @@ def _overwrite_guard(install_dir: str, mods_path: str, mod: ModInfo, dest_rels: 
     return lambda p: os.path.normpath(p) not in claimed_keys
 
 
-def _restore_originals(install_dir: str, mods_path: str, abs_paths: list, exclude_mod_id: str) -> None:
+def _restore_originals(appid: int, install_dir: str, mods_path: str, abs_paths: list, exclude_mod_id: str) -> None:
     """On uninstall, move any durable *.moddy-orig stock backup back into place — but only for a
     path no OTHER installed mod still claims (last-claim restore). A path still owned by another
     mod keeps that mod's content; its stock original stays parked until the last owner goes."""
-    others = set(_claimed_paths_map(install_dir, mods_path, exclude_mod_id=exclude_mod_id))
+    others = set(_claimed_paths_map(appid, install_dir, mods_path, exclude_mod_id=exclude_mod_id))
     for p in abs_paths:
         durable = p + _MODDY_ORIG_SUFFIX
         if not os.path.lexists(durable) or os.path.normpath(p) in others:
@@ -145,14 +146,14 @@ def _restore_originals(install_dir: str, mods_path: str, abs_paths: list, exclud
             decky.logger.warning(f"Could not restore original {p}: {e}")
 
 
-def _backup_version_dir(dst_dir: str, mod_id: str) -> None:
+def _backup_version_dir(appid: int, dst_dir: str, mod_id: str) -> None:
     """Copy the currently-installed folder to <dir>.v<old>.bak for the version-history feature,
     when a versioned install is present. Best-effort and independent of atomicity — it preserves a
     snapshot of the version being replaced (see get_backed_up_versions / delete_mod_version)."""
     import shutil
     if not os.path.isdir(dst_dir):
         return
-    old_version = mods.get_installed_version(mod_id)
+    old_version = mods.get_installed_version(appid, mod_id)
     if old_version and old_version != "latest":
         bak = dst_dir + f".v{old_version}.bak"
         if os.path.exists(bak):
@@ -195,12 +196,12 @@ async def _install_mod_file(game: GameProfile, install_dir: str, mods_path: str,
         await utils.download(url, tmp, game.appid)
 
         if os.path.isfile(dst):
-            claimed = _claimed_paths_map(install_dir, mods_path)
+            claimed = _claimed_paths_map(game.appid, install_dir, mods_path)
             owner = claimed.get(os.path.normpath(dst))
             if owner and owner != mod.id:
                 decky.logger.warning(
                     f"{mod.name}: overwrites {mod.filename} already provided by '{owner}' — last install wins")
-            old_version = mods.get_installed_version(mod.id)
+            old_version = mods.get_installed_version(game.appid, mod.id)
             durable = dst + _MODDY_ORIG_SUFFIX
             if old_version and old_version != "latest":
                 bak = os.path.join(mods_path, f"{mod.filename}.v{old_version}.bak")
@@ -217,7 +218,7 @@ async def _install_mod_file(game: GameProfile, install_dir: str, mods_path: str,
                 os.remove(dst)
 
         os.replace(tmp, dst)
-        mods.set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
+        mods.set_installed_record(game.appid, mod.id, version or "latest", mod.filename, mod=mod)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'})")
         return True
     except utils.InstallCancelledError:

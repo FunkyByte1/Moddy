@@ -200,7 +200,7 @@ async def run_modpack(appid: int, full_name: str, job) -> "bool | None":
     async def _rollback_run() -> None:
         for mid in installed_ids:
             try:
-                if not mods.remove_record_source(mid, sid):
+                if not mods.remove_record_source(game.appid, mid, sid):
                     await mods.uninstall_mod(game, install_dir, mid)
             except Exception as e:  # noqa: BLE001 — best-effort cleanup
                 decky.logger.warning(f"modpack {full_name}: rollback of {mid} failed: {e}")
@@ -208,7 +208,7 @@ async def run_modpack(appid: int, full_name: str, job) -> "bool | None":
     # Claim present members up front (a re-install / overlapping modpack keeps them, ref-counted).
     # add_record_source resolves the record case-insensitively, so the catalog-cased ref is fine.
     for ref in present:
-        mods.add_record_source(ref, source)
+        mods.add_record_source(game.appid, ref, source)
 
     seen: set = set()
     for dep in deps:

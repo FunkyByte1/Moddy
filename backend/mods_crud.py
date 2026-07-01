@@ -25,7 +25,7 @@ def mods_under_modloader(game: GameProfile, install_dir: str, removed_dirs: list
         return t in rfiles or any(t == d or t.startswith(d + "/") for d in rdirs)
 
     out = []
-    for mod_id, rec in (mods._load_store() or {}).items():
+    for mod_id, rec in (mods._load_store(game.appid) or {}).items():
         if (rec.get("source") or {}).get("type") == "steamworkshop":
             continue
         if not mods_common.mod_files_present(game, install_dir, rec):
@@ -100,7 +100,7 @@ def sweep_install_crumbs(game: GameProfile, install_dir: str) -> None:
         dirs.add(mods.resolve_mods_path(game, install_dir))
     except Exception:
         pass
-    for rec in (mods._load_store() or {}).values():
+    for rec in (mods._load_store(game.appid) or {}).values():
         for rel in mods_common._record_target_relpaths(game, install_dir, rec):
             parent = os.path.dirname(os.path.join(install_dir, rel))
             if parent:
@@ -157,7 +157,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             claimed_paths.add(os.path.join(mods_path, filename))
 
     # Tracked installs from installed.json.
-    store = mods._load_store()
+    store = mods._load_store(game.appid)
 
     # Workshop games have no on-disk mods folder Moddy manages — their state is the
     # set of tracked subscriptions. List every subscribed Workshop item reconciled into
@@ -269,7 +269,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                     "id": actual_filename,
                     "filename": actual_filename,
                     "enabled": enabled,
-                    "version": mods.get_installed_version(actual_filename),
+                    "version": mods.get_installed_version(game.appid, actual_filename),
                     "meta": None,
                     "added_at": None,
                 })
@@ -296,7 +296,7 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
 
     result = await _install_dispatch(game, install_dir, mods_path, mod, version, url, variant)
     if result is True:
-        mods.add_record_source(mod.id, source or {"id": "manual", "name": "You"})
+        mods.add_record_source(game.appid, mod.id, source or {"id": "manual", "name": "You"})
     return result
 
 
@@ -330,7 +330,7 @@ async def _install_dispatch(game: GameProfile, install_dir: str, mods_path: str,
 
 def get_backed_up_versions(game: GameProfile, install_dir: str, mod_id: str) -> list[str]:
     """Return a list of previously installed versions backed up on disk."""
-    record = mods.get_installed_record(mod_id) or {}
+    record = mods.get_installed_record(game.appid, mod_id) or {}
     filename = record.get("filename")
     if not filename:
         return []
@@ -349,7 +349,7 @@ def get_backed_up_versions(game: GameProfile, install_dir: str, mod_id: str) -> 
 
 def delete_mod_version(game: GameProfile, install_dir: str, mod_id: str, version: str) -> bool:
     """Delete a specific backed-up version of a mod (.vX.Y.Z.bak file)."""
-    record = mods.get_installed_record(mod_id) or {}
+    record = mods.get_installed_record(game.appid, mod_id) or {}
     filename = record.get("filename")
     if not filename:
         return False
@@ -376,7 +376,7 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
     """
     import shutil
     mods_path = mods.resolve_mods_path(game, install_dir)
-    store = mods._load_store()
+    store = mods._load_store(game.appid)
     record = store.get(mod_id, {})
 
     # Steam Workshop mods: the frontend unsubscribes via SteamClient (which deletes
@@ -387,7 +387,7 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
         fileid = rec_source.get("workshop_id") or ""
         if fileid:
             mods._mark_unsub_pending(fileid)  # don't let reconcile re-add it mid-unsubscribe
-        mods.clear_installed_record(mod_id)
+        mods.clear_installed_record(game.appid, mod_id)
         return True
 
     filename = record.get("filename", mod_id)
@@ -421,16 +421,16 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
                 decky.logger.info(f"Removed legacy {filename}/")
             # Restore any stock game file this mod overwrote at install, for slots no other mod
             # still claims. Done before the prune so the restored file keeps its parent dir.
-            mods_common._restore_originals(install_dir, mods_path, [os.path.join(install_dir, p) for p in paths], mod_id)
+            mods_common._restore_originals(game.appid, install_dir, mods_path, [os.path.join(install_dir, p) for p in paths], mod_id)
             # Per-file records (BepInEx merge / RE4 natives) leave empty dirs behind — prune
             # them, but only when empty so a shared folder another mod uses survives.
             _prune_empty_dirs(install_dir, paths)
             mods_common._zipfolder_prune_staging(install_dir)  # tidy the NMS disabled-staging dir if now empty
-            mods.clear_installed_record(mod_id)
+            mods.clear_installed_record(game.appid, mod_id)
             # If a .pak mod was removed, close the numbering gap so the remaining pak mods keep
             # loading (and keep their relative load-order/priority).
             if any(_PAK_PATCH_RE.match(os.path.basename(p)) for p in paths):
-                mods_pak._renumber_pak_mods(install_dir)
+                mods_pak._renumber_pak_mods(game.appid, install_dir)
             return True
         if is_dir_mod:
             # Remove folder and any backed-up versions
@@ -457,8 +457,8 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
                     os.remove(os.path.join(mods_path, f))
                     decky.logger.info(f"Removed backup {f}")
             # Restore a stock game file this single-file mod overwrote (mods_dir = game root).
-            mods_common._restore_originals(install_dir, mods_path, [os.path.join(mods_path, filename)], mod_id)
-        mods.clear_installed_record(mod_id)
+            mods_common._restore_originals(game.appid, install_dir, mods_path, [os.path.join(mods_path, filename)], mod_id)
+        mods.clear_installed_record(game.appid, mod_id)
         return True
     except Exception as e:
         decky.logger.error(f"Failed to uninstall {mod_id}: {e}")
@@ -505,7 +505,7 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
     Every mod uses its persisted record in installed.json.
     """
     mods_path = mods.resolve_mods_path(game, install_dir)
-    store = mods._load_store()
+    store = mods._load_store(game.appid)
     record = store.get(mod_id, {})
 
     # Steam Workshop enable/disable: the active/inactive flip happens in the frontend
@@ -513,7 +513,7 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
     # just persist the resulting enabled state so Moddy lists and snapshots it correctly.
     rec_source = record.get("source") or {}
     if rec_source.get("type") == "steamworkshop":
-        mods.set_mod_enabled(mod_id, enable)
+        mods.set_mod_enabled(game.appid, mod_id, enable)
         decky.logger.info(f"Workshop mod {mod_id} enabled={enable}")
         return True
 

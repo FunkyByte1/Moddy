@@ -36,15 +36,15 @@ async def _install_mod_zip_dir(game: GameProfile, install_dir: str, mods_path: s
             top_files = [m for m in members if "/" not in m or not m.split("/")[1]]
 
         if "BepInEx" in top_level:
-            return _extract_to_game_root(install_dir, mod, version, tmp_zip)
+            return _extract_to_game_root(game.appid, install_dir, mod, version, tmp_zip)
         bepinex_subdirs = top_level & {"plugins", "patchers", "monomod", "core"}
         if bepinex_subdirs:
-            return _extract_bepinex_subdirs(install_dir, mod, version, tmp_zip, bepinex_subdirs)
+            return _extract_bepinex_subdirs(game.appid, install_dir, mod, version, tmp_zip, bepinex_subdirs)
         # Bare-DLL layout: no recognized BepInEx folders, but loose .dll files at the
         # zip root (e.g. PaladinMod, BiggerBazaar, Aetherium). Common Thunderstore shape.
         if any(f.lower().endswith(".dll") for f in top_files):
-            return _extract_bare_dll(mods_path, mod, version, tmp_zip)
-        return _extract_to_mods_folder(mods_path, mod, version, tmp_zip)
+            return _extract_bare_dll(game.appid, mods_path, mod, version, tmp_zip)
+        return _extract_to_mods_folder(game.appid, mods_path, mod, version, tmp_zip)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
         return None
@@ -56,7 +56,7 @@ async def _install_mod_zip_dir(game: GameProfile, install_dir: str, mods_path: s
             os.remove(tmp_zip)
 
 
-def _merge_zip_into_tree(install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str, select) -> bool:
+def _merge_zip_into_tree(appid: int, install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str, select) -> bool:
     """Merge selected zip members into the live install_dir tree atomically.
 
     `select(member)` maps a zip member to its install-dir-relative destination, or returns None to
@@ -94,7 +94,7 @@ def _merge_zip_into_tree(install_dir: str, mod: ModInfo, version: str | None, tm
             for staged_abs, rel in placements:
                 txn.place(staged_abs, rel)
 
-        mods.set_installed_record(mod.id, version or "latest", mod.filename,
+        mods.set_installed_record(appid, mod.id, version or "latest", mod.filename,
                              paths=sorted(rel for _src, rel in placements), mod=mod)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — merged into BepInEx tree")
         return True
@@ -103,30 +103,30 @@ def _merge_zip_into_tree(install_dir: str, mod: ModInfo, version: str | None, tm
             shutil.rmtree(staging)
 
 
-def _extract_to_game_root(install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
+def _extract_to_game_root(appid: int, install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
     """Extract only the BepInEx/* members of the zip into the game's install dir.
     Records which files under BepInEx/ this mod owns, so uninstall can clean up. Other top-level
     zip entries (manifest.json, icon.png, README.md) are skipped to keep the game root clean.
     """
     return _merge_zip_into_tree(
-        install_dir, mod, version, tmp_zip,
+        appid, install_dir, mod, version, tmp_zip,
         select=lambda m: m if m.startswith("BepInEx/") else None,
     )
 
 
-def _extract_bepinex_subdirs(install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str, subdirs: set) -> bool:
+def _extract_bepinex_subdirs(appid: int, install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str, subdirs: set) -> bool:
     """Thunderstore "modern" layout: zip has plugins/, patchers/, monomod/, or core/ at
     its root. These are BepInEx subdirectories — merge them into the game's BepInEx/
     tree so files land at e.g. BepInEx/plugins/<modname>/<dll>. Stray top-level files
     (manifest.json, icon.png, README.md) are skipped to keep BepInEx clean.
     """
     return _merge_zip_into_tree(
-        install_dir, mod, version, tmp_zip,
+        appid, install_dir, mod, version, tmp_zip,
         select=lambda m: f"BepInEx/{m}" if m.split("/")[0] in subdirs else None,
     )
 
 
-def _extract_bare_dll(mods_path: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
+def _extract_bare_dll(appid: int, mods_path: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
     """Install a bare-DLL Thunderstore mod: loose .dll/.pdb files at the zip root
     (plus possibly sidecar asset folders) extracted into BepInEx/plugins/<mod.filename>/.
     Thunderstore metadata files (manifest.json, icon.png, README.md, CHANGELOG.md, LICENSE)
@@ -150,9 +150,9 @@ def _extract_bare_dll(mods_path: str, mod: ModInfo, version: str | None, tmp_zip
                 z.extract(member, staged)
                 extracted += 1
 
-        mods_common._backup_version_dir(dst_dir, mod.id)  # version-history snapshot of the install being replaced
+        mods_common._backup_version_dir(appid, dst_dir, mod.id)  # version-history snapshot of the install being replaced
         mods_common._atomic_dir_swap(dst_dir, staged)
-        mods.set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
+        mods.set_installed_record(appid, mod.id, version or "latest", mod.filename, mod=mod)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {extracted} files in bare-DLL layout")
         return True
     finally:
@@ -160,7 +160,7 @@ def _extract_bare_dll(mods_path: str, mod: ModInfo, version: str | None, tmp_zip
             _discard(staged)
 
 
-def _extract_to_mods_folder(mods_path: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
+def _extract_to_mods_folder(appid: int, mods_path: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
     """Extract the zip as a single folder under BepInEx/plugins/<mod.filename>/.
     Backs up the existing folder if one is present.
     """
@@ -182,9 +182,9 @@ def _extract_to_mods_folder(mods_path: str, mod: ModInfo, version: str | None, t
                 os.makedirs(staged)
                 z.extractall(staged)
 
-        mods_common._backup_version_dir(dst_dir, mod.id)  # version-history snapshot of the install being replaced
+        mods_common._backup_version_dir(appid, dst_dir, mod.id)  # version-history snapshot of the install being replaced
         mods_common._atomic_dir_swap(dst_dir, staged)
-        mods.set_installed_record(mod.id, version or "latest", mod.filename, mod=mod)
+        mods.set_installed_record(appid, mod.id, version or "latest", mod.filename, mod=mod)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'})")
         return True
     finally:
@@ -209,7 +209,7 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
 
     # Previous install's tracked top-level entries (files or dirs). Cleared as part of the commit
     # transaction below — NOT before the download — so a dead link can't destroy the old install.
-    old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
+    old_paths = (mods._load_store(game.appid).get(mod.id) or {}).get("paths") or []
     try:
         decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_zip, game.appid)
@@ -243,7 +243,7 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
 
         # Commit: retire the previous install and place the new files all-or-nothing. retire runs
         # before place so a new file never displaces one this same transaction just wrote.
-        is_foreign = mods_common._overwrite_guard(install_dir, mods_path, mod, [r for _s, r in placements])
+        is_foreign = mods_common._overwrite_guard(game.appid, install_dir, mods_path, mod, [r for _s, r in placements])
         with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
             for p in old_paths:
                 txn.retire(p)
@@ -251,7 +251,7 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
                 txn.place(staged_abs, install_rel)
 
         paths = sorted(os.path.relpath(os.path.join(mods_path, t), install_dir) for t in created_tops)
-        mods.set_installed_record(mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
+        mods.set_installed_record(game.appid, mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {len(created_tops)} entries flat into mods dir")
         return True
     except utils.InstallCancelledError:
@@ -267,7 +267,7 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
             shutil.rmtree(staging)
 
 
-def _folder_commit(install_dir: str, mods_path: str, extract_root: str, staging: str,
+def _folder_commit(appid: int, install_dir: str, mods_path: str, extract_root: str, staging: str,
                    mod: ModInfo, version: str | None, old_paths: list, folder: str | None = None) -> bool:
     """Place an extracted archive as ONE folder <mods_dir>/<folder>/, transactionally. For folder-per-
     mod games (No Man's Sky: each mod is its own folder under GAMEDATA/MODS/; Satisfactory: each mod
@@ -312,7 +312,7 @@ def _folder_commit(install_dir: str, mods_path: str, extract_root: str, staging:
         return False
 
     top_rel = os.path.relpath(os.path.join(mods_path, folder), install_dir)
-    is_foreign = mods_common._overwrite_guard(install_dir, mods_path, mod, [r for _s, r in placements])
+    is_foreign = mods_common._overwrite_guard(appid, install_dir, mods_path, mod, [r for _s, r in placements])
     with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
         for p in old_paths:
             txn.retire(p)                      # retire() already sets aside <mod> AND <mod>.disabled
@@ -324,7 +324,7 @@ def _folder_commit(install_dir: str, mods_path: str, extract_root: str, staging:
 
     # Track the single top folder; toggling renames it to <mod>.disabled, so presence/enabled use
     # the flat/.disabled helpers (_flat_mod_present / _smapi_mod_enabled).
-    mods.set_installed_record(mod.id, version or "latest", mod.filename, paths=[top_rel], mod=mod)
+    mods.set_installed_record(appid, mod.id, version or "latest", mod.filename, paths=[top_rel], mod=mod)
     decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — folder {folder}/ ({len(placements)} file(s))")
     return True
 
@@ -342,12 +342,12 @@ async def _install_mod_zip_folder(game: GameProfile, install_dir: str, mods_path
             shutil.rmtree(p)
     # Previous install's tracked folder — retired inside the commit transaction (not before the
     # download), so a dead link or cancel can't destroy the old install before the new one is ready.
-    old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
+    old_paths = (mods._load_store(game.appid).get(mod.id) or {}).get("paths") or []
     try:
         decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_archive, game.appid)
         mods_archive.extract_archive(tmp_archive, tmp_extract)
-        return _folder_commit(install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
+        return _folder_commit(game.appid, install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
         return None
@@ -379,7 +379,7 @@ async def install_folder_files(game: GameProfile, install_dir: str, mod: ModInfo
             shutil.rmtree(p)
     # Previous install's tracked folder — retired inside _folder_commit's transaction, never before the
     # downloads, so a dead link or cancel can't destroy the old install before the new one is ready.
-    old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
+    old_paths = (mods._load_store(game.appid).get(mod.id) or {}).get("paths") or []
     archives: list[str] = []
     try:
         for i, url in enumerate(urls):
@@ -389,7 +389,7 @@ async def install_folder_files(game: GameProfile, install_dir: str, mod: ModInfo
             await utils.download(url, arch, game.appid)
             # Overlay every file into ONE tree so _folder_commit places their union as a single folder.
             mods_archive.extract_archive(arch, combined)
-        return _folder_commit(install_dir, mods_path, combined, staging, mod, version, old_paths)
+        return _folder_commit(game.appid, install_dir, mods_path, combined, staging, mod, version, old_paths)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
         return None
@@ -455,7 +455,7 @@ async def _install_mod_zip_smod(game: GameProfile, install_dir: str, mods_path: 
             shutil.rmtree(p)
     # Previous install's tracked folder — retired inside the commit transaction (not before the
     # download), so a dead link or cancel can't destroy the old install before the new one is ready.
-    old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
+    old_paths = (mods._load_store(game.appid).get(mod.id) or {}).get("paths") or []
     try:
         decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_archive, game.appid)
@@ -467,7 +467,7 @@ async def _install_mod_zip_smod(game: GameProfile, install_dir: str, mods_path: 
         folder, plugin_root = target
         # plugin_root is where the loose plugin files actually live (archive root, or a wrapper dir);
         # passing it as extract_root lands them directly under Mods/<folder>/, never nested.
-        return _folder_commit(install_dir, mods_path, plugin_root, staging, mod, version, old_paths, folder=folder)
+        return _folder_commit(game.appid, install_dir, mods_path, plugin_root, staging, mod, version, old_paths, folder=folder)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
         return None
@@ -517,7 +517,7 @@ async def _install_mod_loose_merge(
     # Previous install's tracked files (active or disabled). Retired inside the commit transaction
     # below — NOT here — so a dead download, or a parked-then-cancelled variant pick, can't destroy
     # the old install before the new one is ready.
-    old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
+    old_paths = (mods._load_store(game.appid).get(mod.id) or {}).get("paths") or []
 
     # When the queue parks this install to ask which variant to use, we keep the extracted archive
     # so the resume can install the choice without downloading again. `park` tells the finally not
@@ -673,7 +673,7 @@ async def _install_mod_loose_merge(
         # .pak content lands in fresh numbered slots (never an overwrite); only the loose natives/
         # files can collide, so the conflict scan covers those. Stock files (unclaimed) the merge
         # displaces are preserved as *.moddy-orig on commit.
-        is_foreign = mods_common._overwrite_guard(install_dir, mods.resolve_mods_path(game, install_dir), mod,
+        is_foreign = mods_common._overwrite_guard(game.appid, install_dir, mods.resolve_mods_path(game, install_dir), mod,
                                       [r for _f, r in natives_placements])
         with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
             for p in old_paths:
@@ -687,7 +687,7 @@ async def _install_mod_loose_merge(
                 paths.append(rel)
 
         paths.sort()
-        mods.set_installed_record(mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
+        mods.set_installed_record(game.appid, mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
         n_pak = sum(1 for p in paths if p.lower().startswith("re_chunk_000.pak.patch_"))
         n_nat = len(paths) - n_pak
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {n_nat} natives file(s), {n_pak} pak(s)")

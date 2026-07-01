@@ -41,11 +41,11 @@ class MergeAtomicityTest(unittest.TestCase):
 
         with failing_copy2(fail_on=2):  # first file commits, second blows up
             with self.assertRaises(OSError):
-                mods._extract_to_game_root(self.install_dir, mod, "1.0.0", tmp_zip)
+                mods._extract_to_game_root(1, self.install_dir, mod, "1.0.0", tmp_zip)
 
         self.assertEqual(tree_snapshot(self.install_dir), before, "tree must be unchanged after a failed merge")
         self.assertEqual(bak_crumbs(self.install_dir), [], "no .moddy-bak crumbs left behind")
-        self.assertIsNone(mods.get_installed_record(mod.id), "no record written for a failed install")
+        self.assertIsNone(mods.get_installed_record(1, mod.id), "no record written for a failed install")
         # Staging scratch is cleaned up regardless of outcome.
         self.assertFalse(os.path.exists(os.path.join(self.staging_parent, "Cool_merge_staging")))
 
@@ -65,14 +65,14 @@ class MergeAtomicityTest(unittest.TestCase):
 
         with failing_copy2(fail_on=2):
             with self.assertRaises(OSError):
-                mods._extract_to_game_root(self.install_dir, mod, "1.0.0", tmp_zip)
+                mods._extract_to_game_root(1, self.install_dir, mod, "1.0.0", tmp_zip)
 
         self.assertEqual(tree_snapshot(self.install_dir), before, "overwritten file must be restored to its original")
 
     def test_successful_merge_cleans_staging(self):
         tmp_zip = self._zip({"BepInEx/plugins/A/a.dll": b"aaa"})
         mod = make_mod(install_type="zip_dir", filename="Cool")
-        ok = mods._extract_to_game_root(self.install_dir, mod, "1.0.0", tmp_zip)
+        ok = mods._extract_to_game_root(1, self.install_dir, mod, "1.0.0", tmp_zip)
         self.assertTrue(ok)
         self.assertFalse(os.path.exists(os.path.join(self.staging_parent, "Cool_merge_staging")))
         self.assertEqual(bak_crumbs(self.install_dir), [])

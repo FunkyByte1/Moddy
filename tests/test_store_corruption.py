@@ -13,6 +13,7 @@ import unittest
 
 from _harness import decky, mods, reset_store
 
+import game_store
 import json_store
 import modloaders
 import profiles
@@ -40,16 +41,16 @@ class TestStoreCorruption(unittest.TestCase):
 
     def test_corrupt_store_is_quarantined_and_reads_empty(self):
         _write_raw('{"mods": {"trunc')
-        self.assertEqual(mods._load_store(), {})
+        self.assertEqual(mods._load_store(1), {})
         self.assertEqual(len(_quarantined()), 1)
         self.assertFalse(os.path.exists(_store_path()))  # moved aside, not left in place
 
     def test_saves_work_again_after_quarantine(self):
         _write_raw("not json at all")
-        self.assertEqual(mods._load_store(), {})
-        mods.set_installed_record("test.mod", "1.0", "TestMod")
-        mods._INSTALLED_STORE = None  # drop the cache; force a re-read from disk
-        rec = mods.get_installed_record("test.mod")
+        self.assertEqual(mods._load_store(1), {})
+        mods.set_installed_record(1, "test.mod", "1.0", "TestMod")
+        game_store.reset()  # drop the cache; force a re-read from disk
+        rec = mods.get_installed_record(1, "test.mod")
         self.assertIsNotNone(rec)
         self.assertEqual(rec["version"], "1.0")
         self.assertEqual(len(_quarantined()), 1)
@@ -60,11 +61,11 @@ class TestStoreCorruption(unittest.TestCase):
         self.assertEqual(len(_quarantined()), 1)
 
     def test_bak_snapshot_on_first_clean_read(self):
-        mods.set_installed_record("test.mod", "1.0", "TestMod")
-        mods._INSTALLED_STORE = None
-        mods._load_store()
+        mods.set_installed_record(1, "test.mod", "1.0", "TestMod")
+        game_store.reset()
+        mods._load_store(1)
         with open(_store_path() + ".bak") as f:
-            self.assertEqual(json.load(f)["mods"]["test.mod"]["version"], "1.0")
+            self.assertEqual(json.load(f)["games"]["1"]["mods"]["test.mod"]["version"], "1.0")
 
     def test_bak_survives_quarantine(self):
         path = _store_path()
@@ -82,15 +83,15 @@ class TestStoreCorruption(unittest.TestCase):
     def test_quarantine_is_reported_for_the_ui(self):
         _write_raw("{oops")
         self.assertEqual(json_store.quarantine_events(), [])
-        mods._load_store()
+        mods._load_store(1)
         events = json_store.quarantine_events()
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["file"], "installed.json")
         self.assertIn(".corrupt-", events[0]["to"])
         # A clean read reports nothing new.
-        mods._INSTALLED_STORE = None
-        mods.set_installed_record("test.mod", "1.0", "TestMod")
-        mods._load_store()
+        game_store.reset()
+        mods.set_installed_record(1, "test.mod", "1.0", "TestMod")
+        mods._load_store(1)
         self.assertEqual(len(json_store.quarantine_events()), 1)
 
     def test_writes_are_stamped_with_schema_and_plugin_version(self):
@@ -115,15 +116,15 @@ class TestStoreCorruption(unittest.TestCase):
     def test_all_sections_recover_after_one_quarantine(self):
         _write_raw("{oops")
         # First reader quarantines; the rest see a clean empty store, and every writer works.
-        self.assertEqual(mods._load_store(), {})
+        self.assertEqual(mods._load_store(1), {})
         self.assertEqual(modloaders._load_version_store(), {})
         self.assertEqual(profiles.list_profiles("game1"), [])
         self.assertEqual(len(_quarantined()), 1)
-        mods.set_installed_record("test.mod", "1.0", "TestMod")
+        mods.set_installed_record(1, "test.mod", "1.0", "TestMod")
         modloaders.set_modloader_version("bepinex", "5.4")
         self.assertTrue(profiles.save_profile("game1", "main", []))
         full = json_store.read(_store_path())
-        self.assertEqual(full["mods"]["test.mod"]["version"], "1.0")
+        self.assertEqual(full["games"]["1"]["mods"]["test.mod"]["version"], "1.0")
         self.assertEqual(full["modloaders"]["bepinex"]["version"], "5.4")
         self.assertEqual(full["profiles"]["game1"][0]["name"], "main")
 

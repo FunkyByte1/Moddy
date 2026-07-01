@@ -125,7 +125,7 @@ def _loader_is_foreign(game: GameProfile, install_dir: str):
     general path that replaces the old bespoke version.dll.deckhand_bak backup. Provenance is read
     from the store, so a loader's OWN files (recorded by its prior install) are not mistaken for
     stock on upgrade — only a genuine stock file at a fresh slot is captured."""
-    claimed = set(mods._claimed_paths_map(install_dir, mods.resolve_mods_path(game, install_dir)))
+    claimed = set(mods._claimed_paths_map(game.appid, install_dir, mods.resolve_mods_path(game, install_dir)))
     for _mid, rec in (_load_version_store() or {}).items():
         for p in (rec.get("paths") or []):
             claimed.add(os.path.normpath(os.path.join(install_dir, p)))
@@ -294,7 +294,7 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
         # replaces the old bespoke version.dll.deckhand_bak restore.
         restore_candidates = [os.path.join(install_dir, p) for p in tracked_paths] + \
                              [os.path.join(install_dir, f) for f in ml.files]
-        mods._restore_originals(install_dir, mods.resolve_mods_path(game, install_dir),
+        mods._restore_originals(game.appid, install_dir, mods.resolve_mods_path(game, install_dir),
                                 restore_candidates, modloader_id)
         clear_modloader_version(modloader_id)
         decky.logger.info(f"Uninstalled {modloader_id}")

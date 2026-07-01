@@ -134,7 +134,7 @@ class FomodInstallTest(unittest.TestCase):
         self.assertTrue(self.exists("nativePC/pl/core.tex"), "required Core installed")
         self.assertTrue(self.exists("nativePC/pl/blue.tex"), "chosen Blue installed")
         self.assertFalse(self.exists("nativePC/pl/red.tex"), "unchosen Red NOT installed")
-        self.assertEqual(sorted(mods.get_installed_record(mod.id)["paths"]),
+        self.assertEqual(sorted(mods.get_installed_record(self.game.appid, mod.id)["paths"]),
                          ["nativePC/pl/blue.tex", "nativePC/pl/core.tex"])
 
     def test_resume_with_defaults_sentinel_installs_default(self):
@@ -283,7 +283,7 @@ class FomodInstallTest(unittest.TestCase):
         self.assertTrue(self.exists("nativePC/pl/core.tex"))
         run(mods.uninstall_mod(self.game, self.install_dir, mod.id))
         self.assertFalse(self.exists("nativePC/pl/core.tex"))
-        self.assertIsNone(mods.get_installed_record(mod.id))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, mod.id))
 
 
 if __name__ == "__main__":

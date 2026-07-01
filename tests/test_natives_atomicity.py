@@ -47,7 +47,7 @@ class NativesAtomicityTest(unittest.TestCase):
         res, mod = self._install({"natives/STM/Item/Cool.tex": b"tex", "modinfo.ini": "x"}, "1.0.0")
         self.assertTrue(res)
         self.assertTrue(self.exists("natives/stm/item/cool.tex"))  # RE4 needs lowercase
-        rec = mods.get_installed_record(mod.id)
+        rec = mods.get_installed_record(self.game.appid, mod.id)
         self.assertEqual(rec["paths"], ["natives/stm/item/cool.tex"])
 
     def test_pak_install_slots_above_base_game(self):
@@ -57,7 +57,7 @@ class NativesAtomicityTest(unittest.TestCase):
         res, mod = self._install({"MyMod/mod.pak": b"pak"}, "1.0.0")
         self.assertTrue(res)
         self.assertTrue(self.exists("re_chunk_000.pak.patch_002.pak"))
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["re_chunk_000.pak.patch_002.pak"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["re_chunk_000.pak.patch_002.pak"])
 
     # --- reframework/ merge (REFramework plugins & scripts) -------------------
 
@@ -68,7 +68,7 @@ class NativesAtomicityTest(unittest.TestCase):
         self.assertTrue(res)
         self.assertTrue(self.exists("reframework/plugins/reframework-d2d.dll"))
         self.assertFalse(self.exists("README.txt"))  # docs beside the tree aren't installed
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["reframework/plugins/reframework-d2d.dll"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["reframework/plugins/reframework-d2d.dll"])
 
     def test_reframework_casing_canonicalized_and_lowercased(self):
         # An archive shipping "REFramework/AutoRun/…" lands in the canonical, lowercased path.
@@ -91,7 +91,7 @@ class NativesAtomicityTest(unittest.TestCase):
         self.assertTrue(res)
         self.assertTrue(self.exists("reframework/autorun/mod_toggle.lua"))
         self.assertFalse(self.exists("README.txt"))  # readme beside the script isn't installed
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["reframework/autorun/mod_toggle.lua"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["reframework/autorun/mod_toggle.lua"])
 
     def test_loose_autorun_tree_wraps_into_reframework(self):
         # A bare `autorun/` tree (script + companion data, no reframework/ parent) lands under
@@ -101,7 +101,7 @@ class NativesAtomicityTest(unittest.TestCase):
         self.assertTrue(self.exists("reframework/autorun/mymod.lua"))
         self.assertTrue(self.exists("reframework/autorun/mymod/data.json"))
         self.assertEqual(
-            sorted(mods.get_installed_record(mod.id)["paths"]),
+            sorted(mods.get_installed_record(self.game.appid, mod.id)["paths"]),
             ["reframework/autorun/mymod.lua", "reframework/autorun/mymod/data.json"],
         )
 
@@ -113,7 +113,7 @@ class NativesAtomicityTest(unittest.TestCase):
         self.assertTrue(res)
         self.assertTrue(self.exists("reframework/plugins/firstnatives.dll"))
         self.assertFalse(self.exists("readme.txt"))  # readme beside the dll isn't installed
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["reframework/plugins/firstnatives.dll"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["reframework/plugins/firstnatives.dll"])
 
     def test_bare_plugin_dll_in_wrapper_dir_descended(self):
         # The dll wrapped in a single "<Mod Name>/" dir still lands flat in reframework/plugins/.
@@ -137,7 +137,7 @@ class NativesAtomicityTest(unittest.TestCase):
         self.assertTrue(self.exists("natives/stm/a.tex"))
         self.assertTrue(self.exists("reframework/plugins/p.dll"))
         self.assertEqual(
-            sorted(mods.get_installed_record(mod.id)["paths"]),
+            sorted(mods.get_installed_record(self.game.appid, mod.id)["paths"]),
             ["natives/stm/a.tex", "reframework/plugins/p.dll"],
         )
 
@@ -150,7 +150,7 @@ class NativesAtomicityTest(unittest.TestCase):
         self.assertTrue(self.exists("reframework/plugins/d2d.dll"))
         run(mods.uninstall_mod(self.game, self.install_dir, mod.id))
         self.assertFalse(self.exists("reframework/plugins/d2d.dll"))
-        self.assertIsNone(mods.get_installed_record(mod.id))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, mod.id))
 
     # --- rollback -------------------------------------------------------------
 

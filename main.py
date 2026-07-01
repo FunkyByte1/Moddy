@@ -9,6 +9,7 @@ import registry
 import steam
 import modloaders
 import mods
+import game_store
 import profiles
 import github
 import thunderstore
@@ -182,12 +183,12 @@ class Plugin:
         orphaned = mods.mods_under_modloader(game, install_dir, ml.dirs, ml.files)
         # Remove bundled frameworks first — they're part of the loader, not content mods.
         for fw_id in game.bundled_framework_ids():
-            if mods.get_installed_record(fw_id) is not None:
+            if mods.get_installed_record(appid, fw_id) is not None:
                 await mods.uninstall_mod(game, install_dir, fw_id)
         ok = await modloaders.uninstall_modloader(game, install_dir, ml.id)
         if ok:
             for m in orphaned:
-                mods.clear_installed_record(m["id"])
+                mods.clear_installed_record(appid, m["id"])
         return ok
 
     async def enable_modloader(self, appid: int) -> bool:
@@ -248,7 +249,7 @@ class Plugin:
             installed_version = entry.get("version")
             if not installed_version or installed_version == "latest":
                 continue
-            source = (mods.get_installed_record(mod_id) or {}).get("source") or {}
+            source = (mods.get_installed_record(appid, mod_id) or {}).get("source") or {}
             source_type, owner, repo = source.get("type", ""), source.get("owner", ""), source.get("repo", "")
             nexus_domain, nexus_mod_id = source.get("nexus_domain", ""), source.get("mod_id", "")
             if source_type == "github":
@@ -335,9 +336,13 @@ class Plugin:
 
     async def set_library_ignored(self, mod_id: str, ignored: bool) -> bool:
         """Mark an installed library as an intentional (undocumented) dependency so the
-        unused-libraries cleanup stops flagging it — or clear that mark. The install store is
-        keyed by mod id across games, so no appid is needed."""
-        return mods.set_ignore_unused(mod_id, ignored)
+        unused-libraries cleanup stops flagging it — or clear that mark.
+        TEMPORARY until the RPC gains appid: try every known game's store until one has
+        the record."""
+        for appid in game_store.appids():
+            if mods.set_ignore_unused(int(appid), mod_id, ignored):
+                return True
+        return False
 
     async def get_backed_up_versions(self, appid: int, mod_id: str) -> list:
         game = registry.get_game_by_appid(appid)
@@ -541,7 +546,8 @@ class Plugin:
         so the UI can explain an unexpectedly empty library instead of leaving the
         user to assume their mods are gone. Forces a store read so a corrupt file is
         detected here, not whenever some later call happens to read it."""
-        mods._load_store()
+        for appid in game_store.appids():  # appids() itself forces the read; per-game loads keep it thorough
+            mods._load_store(int(appid))
         return {"quarantined": json_store.quarantine_events()}
 
     async def export_logs(self) -> str | None:

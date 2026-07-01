@@ -38,13 +38,13 @@ class ExtractorCharacterization(unittest.TestCase):
             "icon.png": b"png",
         })
         mod = make_mod(install_type="zip_dir", filename="Cool")
-        ok = mods._extract_to_game_root(self.install_dir, mod, "1.0.0", tmp_zip)
+        ok = mods._extract_to_game_root(1, self.install_dir, mod, "1.0.0", tmp_zip)
         self.assertTrue(ok)
         # Only BepInEx/* members land; metadata files are skipped.
         self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/plugins/Cool/Cool.dll")))
         self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/patchers/Cool/patch.dll")))
         self.assertFalse(os.path.exists(os.path.join(self.install_dir, "manifest.json")))
-        rec = mods.get_installed_record(mod.id)
+        rec = mods.get_installed_record(1, mod.id)
         self.assertEqual(rec["paths"], ["BepInEx/patchers/Cool/patch.dll", "BepInEx/plugins/Cool/Cool.dll"])
 
     def test_extract_bepinex_subdirs(self):
@@ -53,11 +53,11 @@ class ExtractorCharacterization(unittest.TestCase):
             "manifest.json": "{}",
         })
         mod = make_mod(install_type="zip_dir", filename="Cool")
-        ok = mods._extract_bepinex_subdirs(self.install_dir, mod, "1.0.0", tmp_zip, {"plugins"})
+        ok = mods._extract_bepinex_subdirs(1, self.install_dir, mod, "1.0.0", tmp_zip, {"plugins"})
         self.assertTrue(ok)
         self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/plugins/Cool/Cool.dll")))
         self.assertFalse(os.path.exists(os.path.join(self.install_dir, "BepInEx/manifest.json")))
-        rec = mods.get_installed_record(mod.id)
+        rec = mods.get_installed_record(1, mod.id)
         self.assertEqual(rec["paths"], ["BepInEx/plugins/Cool/Cool.dll"])
 
     def test_extract_bare_dll(self):
@@ -70,7 +70,7 @@ class ExtractorCharacterization(unittest.TestCase):
             "README.md": "hi",
         })
         mod = make_mod(install_type="zip_dir", filename="Cool")
-        ok = mods._extract_bare_dll(mods_path, mod, "1.0.0", tmp_zip)
+        ok = mods._extract_bare_dll(1, mods_path, mod, "1.0.0", tmp_zip)
         self.assertTrue(ok)
         self.assertTrue(os.path.isfile(os.path.join(mods_path, "Cool", "Cool.dll")))
         self.assertTrue(os.path.isfile(os.path.join(mods_path, "Cool", "Cool.pdb")))
@@ -86,7 +86,7 @@ class ExtractorCharacterization(unittest.TestCase):
             "Wrapper/sub/b.dll": b"b",
         })
         mod = make_mod(install_type="zip_dir", filename="Cool")
-        ok = mods._extract_to_mods_folder(mods_path, mod, "1.0.0", tmp_zip)
+        ok = mods._extract_to_mods_folder(1, mods_path, mod, "1.0.0", tmp_zip)
         self.assertTrue(ok)
         # The single wrapper folder is stripped: contents land under <filename>/.
         self.assertTrue(os.path.isfile(os.path.join(mods_path, "Cool", "a.dll")))
@@ -119,7 +119,7 @@ class ZipFlatCharacterization(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.mods_path, "manifest.json")))
         # The temp zip is cleaned up.
         self.assertFalse(os.path.exists(os.path.join(self.mods_path, "Cool_tmp.zip")))
-        rec = mods.get_installed_record(mod.id)
+        rec = mods.get_installed_record(1, mod.id)
         self.assertEqual(rec["paths"], ["Mods/Cool.dll"])
 
     def test_zip_flat_failed_upgrade_keeps_old_install(self):

@@ -52,7 +52,7 @@ class NativePCInstallTest(unittest.TestCase):
         # Case is preserved (unlike RE4's lowercasing) — Stracker's matches the original path.
         self.assertTrue(self.exists("nativePC/pl/f_equip/Body.tex"))
         self.assertFalse(self.exists("nativepc/pl/f_equip/body.tex"))
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["nativePC/pl/f_equip/Body.tex"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["nativePC/pl/f_equip/Body.tex"])
 
     def test_nativepc_unwraps_wrapper_folder(self):
         # Many MHW mods wrap nativePC/ inside a "<Mod Name>/" folder; the shallowest tree is used.
@@ -65,7 +65,7 @@ class NativePCInstallTest(unittest.TestCase):
         res, mod = self._install({"NativePC/pl/a.tex": b"t"})
         self.assertTrue(res)
         self.assertTrue(self.exists("nativePC/pl/a.tex"))
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["nativePC/pl/a.tex"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["nativePC/pl/a.tex"])
 
     def test_fluffy_packaging_wraps_content_into_nativepc(self):
         # The dominant MHW Nexus shape (Fluffy Mod Manager): NO nativePC/ folder, just modinfo.ini +
@@ -85,7 +85,7 @@ class NativePCInstallTest(unittest.TestCase):
         self.assertFalse(self.exists("nativePC/preview.jpg"))
         self.assertFalse(self.exists("nativePC/README.txt"))
         self.assertEqual(
-            sorted(mods.get_installed_record(mod.id)["paths"]),
+            sorted(mods.get_installed_record(self.game.appid, mod.id)["paths"]),
             ["nativePC/pl/f_equip/Body.tex", "nativePC/stm/foo.tex"],
         )
 
@@ -105,7 +105,7 @@ class NativePCInstallTest(unittest.TestCase):
         self.assertTrue(res)
         self.assertTrue(self.exists("nativePC/pl/f_equip/Body.tex"))
         self.assertFalse(self.exists("nativePC/f_equip/Body.tex"))
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["nativePC/pl/f_equip/Body.tex"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["nativePC/pl/f_equip/Body.tex"])
 
     def test_no_content_only_metadata_fails(self):
         # An archive with nothing but metadata has nothing to install.
@@ -132,7 +132,7 @@ class NativePCInstallTest(unittest.TestCase):
         run(mods.uninstall_mod(self.game, self.install_dir, mod.id))
         self.assertFalse(self.exists("nativePC/pl/a.tex"))
         self.assertFalse(self.exists("nativePC/pl/b.tex"))
-        self.assertIsNone(mods.get_installed_record(mod.id))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, mod.id))
 
 
 if __name__ == "__main__":

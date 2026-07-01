@@ -58,11 +58,11 @@ class ThunderstoreModpacksTest(unittest.TestCase):
                 # Mimic the real install_mod: write the record + files on disk and stamp provenance, so
                 # presence checks and ref-counting see reality across multiple installs.
                 rel = f"BepInEx/plugins/{mod.filename}/{mod.filename}.dll"
-                mods.set_installed_record(mod.id, version or "1.0.0", mod.filename, paths=[rel])
+                mods.set_installed_record(game.appid, mod.id, version or "1.0.0", mod.filename, paths=[rel])
                 p = os.path.join(install_dir, rel)
                 os.makedirs(os.path.dirname(p), exist_ok=True)
                 open(p, "w").close()
-                mods.add_record_source(mod.id, source or {"id": "manual", "name": "You"})
+                mods.add_record_source(game.appid, mod.id, source or {"id": "manual", "name": "You"})
             return res
 
         async def _uninstall_mod(game, install_dir, mod_id):
@@ -107,13 +107,13 @@ class ThunderstoreModpacksTest(unittest.TestCase):
     def mark_installed_on_disk(self, full_name, rel="BepInEx/plugins/{name}/{name}.dll"):
         name = full_name.split("-", 1)[-1]
         rel = rel.format(name=name)
-        mods.set_installed_record(full_name, "1.0.0", name, paths=[rel])
+        mods.set_installed_record(self.game.appid, full_name, "1.0.0", name, paths=[rel])
         p = os.path.join(self.install_dir, rel)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         open(p, "w").close()
 
     def sources_of(self, mod_id):
-        rec = mods.find_installed_record(mod_id)
+        rec = mods.find_installed_record(self.game.appid, mod_id)
         return set((rec or {}).get("sources", {}).keys())
 
     # ── catalog shaping ──────────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ class ThunderstoreModpacksTest(unittest.TestCase):
         self.add_pkg("A-One")
         self.add_modpack("Curator-Pack", deps=["A-One"])
         self.mark_installed_on_disk("A-One")  # already on disk (e.g. installed manually)
-        mods.add_record_source("A-One", {"id": "manual", "name": "You"})
+        mods.add_record_source(self.game.appid, "A-One", {"id": "manual", "name": "You"})
         res = run(tm.run_modpack(632360, "Curator-Pack", _Job()))
         self.assertTrue(res)
         self.assertEqual(self.installs, [], "a present member isn't re-downloaded")

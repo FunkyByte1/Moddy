@@ -13,7 +13,7 @@ async def ensure_framework(game: "registry.GameProfile", install_dir: str, key: 
         decky.logger.warning(f"No framework config '{key}' for {game.id}")
         return False
     fw_id = fw.get("id", key)
-    if mods.get_installed_record(fw_id) is not None:
+    if mods.get_installed_record(game.appid, fw_id) is not None:
         return True  # already installed
     src = fw.get("source", {})
     owner, repo = src.get("owner", ""), src.get("repo", "")

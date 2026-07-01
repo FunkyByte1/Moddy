@@ -56,6 +56,7 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 import mods       # noqa: E402
+import game_store  # noqa: E402
 import utils      # noqa: E402
 import registry   # noqa: E402
 
@@ -65,7 +66,7 @@ def reset_store() -> None:
     each test starts with an empty store and can't see another test's records."""
     decky.DECKY_PLUGIN_SETTINGS_DIR = tempfile.mkdtemp(prefix="moddy-settings-")
     decky.DECKY_PLUGIN_RUNTIME_DIR = tempfile.mkdtemp(prefix="moddy-runtime-")
-    mods._INSTALLED_STORE = None
+    game_store.reset()
 
 
 def make_game(appid: int = 1, mods_dir: str = "BepInEx/plugins") -> "registry.GameProfile":

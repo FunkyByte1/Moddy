@@ -206,7 +206,7 @@ def _palworld_placements(extract_root: str, mod: ModInfo) -> "list[tuple[str, st
     return out or None
 
 
-def _palworld_commit(install_dir: str, mods_path: str, mod: ModInfo, version: str | None,
+def _palworld_commit(appid: int, install_dir: str, mods_path: str, mod: ModInfo, version: str | None,
                      placements: "list[tuple[str, str]] | None", staging: str) -> bool:
     """Stage `placements` [(src_abs, dest_rel)] and commit all-or-nothing into the game tree, retiring
     the prior install (active + .disabled forms). On a dest collision (multi-file installs) the last
@@ -216,7 +216,7 @@ def _palworld_commit(install_dir: str, mods_path: str, mod: ModInfo, version: st
     if not placements:
         decky.logger.error(f"{mod.name}: no installable Palworld content found — refusing to install")
         return False
-    old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
+    old_paths = (mods._load_store(appid).get(mod.id) or {}).get("paths") or []
     by_dest: dict[str, str] = {}
     for src, dest_rel in placements:
         by_dest[dest_rel] = src  # last file wins on a collision
@@ -227,14 +227,14 @@ def _palworld_commit(install_dir: str, mods_path: str, mod: ModInfo, version: st
         shutil.copyfile(src, staged_abs)
         staged.append((staged_abs, dest_rel))
     placed: list[str] = []
-    is_foreign = mods_common._overwrite_guard(install_dir, mods_path, mod, [d for _s, d in staged])
+    is_foreign = mods_common._overwrite_guard(appid, install_dir, mods_path, mod, [d for _s, d in staged])
     with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
         for p in old_paths:
             txn.retire(p)
         for staged_abs, dest_rel in staged:
             txn.place(staged_abs, dest_rel)
             placed.append(dest_rel)
-    mods.set_installed_record(mod.id, version or "latest", mod.filename, paths=placed, mod=mod)
+    mods.set_installed_record(appid, mod.id, version or "latest", mod.filename, paths=placed, mod=mod)
     decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {len(placed)} file(s)")
     return True
 
@@ -254,7 +254,7 @@ async def _install_mod_zip_palworld(game: GameProfile, install_dir: str, mods_pa
         decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_archive, game.appid)
         mods_archive.extract_archive(tmp_archive, tmp_extract)
-        return _palworld_commit(install_dir, mods_path, mod, version,
+        return _palworld_commit(game.appid, install_dir, mods_path, mod, version,
                                 _palworld_placements(tmp_extract, mod), staging)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
@@ -295,7 +295,7 @@ async def install_palworld_files(game: GameProfile, install_dir: str, mod: ModIn
             finally:
                 if os.path.exists(arch):
                     os.remove(arch)
-        return _palworld_commit(install_dir, mods_path, mod, version, placements, staging)
+        return _palworld_commit(game.appid, install_dir, mods_path, mod, version, placements, staging)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
         return None

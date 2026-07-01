@@ -8,7 +8,7 @@ import utils
 from install_txn import _StagedInstall
 
 
-def _smapi_commit(install_dir: str, mods_path: str, extract_root: str, staging: str,
+def _smapi_commit(appid: int, install_dir: str, mods_path: str, extract_root: str, staging: str,
                   mod: ModInfo, version: str | None, old_paths: list) -> bool:
     """Place every SMAPI mod folder found anywhere under `extract_root` into Mods/, transactionally.
 
@@ -49,7 +49,7 @@ def _smapi_commit(install_dir: str, mods_path: str, extract_root: str, staging: 
         if not overlay:
             decky.logger.error(f"{mod.name}: empty archive — nothing to install")
             return False
-        is_foreign = mods_common._overwrite_guard(install_dir, mods_path, mod, [r for _s, r in overlay])
+        is_foreign = mods_common._overwrite_guard(appid, install_dir, mods_path, mod, [r for _s, r in overlay])
         with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
             for p in old_paths:
                 txn.retire(p)
@@ -57,7 +57,7 @@ def _smapi_commit(install_dir: str, mods_path: str, extract_root: str, staging: 
             for staged_abs, install_rel in overlay:
                 txn.place(staged_abs, install_rel)
         paths = sorted(r for _s, r in overlay)
-        mods.set_installed_record(mod.id, version or "latest", mod.filename, paths=paths, mod=mod, install_type="zip_natives")
+        mods.set_installed_record(appid, mod.id, version or "latest", mod.filename, paths=paths, mod=mod, install_type="zip_natives")
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) as a config/content overlay — {len(paths)} file(s) merged into Mods/")
         return True
 
@@ -77,7 +77,7 @@ def _smapi_commit(install_dir: str, mods_path: str, extract_root: str, staging: 
 
     # Commit: retire the previous install (both the active and `.`-disabled form of each tracked
     # folder), then place the new payload all-or-nothing.
-    is_foreign = mods_common._overwrite_guard(install_dir, mods_path, mod, [r for _s, r in placements])
+    is_foreign = mods_common._overwrite_guard(appid, install_dir, mods_path, mod, [r for _s, r in placements])
     with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
         for p in old_paths:
             txn.retire(p)
@@ -86,7 +86,7 @@ def _smapi_commit(install_dir: str, mods_path: str, extract_root: str, staging: 
             txn.place(staged_abs, install_rel)
 
     paths = sorted(created_tops)
-    mods.set_installed_record(mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
+    mods.set_installed_record(appid, mod.id, version or "latest", mod.filename, paths=paths, mod=mod)
     decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {len(paths)} mod folder(s), {len(placements)} file(s)")
     return True
 
@@ -108,12 +108,12 @@ async def _install_mod_zip_smapi(game: GameProfile, install_dir: str, mods_path:
 
     # Previous install's tracked folders. Retired inside the commit transaction (in _smapi_commit) —
     # NOT before the download — so a dead link or cancel can't destroy the old install before ready.
-    old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
+    old_paths = (mods._load_store(game.appid).get(mod.id) or {}).get("paths") or []
     try:
         decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_archive, game.appid)
         mods_archive.extract_archive(tmp_archive, tmp_extract)
-        return _smapi_commit(install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
+        return _smapi_commit(game.appid, install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
         return None
@@ -144,7 +144,7 @@ async def install_smapi_files(game: GameProfile, install_dir: str, mod: ModInfo,
         if os.path.exists(p):
             shutil.rmtree(p)
 
-    old_paths = (mods._load_store().get(mod.id) or {}).get("paths") or []
+    old_paths = (mods._load_store(game.appid).get(mod.id) or {}).get("paths") or []
     try:
         for i, url in enumerate(urls):
             archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_f{i}.archive")
@@ -157,7 +157,7 @@ async def install_smapi_files(game: GameProfile, install_dir: str, mod: ModInfo,
             finally:
                 if os.path.exists(archive):
                     os.remove(archive)
-        return _smapi_commit(install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
+        return _smapi_commit(game.appid, install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
         return None
