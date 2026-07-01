@@ -14,7 +14,7 @@ Moddy isn't in the Decky store yet, so install it from its URL:
 2. In the Decky panel, open the **settings** (the ⚙️ icon) and enable **Developer mode**.
 3. Use **Install from URL** and enter **`get.moddy.gg`**.
 
-That's it. Moddy appears in the Decky panel. It's **alpha software** — please [report anything that breaks](#reporting-issues). Mods are third-party software and run with full access to your system. **Please read the [Disclaimer](#disclaimer) before installing anything.**
+That's it. Moddy appears in the Decky panel. It's **alpha software**, so expect bugs and [report them if you like](#reporting-issues). Mods are third-party software and run with full access to your system. **Please read the [Disclaimer](#disclaimer) before installing anything.**
 
 ## Features
 
@@ -31,7 +31,7 @@ That's it. Moddy appears in the Decky panel. It's **alpha software** — please 
 Moddy installs mods from several sources. What you need to do depends on where a game's mods come from.
 
 ### Thunderstore
-No setup — Moddy installs the required mod loader (BepInEx) automatically.
+No setup. Moddy installs from Thunderstore automatically.
 
 - Enter the Gungeon
 - PEAK
@@ -51,7 +51,7 @@ Requires a Nexus account and a **personal API key** (Premium only — see [Setti
 - Stardew Valley
 
 ### Steam Workshop
-No setup — Moddy subscribes the mods through Steam; just play.
+No setup. Moddy subscribes the mods through Steam.
 
 - BattleBlock Theater
 - Brotato
@@ -128,7 +128,7 @@ Then add the key to Moddy. The key is ~90 random characters, so pasting is far e
 
 ## Reporting issues
 
-Moddy is in alpha, so bug reports are genuinely useful. Please open an issue on the [GitHub issue tracker](../../issues) and include:
+Moddy is in alpha. There are plenty of bugs, and I'm well aware. You don't need to report every rough edge yet, but if you hit something and feel like flagging it, you're completely welcome to open an issue on the [GitHub issue tracker](../../issues). If you do, please include:
 
 - What game and mod you were installing
 - What you expected vs. what happened
@@ -171,7 +171,7 @@ Moddy is mostly glue. The real work behind every install is done by the projects
 
 - **[Balatro Mod Index](https://github.com/skyline69/balatro-mod-index)** — the community-maintained Balatro catalog, by the [Balatro Mod Manager](https://github.com/skyline69/balatro-mod-manager) project (Efe).
 
-**And above all,** the many developers of the frameworks and mods you actually install — Moddy is nothing without what they make. Find them on [Thunderstore](https://thunderstore.io), [Nexus Mods](https://www.nexusmods.com), and their own pages, and support them directly.
+**And above all,** the many developers of the frameworks and mods you actually install. Moddy is nothing without what they make. Find them on [Thunderstore](https://thunderstore.io), [Nexus Mods](https://www.nexusmods.com), and their own pages, and support them directly.
 
 ## AI Disclosure
 
