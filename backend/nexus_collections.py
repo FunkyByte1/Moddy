@@ -74,7 +74,7 @@ def game_has_collections(appid: int) -> bool:
            % _esc(domain))
     try:
         data = fetch.post_json(nexus.GRAPHQL_URL, {"query": gql}, headers=nexus._headers())
-    except nexus.MissingApiKey:
+    except nexus.NotSignedIn:
         return False
     if not isinstance(data, dict) or data.get("errors"):
         return False
@@ -103,7 +103,7 @@ def list_collections_for_game(appid: int, query: str = "", page: int = 1) -> lis
            'latestPublishedRevision{ modCount } } } }' % (_COLLECTIONS_PAGE, offset, ",".join(parts)))
     try:
         data = fetch.post_json(nexus.GRAPHQL_URL, {"query": gql}, headers=nexus._headers())
-    except nexus.MissingApiKey:
+    except nexus.NotSignedIn:
         return []
     if not isinstance(data, dict) or data.get("errors"):
         decky.logger.error(f"collections list error: {data.get('errors') if isinstance(data, dict) else data}")
@@ -154,7 +154,7 @@ def get_collection_detail(appid: int, slug: str) -> dict:
            % (_esc(slug), _esc(domain)))
     try:
         data = fetch.post_json(nexus.GRAPHQL_URL, {"query": gql}, headers=nexus._headers())
-    except nexus.MissingApiKey:
+    except nexus.NotSignedIn:
         return {}
     if not isinstance(data, dict) or data.get("errors"):
         decky.logger.error(f"collection {slug} detail error: {data.get('errors') if isinstance(data, dict) else data}")
@@ -384,7 +384,7 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
         manifest = fetch_manifest(domain, slug)
     except nexus.PremiumRequired:
         return "premium_required"
-    except nexus.MissingApiKey:
+    except nexus.NotSignedIn:
         return False
     except Exception as e:  # noqa: BLE001
         decky.logger.error(f"collection {slug}: fetch failed: {e}")

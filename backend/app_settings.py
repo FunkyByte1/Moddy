@@ -78,8 +78,18 @@ def set_setting(key: str, value) -> bool:
 
 
 # ── Nexus convenience ─────────────────────────────────────────────────────────
+# Legacy personal API key. Retained only for the one-time migration prompt (Phase 4);
+# auth now goes through the OAuth token below. See nexus_oauth.py.
 NEXUS_API_KEY = "nexus_api_key"
+
+# OAuth token bundle: {access_token, refresh_token, expires_at}. Managed by nexus_oauth.
+NEXUS_OAUTH = "nexus_oauth"
 
 
 def nexus_api_key() -> str:
     return (get_setting(NEXUS_API_KEY) or "").strip()
+
+
+def nexus_oauth_token() -> dict:
+    """The stored OAuth token bundle, or an empty dict if not signed in."""
+    return get_setting(NEXUS_OAUTH) or {}

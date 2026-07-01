@@ -1,6 +1,7 @@
 """Nexus Mods provider.
 
-Nexus is two-headed and both heads use the same personal `apikey` header:
+Nexus is two-headed and both heads use the same OAuth Bearer header (see nexus_oauth.py;
+the v1 and v2 APIs both accept the access token as `Authorization: Bearer`):
 - v2 GraphQL (api.nexusmods.com/v2/graphql) for browse/search — the v1 REST API has no
   text search. Free-text search is the `name` filter with op WILDCARD (substring match).
 - v1 REST for per-mod details, file lists, and the download link.
@@ -25,6 +26,7 @@ import decky
 
 import catalog
 import fetch
+import nexus_oauth
 # app_settings.py, aliased: a bare `settings` module collides with decky_loader.settings.
 import app_settings as settings
 
@@ -45,19 +47,21 @@ _MOD_CACHE_TTL_SECONDS = 6 * 3600
 
 
 class PremiumRequired(Exception):
-    """The download_link endpoint returned 403 — the user's key isn't Premium."""
+    """The download_link endpoint returned 403 — the account isn't Premium."""
 
 
-class MissingApiKey(Exception):
-    """No Nexus API key has been configured in settings."""
+# Re-exported so existing call sites can catch `nexus.NotSignedIn`. Raised by
+# _headers() (via nexus_oauth) when there's no usable OAuth token.
+NotSignedIn = nexus_oauth.NotSignedIn
 
 
 def _headers() -> dict:
-    key = settings.nexus_api_key()
-    if not key:
-        raise MissingApiKey()
+    """Auth + identifying headers for every Nexus request. Both the v1 REST and v2
+    GraphQL APIs accept the OAuth access token as a Bearer header. Raises NotSignedIn
+    if the user hasn't signed in (or the token can't be refreshed)."""
+    token = nexus_oauth.get_access_token()  # raises NotSignedIn
     return {
-        "apikey": key,
+        "Authorization": f"Bearer {token}",
         "Application-Name": APP_NAME,
         "Application-Version": APP_VERSION,
     }
@@ -129,15 +133,15 @@ def _node_to_item(domain: str, node: dict) -> catalog.CatalogItem:
 def search(domain: str, query: str = "", page: int = 1, include_adult: bool = False,
            sort: str = DEFAULT_SORT) -> list[catalog.CatalogItem]:
     """A page of Nexus mods for a game domain, optionally filtered by a search term.
-    Returns [] on error or when no API key is set. Server-side paginated (PAGE_SIZE).
+    Returns [] on error or when not signed in. Server-side paginated (PAGE_SIZE).
     Adult-rated mods are excluded unless `include_adult` is True. `sort` selects the
     server-side order (see `_SORTS`); unknown values fall back to the default."""
     query = (query or "").strip()
     offset = max(0, (page - 1) * PAGE_SIZE)
     try:
         headers = _headers()
-    except MissingApiKey:
-        decky.logger.warning("Nexus search skipped: no API key configured")
+    except NotSignedIn:
+        decky.logger.warning("Nexus search skipped: not signed in")
         return []
 
     gql = _search_query(domain, query, PAGE_SIZE, offset, include_adult, sort)
@@ -177,7 +181,7 @@ def game_id(domain: str) -> str | None:
         return _GAME_ID_CACHE[domain]
     try:
         headers = _headers()
-    except MissingApiKey:
+    except NotSignedIn:
         return None
     data = fetch.fetch_json(f"{API_V1}/games/{domain}.json", headers=headers)
     if isinstance(data, dict) and data.get("id") is not None:
@@ -199,10 +203,10 @@ def _requirements_query(game_id_value: str, mod_id: str) -> str:
 def get_requirements(domain: str, mod_id: str) -> list[dict]:
     """The Nexus mods this mod declares as requirements. Each entry: {mod_id, name, domain,
     external}. `domain` is parsed from the requirement's url (falls back to the parent's
-    domain). Returns [] on error / no API key / no declared requirements."""
+    domain). Returns [] on error / not signed in / no declared requirements."""
     try:
         headers = _headers()
-    except MissingApiKey:
+    except NotSignedIn:
         return []
     gid = game_id(domain)
     if not gid:
@@ -263,7 +267,7 @@ def get_mod(domain: str, mod_id: str, force: bool = False) -> dict | None:
 
     try:
         headers = _headers()
-    except MissingApiKey:
+    except NotSignedIn:
         return None
     data = fetch.fetch_json(f"{API_V1}/games/{domain}/mods/{mod_id}.json", headers=headers)
     if not isinstance(data, dict):
@@ -291,7 +295,7 @@ def get_files(domain: str, mod_id: str) -> list[dict]:
     """The file list for a mod (v1). Each entry has file_id, category_name, file_name, …."""
     try:
         headers = _headers()
-    except MissingApiKey:
+    except NotSignedIn:
         return []
     data = fetch.fetch_json(f"{API_V1}/games/{domain}/mods/{mod_id}/files.json", headers=headers)
     if not isinstance(data, dict):
@@ -360,7 +364,7 @@ def get_download_url(domain: str, mod_id: str, file_id: str) -> str | None:
     url = f"{API_V1}/games/{domain}/mods/{mod_id}/files/{file_id}/download_link.json"
     try:
         headers = _headers()
-    except MissingApiKey:
+    except NotSignedIn:
         return None
     try:
         req = fetch.request(url, headers=headers)

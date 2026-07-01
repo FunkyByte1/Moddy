@@ -40,7 +40,7 @@ No setup. Moddy installs from Thunderstore automatically.
 - Valheim
 
 ### Nexus Mods
-Requires a Nexus account and a **personal API key** (Premium only — see [Setting up your Nexus Mods API key](#setting-up-your-nexus-mods-api-key)).
+Requires a Nexus account (Premium only for downloads).
 
 - Monster Hunter Rise
 - Monster Hunter World
@@ -100,31 +100,7 @@ No setup. Moddy subscribes the mods through Steam.
 
 Moddy downloads mods and mod loaders **directly from their original publishers** — GitHub, [Thunderstore](https://thunderstore.io), the [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index), [Nexus Mods](https://www.nexusmods.com), [ficsit.app](https://ficsit.app), and the Steam Workshop — the same way other mod managers do. It does **not** host, redistribute, or modify any mod content; each mod's license is set by its author.
 
-Nexus downloads use the official API with your own personal API key. Moddy currently supports **Premium accounts only** (free accounts can browse, but Nexus only returns download links to Premium members). Your key is stored only on your device and sent only to Nexus.
-
-### Setting up your Nexus Mods API key
-
-To browse or install Nexus mods you need a Nexus account and a **personal API key**:
-
-1. Sign in at [nexusmods.com](https://www.nexusmods.com), then open **Account settings → [API Keys](https://www.nexusmods.com/users/myaccount?tab=api)**.
-2. Under **Personal API Key**, click **Generate** (or copy your existing one).
-
-Then add the key to Moddy. The key is ~90 random characters, so pasting is far easier than typing it on the Game Mode keyboard. Pick whichever is convenient:
-- **Desktop Mode:** open the file `~/homebrew/settings/moddy/settings.json` and set it to:
-```json
-"nexus_api_key": "PASTE_YOUR_KEY_HERE"
-```
-- **SSH:** ssh into your Steam Deck and run:
-  ```bash
-  mkdir -p ~/homebrew/settings/moddy
-  cat > ~/homebrew/settings/moddy/settings.json <<'EOF'
-  { "nexus_api_key": "PASTE_YOUR_KEY_HERE" }
-  EOF
-  sudo systemctl restart plugin_loader
-  ```
-  (The folder name is lowercase `moddy`; the file is read on startup.)
-
-- **Game Mode:** open the Decky panel → **Moddy → Settings** and type the key into the *Nexus Mods API key* field with the on-screen keyboard.
+Nexus downloads use the official API. Moddy currently supports **Premium accounts only** (free accounts can browse, but Nexus only returns download links to Premium members).
 
 ## Reporting issues
 
@@ -134,7 +110,7 @@ Moddy is in alpha. There are plenty of bugs, and I'm well aware. You don't need 
 - What you expected vs. what happened
 - A **log bundle** (see below)
 
-**Exporting logs:** open the Decky panel → **Moddy → Diagnostics → Export logs**. This saves a `moddy-logs-<timestamp>.zip` to your Steam Deck's **Desktop**. Switch to Desktop Mode and attach it to your issue (drag it into the GitHub upload box). The bundle contains Moddy's log files and basic version info; your **Nexus API key is not included**.
+**Exporting logs:** open the Decky panel → **Moddy → Diagnostics → Export logs**. This saves a `moddy-logs-<timestamp>.zip` to your Steam Deck's **Desktop**. Switch to Desktop Mode and attach it to your issue (drag it into the GitHub upload box). The bundle contains Moddy's log files and basic version info; your **Nexus credentials are not included**.
 
 ## Disclaimer
 

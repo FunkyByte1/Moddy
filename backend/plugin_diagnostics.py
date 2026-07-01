@@ -9,8 +9,8 @@ async def export_logs() -> str | None:
     """Bundle Moddy's logs + a small system-info file into one zip the user can
     attach to a bug report. Writes to the Deck's Desktop (easy to find and drag
     into a browser upload), falling back to the user's home, and returns the full
-    path. Deliberately excludes settings.json so the Nexus API key never leaves
-    the device."""
+    path. Deliberately excludes settings.json so Nexus credentials (the OAuth
+    token bundle) never leave the device."""
     import glob
     import time
     import zipfile
