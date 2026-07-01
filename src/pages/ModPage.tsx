@@ -7,7 +7,7 @@ import { useQueueFooterProps, promptVariant } from '../components/DownloadQueueM
 import { useDownloadQueue } from '../lib/downloadQueue';
 
 import { GameStatus, ModUpdate } from '../types';
-import { getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, setGameToProton, applyVanillaMode, getSetting, gameHasCollections, NSFW_ENABLED, NSFW_DEFAULT_ON } from '../lib/api';
+import { getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, ensureModloaderLaunchOptions, setGameToProton, applyVanillaMode, getSetting, gameHasCollections, NSFW_ENABLED, NSFW_DEFAULT_ON } from '../lib/api';
 import InstalledTab from '../tabs/InstalledTab';
 import ModLoaderTab from '../tabs/ModLoaderTab';
 import ProfilesTab from '../tabs/ProfilesTab';
@@ -165,6 +165,14 @@ const ModPage: FC = () => {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [appid, game?.catalog_type]);
+
+  // Self-heal the modloader's Steam launch option on every status (re)load: a game reset, a SteamOS
+  // update, or a SetAppLaunchOptions that didn't persist can drop it, leaving the loader installed but
+  // dormant (BepInEx never injects → no mods load). Reapplying is idempotent and preserves the user's
+  // own options; it also covers "installed a mod on a freshly-reset game" once the refresh lands.
+  useEffect(() => {
+    if (game) ensureModloaderLaunchOptions(game);
+  }, [game?.appid, game?.modloader_installed, game?.modloader_enabled, game?.modloader_launch_options]);
 
   useEffect(() => {
     refresh();

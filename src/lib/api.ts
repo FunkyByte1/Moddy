@@ -56,6 +56,19 @@ export const removeModloaderLaunchOptions = (appid: number, modloaderOptions: st
   setLaunchOptions(appid, next === '%command%' ? '' : next);
 };
 
+// Self-heal the modloader's Steam launch option. Moddy sets it once, when the loader is installed
+// from the Mod Loader tab — but a game reset, a SteamOS update, or a SetAppLaunchOptions that didn't
+// persist can silently drop it, leaving the loader installed (winhttp.dll on disk) yet dormant, so
+// BepInEx never injects and no mods load ("installed fine but nothing shows up"). Reapply the
+// fragment whenever the loader is installed AND enabled; addModloaderLaunchOptions is idempotent, so
+// this is a no-op once the option is present. Skipped in vanilla mode, where the loader is toggled
+// off (modloader_enabled is false) and the option is intentionally absent.
+export const ensureModloaderLaunchOptions = (game: GameStatus): void => {
+  if (game.modloader_installed && game.modloader_enabled && game.modloader_launch_options) {
+    addModloaderLaunchOptions(game.appid, game.modloader_launch_options);
+  }
+};
+
 // ── Steam Play / Proton compatibility tool ────────────────────────────────────
 // Native-Linux games (e.g. Enter the Gungeon) run their native build by default, but their mods
 // are built for the Windows build (BepInEx injects via winhttp.dll), so they only load when the
