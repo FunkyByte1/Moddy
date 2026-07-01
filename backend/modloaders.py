@@ -401,8 +401,21 @@ def _apply_config_files(install_dir: str, ml: ModloaderInfo) -> None:
             for key in order:
                 if key not in seen:
                     out_lines.append(desired[key])
-            with open(dst, "w") as f:
-                f.write("\n".join(out_lines) + "\n")
+            # Atomic write: a truncate-in-place `open(dst, "w")` would leave the config
+            # truncated if power is lost mid-write, and for REFramework that silently drops
+            # LooseFileLoader_Enabled=true — loose natives/ mods then stop loading with no
+            # visible error. Write a temp file, fsync it, and rename over dst (same idiom as
+            # _save_version_store) so dst is always the old or new content, never partial.
+            tmp = dst + ".tmp"
+            try:
+                with open(tmp, "w") as f:
+                    f.write("\n".join(out_lines) + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, dst)
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
             decky.logger.info(f"Applied config file {rel_path} for {ml.id}")
         except Exception as e:
             decky.logger.error(f"Failed to write config file {rel_path} for {ml.id}: {e}")

@@ -129,5 +129,42 @@ class GithubModloaderTest(unittest.TestCase):
         self.assertEqual(bak_crumbs(self.install_dir), [])
 
 
+def make_config_modloader(config_files):
+    ml = make_modloader("reframework", "nexus", ["dinput8.dll"], [])
+    ml.config_files = config_files
+    return ml
+
+
+class ConfigFileWriteTest(unittest.TestCase):
+    """_apply_config_files writes REFramework's re2_fw_config.txt (LooseFileLoader_Enabled=true).
+    It writes atomically (temp + os.replace) so a crash can't leave the config truncated, which
+    would silently stop loose natives/ mods from loading."""
+
+    def setUp(self):
+        self.install_dir = tempfile.mkdtemp(prefix="moddy-game-")
+        self.ml = make_config_modloader({"re2_fw_config.txt": "LooseFileLoader_Enabled=true\n"})
+
+    def read(self, rel):
+        with open(os.path.join(self.install_dir, rel)) as f:
+            return f.read()
+
+    def test_writes_config_and_leaves_no_temp_crumb(self):
+        modloaders._apply_config_files(self.install_dir, self.ml)
+        self.assertIn("LooseFileLoader_Enabled=true", self.read("re2_fw_config.txt"))
+        # The atomic temp file must not survive the write.
+        self.assertFalse(os.path.exists(os.path.join(self.install_dir, "re2_fw_config.txt.tmp")))
+        self.assertEqual(bak_crumbs(self.install_dir), [])
+
+    def test_overrides_stale_key_but_preserves_unrelated_settings(self):
+        # A user's existing config with the flag off plus an unrelated setting.
+        write(os.path.join(self.install_dir, "re2_fw_config.txt"),
+              b"GraphicsSetting=9\nLooseFileLoader_Enabled=false\n")
+        modloaders._apply_config_files(self.install_dir, self.ml)
+        out = self.read("re2_fw_config.txt")
+        self.assertIn("LooseFileLoader_Enabled=true", out)       # overridden
+        self.assertNotIn("LooseFileLoader_Enabled=false", out)
+        self.assertIn("GraphicsSetting=9", out)                  # unrelated line preserved
+
+
 if __name__ == "__main__":
     unittest.main()
