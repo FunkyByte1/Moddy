@@ -106,7 +106,9 @@ const ModListItem: FC<{
         style={{
           width: '34px', height: '18px', flexShrink: 0, marginLeft: '8px', borderRadius: '9px',
           position: 'relative', cursor: 'pointer', transition: 'background 0.15s',
-          background: entry.enabled ? 'var(--gpSystemLightBlue)' : 'rgba(255,255,255,0.25)',
+          // Solid hex, not var(--gpSystemLightBlue): that var doesn't resolve in this full-page
+          // route, so the "on" track was rendering transparent (invisible but for the knob).
+          background: entry.enabled ? '#1a9fff' : 'rgba(255,255,255,0.25)',
         }}
       >
         <div style={{
