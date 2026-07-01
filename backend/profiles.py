@@ -1,8 +1,8 @@
 import os
-import json
 from datetime import datetime, timezone
 
 import decky
+import json_store
 
 
 def _get_store_path() -> str:
@@ -10,34 +10,11 @@ def _get_store_path() -> str:
 
 
 def _load_full() -> dict:
-    path = _get_store_path()
-    if not os.path.isfile(path):
-        return {}
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        decky.logger.error(f"Failed to read profiles from {path}: {e}")
-        return {}
+    return json_store.read(_get_store_path())
 
 
 def _save_full(full: dict) -> bool:
-    path = _get_store_path()
-    tmp = path + ".tmp"
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(tmp, "w") as f:
-            json.dump(full, f, indent=2)
-        os.replace(tmp, path)
-        return True
-    except Exception as e:
-        decky.logger.error(f"Failed to save profiles to {path}: {e}")
-        if os.path.exists(tmp):
-            try:
-                os.remove(tmp)
-            except Exception:
-                pass
-        return False
+    return json_store.write(_get_store_path(), full)
 
 
 def list_profiles(game_id: str) -> list[dict]:

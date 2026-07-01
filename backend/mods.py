@@ -1,7 +1,7 @@
 import os
-import json
 import time
 import decky
+import json_store
 from registry import GameProfile, ModInfo
 import steam
 
@@ -27,42 +27,16 @@ def _get_store_path() -> str:
 def _load_store() -> dict:
     """Load the installed mods store from disk. Structure: {mod_id: {version, filename, enabled}}"""
     global _INSTALLED_STORE
-    if _INSTALLED_STORE is not None:
-        return _INSTALLED_STORE
-    path = _get_store_path()
-    try:
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                data = json.load(f)
-                _INSTALLED_STORE = data.get("mods", {})
-                return _INSTALLED_STORE
-    except Exception as e:
-        decky.logger.error(f"Failed to load installed store: {e}")
-    _INSTALLED_STORE = {}
+    if _INSTALLED_STORE is None:
+        _INSTALLED_STORE = json_store.read(_get_store_path()).get("mods", {})
     return _INSTALLED_STORE
 
 
 def _save_store(store: dict) -> None:
-    """Save the installed mods store to disk atomically."""
+    """Save the installed mods store to disk atomically, preserving the other sections."""
     global _INSTALLED_STORE
     _INSTALLED_STORE = store
-    path = _get_store_path()
-    tmp = path + ".tmp"
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        # Read full file first to preserve modloaders section
-        full = {}
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                full = json.load(f)
-        full["mods"] = store
-        with open(tmp, "w") as f:
-            json.dump(full, f, indent=2)
-        os.replace(tmp, path)
-    except Exception as e:
-        decky.logger.error(f"Failed to save installed store: {e}")
-        if os.path.exists(tmp):
-            os.remove(tmp)
+    json_store.update_section(_get_store_path(), "mods", store)
 
 
 # ── Vanilla-mode snapshot ─────────────────────────────────────────────────────
@@ -72,14 +46,7 @@ def _save_store(store: dict) -> None:
 # keyed by appid, alongside (never clobbering) the "mods" and "modloaders" sections.
 
 def _read_full_store() -> dict:
-    try:
-        path = _get_store_path()
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                return json.load(f)
-    except Exception as e:
-        decky.logger.error(f"Failed to read installed store: {e}")
-    return {}
+    return json_store.read(_get_store_path())
 
 
 def get_vanilla_state(appid: int) -> dict | None:
@@ -95,27 +62,17 @@ def is_game_vanilla(appid: int) -> bool:
 def set_vanilla_state(appid: int, snapshot: dict | None) -> None:
     """Persist (snapshot) or clear (None) a game's vanilla snapshot, preserving the rest of
     installed.json. Atomic write."""
-    path = _get_store_path()
-    tmp = path + ".tmp"
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        full = _read_full_store()
-        vanilla = full.get("vanilla") or {}
-        if snapshot is None:
-            vanilla.pop(str(appid), None)
-        else:
-            vanilla[str(appid)] = snapshot
-        if vanilla:
-            full["vanilla"] = vanilla
-        else:
-            full.pop("vanilla", None)
-        with open(tmp, "w") as f:
-            json.dump(full, f, indent=2)
-        os.replace(tmp, path)
-    except Exception as e:
-        decky.logger.error(f"Failed to save vanilla state: {e}")
-        if os.path.exists(tmp):
-            os.remove(tmp)
+    full = _read_full_store()
+    vanilla = full.get("vanilla") or {}
+    if snapshot is None:
+        vanilla.pop(str(appid), None)
+    else:
+        vanilla[str(appid)] = snapshot
+    if vanilla:
+        full["vanilla"] = vanilla
+    else:
+        full.pop("vanilla", None)
+    json_store.write(_get_store_path(), full)
 
 
 def get_installed_version(mod_id: str) -> str | None:
@@ -240,33 +197,11 @@ def set_mod_enabled(mod_id: str, enabled: bool) -> None:
 # GetSubscribedWorkshopItems for a moment. We tombstone them so reconcile doesn't re-add
 # the record the user just removed (the mirror of the install grace period).
 def _load_pending_unsub() -> dict:
-    path = _get_store_path()
-    if os.path.isfile(path):
-        try:
-            with open(path, "r") as f:
-                return json.load(f).get("workshop_unsub", {})
-        except Exception as e:
-            decky.logger.error(f"Failed to load pending unsubscribes: {e}")
-    return {}
+    return json_store.read(_get_store_path()).get("workshop_unsub", {})
 
 
 def _save_pending_unsub(pending: dict) -> None:
-    path = _get_store_path()
-    tmp = path + ".tmp"
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        full = {}
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                full = json.load(f)
-        full["workshop_unsub"] = pending
-        with open(tmp, "w") as f:
-            json.dump(full, f, indent=2)
-        os.replace(tmp, path)
-    except Exception as e:
-        decky.logger.error(f"Failed to save pending unsubscribes: {e}")
-        if os.path.exists(tmp):
-            os.remove(tmp)
+    json_store.update_section(_get_store_path(), "workshop_unsub", pending)
 
 
 def _mark_unsub_pending(fileid: str) -> None:

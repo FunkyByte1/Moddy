@@ -1,9 +1,9 @@
 import os
-import json
 import shutil
 import zipfile
 import decky
 import github
+import json_store
 import mods
 import nexus
 import ficsit
@@ -22,40 +22,15 @@ def _get_store_path() -> str:
 
 def _load_version_store() -> dict:
     global _modloader_versions
-    if _modloader_versions:
-        return _modloader_versions
-    path = _get_store_path()
-    try:
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                data = json.load(f)
-                _modloader_versions = data.get("modloaders", {})
-                return _modloader_versions
-    except Exception as e:
-        decky.logger.error(f"Failed to load modloader versions: {e}")
-    _modloader_versions = {}
+    if not _modloader_versions:
+        _modloader_versions = json_store.read(_get_store_path()).get("modloaders", {})
     return _modloader_versions
 
 
 def _save_version_store(store: dict) -> None:
     global _modloader_versions
     _modloader_versions = store
-    path = _get_store_path()
-    tmp = path + ".tmp"
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        full = {}
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                full = json.load(f)
-        full["modloaders"] = store
-        with open(tmp, "w") as f:
-            json.dump(full, f, indent=2)
-        os.replace(tmp, path)
-    except Exception as e:
-        decky.logger.error(f"Failed to save modloader versions: {e}")
-        if os.path.exists(tmp):
-            os.remove(tmp)
+    json_store.update_section(_get_store_path(), "modloaders", store)
 
 
 def get_modloader_version(modloader_id: str) -> str | None:
