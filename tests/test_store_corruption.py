@@ -36,6 +36,7 @@ class TestStoreCorruption(unittest.TestCase):
     def setUp(self):
         reset_store()
         modloaders._modloader_versions = {}
+        json_store._quarantined.clear()
 
     def test_corrupt_store_is_quarantined_and_reads_empty(self):
         _write_raw('{"mods": {"trunc')
@@ -77,6 +78,20 @@ class TestStoreCorruption(unittest.TestCase):
         self.assertEqual(json_store.read(path)["mods"], {})
         with open(path + ".bak") as f:
             self.assertEqual(json.load(f), good)
+
+    def test_quarantine_is_reported_for_the_ui(self):
+        _write_raw("{oops")
+        self.assertEqual(json_store.quarantine_events(), [])
+        mods._load_store()
+        events = json_store.quarantine_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["file"], "installed.json")
+        self.assertIn(".corrupt-", events[0]["to"])
+        # A clean read reports nothing new.
+        mods._INSTALLED_STORE = None
+        mods.set_installed_record("test.mod", "1.0", "TestMod")
+        mods._load_store()
+        self.assertEqual(len(json_store.quarantine_events()), 1)
 
     def test_writes_are_stamped_with_schema_and_plugin_version(self):
         decky.DECKY_PLUGIN_VERSION = "9.9.9"

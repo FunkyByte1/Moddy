@@ -388,6 +388,11 @@ export const NSFW_DEFAULT_ON = 'nsfw_default_on';
 // Bundles logs into a zip on the Deck's Desktop and returns the path (or null on failure).
 export const exportLogs = callable<[], string | null>('export_logs');
 
+// Whether installed.json was quarantined this session (corrupt file set aside, library
+// rebuilt empty) — lets the panel explain an unexpectedly empty library.
+export interface QuarantineEvent { file: string; to: string | null; at: number }
+export const getStoreHealth = callable<[], { quarantined: QuarantineEvent[] }>('get_store_health');
+
 // Steam Workshop browse — server-paginated/searched (~30 items per page).
 export const getWorkshopCatalog =
   callable<[appid: number, search: string, sort: string, page: number], WorkshopCatalogItem[]>('get_workshop_catalog');

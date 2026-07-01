@@ -36,6 +36,16 @@ import decky
 # quarantined, in which case the previous session's good .bak must survive.
 _bak_done: set[str] = set()
 
+# Quarantines that happened this session, so the UI can tell the user their library was
+# reset on purpose (and where the old file went) instead of showing a silently empty list.
+_quarantined: list[dict] = []
+
+
+def quarantine_events() -> list[dict]:
+    """[{file, to, at}] for every quarantine this session. `to` is None if the corrupt
+    file could not be moved aside (it stays in place and saves will keep failing)."""
+    return list(_quarantined)
+
 
 def _fsync_dir(dirpath: str) -> None:
     try:
@@ -54,13 +64,16 @@ def _quarantine(path: str) -> None:
     while os.path.lexists(dest):
         n += 1
         dest = f"{path}.corrupt-{int(time.time())}-{n}"
+    event = {"file": os.path.basename(path), "to": None, "at": time.time()}
     try:
         os.replace(path, dest)
+        event["to"] = os.path.basename(dest)
         decky.logger.error(
             f"{os.path.basename(path)} is corrupt — quarantined to {os.path.basename(dest)}, "
             f"starting a fresh store")
     except OSError as e:
         decky.logger.error(f"{os.path.basename(path)} is corrupt and could not be quarantined: {e}")
+    _quarantined.append(event)
     _bak_done.add(path)
 
 

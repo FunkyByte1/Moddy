@@ -19,6 +19,7 @@ import ficsit
 # named `settings` collides with decky_loader's own `settings` module (which wins on the
 # import path), so `import settings` would silently resolve to the wrong module.
 import app_settings as settings
+import json_store
 import utils
 import steamworkshop_browse
 import download_queue
@@ -535,6 +536,14 @@ class Plugin:
         return settings.set_setting(key, value)
 
     # ── Diagnostics ────────────────────────────────────────────────────────────
+    async def get_store_health(self) -> dict:
+        """Whether installed.json was quarantined this session (corrupt → set aside),
+        so the UI can explain an unexpectedly empty library instead of leaving the
+        user to assume their mods are gone. Forces a store read so a corrupt file is
+        detected here, not whenever some later call happens to read it."""
+        mods._load_store()
+        return {"quarantined": json_store.quarantine_events()}
+
     async def export_logs(self) -> str | None:
         """Bundle Moddy's logs + a small system-info file into one zip the user can
         attach to a bug report. Writes to the Deck's Desktop (easy to find and drag
