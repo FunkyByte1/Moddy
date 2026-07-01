@@ -3,16 +3,20 @@ import { FC, useState, useEffect } from 'react';
 
 import { CollectionDetail } from '../types';
 import { getCollectionDetail } from '../lib/api';
+import { CollectionNoun } from '../tabs/browse/collectionNoun';
 
 // Lazily fetch + render a collection's mod list (thumbnail + name, optional ones flagged). Shared by
 // the Collections browse-tab detail ("what you'd install") and the Installed-tab collection panel
-// ("what this collection brought in"). One backend GraphQL call per slug, cached for the mount.
-// `onLoaded` hands the fetched detail back up (so a parent can show the description/title too).
+// ("what this collection brought in"). One backend call per slug (venue-routed), cached for the mount.
+// `onLoaded` hands the fetched detail back up (so a parent can show the description/title too). `noun`
+// is the venue's word for the set ("modpack" / "collection"), defaulting to "collection".
 const CollectionMods: FC<{
   appid: number;
   slug: string;
+  noun?: CollectionNoun;
   onLoaded?: (detail: CollectionDetail) => void;
-}> = ({ appid, slug, onLoaded }) => {
+}> = ({ appid, slug, noun, onLoaded }) => {
+  const one = noun?.one ?? 'collection';
   const [detail, setDetail] = useState<CollectionDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -35,13 +39,13 @@ const CollectionMods: FC<{
   }
   const mods = detail?.mods ?? [];
   if (mods.length === 0) {
-    return <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: 12 }}>Couldn’t load this collection’s mods.</div>;
+    return <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: 12 }}>Couldn’t load this {one}’s mods.</div>;
   }
 
   return (
     <div>
       <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: 12, marginBottom: 6 }}>
-        {mods.length} mod{mods.length === 1 ? '' : 's'} in this collection
+        {mods.length} mod{mods.length === 1 ? '' : 's'} in this {one}
       </div>
       {mods.map(m => (
         <div key={m.mod_id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>

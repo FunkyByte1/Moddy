@@ -28,6 +28,7 @@ import plugin_install_denylists
 import plugin_install_common
 import plugin_nexus_install
 import nexus_collections
+import thunderstore_modpacks
 import plugin_thunderstore_install
 import plugin_ficsit_install
 import plugin_frameworks
@@ -36,6 +37,17 @@ import plugin_diagnostics
 
 # Re-export the moved game-status helpers so existing `main._build_game_status(...)` call sites
 # (and tests) keep resolving after the verbatim move into plugin_game_status.
+def _is_thunderstore_game(appid: int) -> bool:
+    """True if this appid's Browse venue is Thunderstore — used to route the venue-agnostic Collections
+    RPCs to the Thunderstore-modpacks backend instead of the Nexus-collections one. Thunderstore is the
+    default catalog type for a game with a `thunderstore_community` and no explicit `catalog.type` (the
+    same derivation as plugin_game_status' catalog_type)."""
+    game = registry.get_game_by_appid(appid)
+    if not game or not game.thunderstore_community:
+        return False
+    return (game.catalog.get("type") or "thunderstore") == "thunderstore"
+
+
 _build_game_status = plugin_game_status._build_game_status
 _catalog_for_game = plugin_game_status._catalog_for_game
 _cached_catalog_for_game = plugin_game_status._cached_catalog_for_game
@@ -447,20 +459,30 @@ class Plugin:
             out.append(it)
         return out
 
+    # The Collections tab is venue-agnostic: a game has one Browse venue, so its "collections" are
+    # whatever that venue calls them — Nexus collections or Thunderstore modpacks. Both backends expose
+    # the same list/has/detail/enqueue surface (CollectionItem / CollectionDetail shapes), so these
+    # RPCs just route by the game's catalog type and the one frontend tab serves both (the user-facing
+    # "Modpacks" vs "Collections" noun is applied in the UI).
     async def get_collections_catalog(self, appid: int, query: str = "", page: int = 1) -> list:
-        """A page of Nexus collections for the game's Collections browse tab (slug/name/author/
-        summary/mod_count/endorsements/tile_image). Adult collections gated by the NSFW setting."""
+        """A page of the game's collections/modpacks for the Collections browse tab (slug/name/author/
+        summary/mod_count/endorsements/tile_image). Nexus adult collections are gated by NSFW."""
+        if _is_thunderstore_game(appid):
+            return thunderstore_modpacks.list_modpacks_for_game(appid, query, page)
         return nexus_collections.list_collections_for_game(appid, query, page)
 
     async def game_has_collections(self, appid: int) -> bool:
-        """Whether this game's Nexus venue has ANY collections (adult or not) — gates the Collections
-        tab so games with none (e.g. Slime Rancher 2) don't show an empty tab. The list still filters
-        adult content per the NSFW setting."""
+        """Whether this game's venue has ANY collections/modpacks — gates the Collections tab so games
+        with none (e.g. Slime Rancher 2) don't show an empty tab."""
+        if _is_thunderstore_game(appid):
+            return thunderstore_modpacks.game_has_modpacks(appid)
         return nexus_collections.game_has_collections(appid)
 
     async def get_collection_detail(self, appid: int, slug: str) -> dict:
-        """A collection's detail — {name, image, summary, mod_count, mods:[{mod_id,name,thumbnail,
-        optional}]} — for the Collections browse-tab detail and the Installed-tab collection panel."""
+        """A collection/modpack's detail — {name, image, summary, mod_count, mods:[{mod_id,name,
+        thumbnail,optional}]} — for the browse-tab detail and the Installed-tab panel."""
+        if _is_thunderstore_game(appid):
+            return thunderstore_modpacks.get_modpack_detail(appid, slug)
         return nexus_collections.get_collection_detail(appid, slug)
 
     async def install_nexus_mod(self, appid: int, full_name: str, version: str | None = None,
@@ -636,9 +658,12 @@ class Plugin:
         )
 
     async def enqueue_collection(self, appid: int, ref: str) -> int:
-        """Queue installing a whole Nexus collection — its required mods at their pinned files, with
-        the curator's FOMOD choices replayed. `ref` is a collection URL or slug. Returns the job id,
-        or -1 if the game isn't a Nexus game or the ref is unparseable / for a different game."""
+        """Queue installing a whole collection/modpack as one job. For Nexus, `ref` is a collection URL
+        or slug (its required mods at pinned files, curator FOMOD choices replayed). For Thunderstore,
+        `ref` is the modpack's full_name (its dependency tree, at latest). Returns the job id, or -1 if
+        the game's venue doesn't match / the ref is unusable."""
+        if _is_thunderstore_game(appid):
+            return await thunderstore_modpacks.enqueue_modpack(appid, ref)
         return await nexus_collections.enqueue_collection(appid, ref)
 
     async def preview_uninstall_collection(self, slug: str) -> dict:

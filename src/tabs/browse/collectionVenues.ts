@@ -1,16 +1,22 @@
 import { GameStatus } from '../../types';
 import { PagedVenueAdapter } from './types';
-import { collectionsAdapter } from './collectionsAdapter';
+import { collectionsAdapter, modpacksAdapter } from './collectionsAdapter';
+
+// Re-exported from a leaf module (avoids an import cycle via the collections adapter) so existing
+// callers can keep importing the venue noun from collectionVenues alongside the adapter helpers.
+export { collectionNoun } from './collectionNoun';
+export type { CollectionNoun } from './collectionNoun';
 
 // A game has exactly one browse venue, so its "collections" are whatever that venue calls them —
-// Nexus collections today; Thunderstore modpacks (etc.) slot in here later by adding a case. This is
-// the single extension point: the Collections tab stays one top-level tab and just lights up for more
-// game types as venues gain a collections adapter. No nested Mods|Collections switch needed.
+// Nexus collections or Thunderstore modpacks. This is the single extension point: the Collections tab
+// stays one top-level tab and just lights up for more game types as venues gain a collections adapter.
+// No nested Mods|Collections switch needed.
 export function collectionsAdapterFor(catalogType: string | undefined): PagedVenueAdapter | null {
   switch (catalogType) {
     case 'nexus':
       return collectionsAdapter;
-    // case 'thunderstore': return modpacksAdapter;  // ← future: Thunderstore modpacks
+    case 'thunderstore':
+      return modpacksAdapter;
     default:
       return null;
   }
@@ -33,4 +39,5 @@ export const COLLECTIONS_HINT: Record<number, boolean> = {
   2050650: true,   // Resident Evil 4
   1446780: true,   // Monster Hunter Rise
   1657630: false,  // Slime Rancher 2 — no collections on Nexus
+  632360: true,    // Risk of Rain 2 — Thunderstore modpacks
 };

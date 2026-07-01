@@ -11,6 +11,7 @@ import { ModEntry } from './ModEntry';
 import { useQueueFooterProps } from './DownloadQueueModal';
 import { SHOW_VERSION_OPTIONS } from '../lib/featureFlags';
 import { collectionSources } from '../lib/modSources';
+import { collectionNoun } from '../tabs/browse/collectionVenues';
 
 const ModDetailPanel: FC<{
   entry: ModEntry;
@@ -40,6 +41,7 @@ const ModDetailPanel: FC<{
   };
   const shownDeps = (entry.info.dependencies ?? []).filter(d => !isDenylisted(d));
   const fromCollections = collectionSources(entry.sources);
+  const noun = collectionNoun(game.catalog_type);
   const queueFooter = useQueueFooterProps(game.appid);
 
   return (
@@ -115,7 +117,7 @@ const ModDetailPanel: FC<{
       {fromCollections.length > 0 && (
         <div style={{ fontSize: '0.85em', marginBottom: '12px' }}>
           <div style={{ color: 'var(--gpColorTextSecondary)', marginBottom: '4px' }}>
-            {fromCollections.length === 1 ? 'From collection:' : 'From collections:'}
+            {fromCollections.length === 1 ? `From ${noun.one}:` : `From ${noun.many.toLowerCase()}:`}
           </div>
           {fromCollections.map(c => (
             <div key={c.slug} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>

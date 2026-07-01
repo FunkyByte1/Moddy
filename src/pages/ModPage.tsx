@@ -16,7 +16,7 @@ import { nexusAdapter } from '../tabs/browse/nexusAdapter';
 import { workshopAdapter } from '../tabs/browse/workshopAdapter';
 import { thunderstoreAdapter, bmiAdapter } from '../tabs/browse/catalogAdapter';
 import { ficsitAdapter } from '../tabs/browse/ficsitAdapter';
-import { collectionsAdapterFor, venueHasCollections, COLLECTIONS_HINT } from '../tabs/browse/collectionVenues';
+import { collectionsAdapterFor, venueHasCollections, COLLECTIONS_HINT, collectionNoun } from '../tabs/browse/collectionVenues';
 import { installedCollections } from '../lib/modSources';
 import OptionsModal from '../components/modals/OptionsModal';
 import VanillaView from '../components/VanillaView';
@@ -256,6 +256,7 @@ const ModPage: FC = () => {
         filter={installedFilter}
         onChange={setInstalledFilter}
         collections={installedCollections(game.installed_mods)}
+        noun={collectionNoun(game.catalog_type)}
       />
     );
   };
@@ -593,7 +594,7 @@ const ModPage: FC = () => {
     // concept. No per-item filter — adult collections are gated server-side by the NSFW setting.
     ...(venueHasCollections(game) && (collectionsProbed ?? COLLECTIONS_HINT[appid] ?? false) ? [{
       id: 'collections',
-      title: 'Collections',
+      title: collectionNoun(game.catalog_type).many,
       content: (
         <BrowsePagedTab adapter={collectionsAdapterFor(game.catalog_type)!} game={game} onRefresh={refresh} />
       ),

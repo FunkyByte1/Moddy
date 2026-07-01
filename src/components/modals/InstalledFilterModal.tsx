@@ -3,6 +3,7 @@ import { useState, FC, ReactNode } from 'react';
 
 import { ModEntry } from '../ModEntry';
 import { InstalledCollection, collectionSources } from '../../lib/modSources';
+import { CollectionNoun } from '../../tabs/browse/collectionVenues';
 
 // Installed-list ordering. 'name' (alphabetical) is the default — it's stable and works for
 // every mod, including ones installed before install timestamps were recorded.
@@ -91,8 +92,10 @@ const InstalledFilterModal: FC<{
   filter: InstalledFilter;
   onChange: (filter: InstalledFilter) => void;
   collections?: InstalledCollection[];  // installed collections, for the per-collection show/hide toggles
+  noun?: CollectionNoun;                // the venue's word for the set ("modpack" / "collection")
   closeModal?: () => void;
-}> = ({ filter, onChange, collections, closeModal }) => {
+}> = ({ filter, onChange, collections, noun, closeModal }) => {
+  const cn = noun ?? { one: 'collection', many: 'Collections' };
   const [local, setLocal] = useState<InstalledFilter>(filter);
   const update = (next: InstalledFilter) => { setLocal(next); onChange(next); };
 
@@ -130,9 +133,9 @@ const InstalledFilterModal: FC<{
           />
         </Section>
         {collections && collections.length > 0 && (
-          <Section title="Collections">
+          <Section title={cn.many}>
             <DialogCheckbox
-              label="Show collection groups"
+              label={`Show ${cn.one} groups`}
               checked={local.showCollectionEntries}
               onChange={(v) => update({ ...local, showCollectionEntries: v })}
             />

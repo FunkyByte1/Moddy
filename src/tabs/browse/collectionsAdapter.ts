@@ -73,3 +73,23 @@ export const collectionsAdapter: PagedVenueAdapter = {
       });
   },
 };
+
+// Thunderstore modpacks reuse the exact same browse/install/uninstall machinery as Nexus collections
+// — the backend RPCs (catalog/detail/enqueue) route by the game's venue, and a modpack arrives in the
+// same CollectionItem shape (slug = the modpack's full_name). Only the display strings differ, to use
+// Thunderstore's own terminology ("Modpacks", "likes"). Everything else is inherited.
+export const modpacksAdapter: PagedVenueAdapter = {
+  ...collectionsAdapter,
+  id: 'modpacks',
+  sourceLabel: 'thunderstore',
+  searchLabel: 'Search modpacks',
+  catalogName: 'Modpacks',
+  emptyText: 'No modpacks found — check your network and try again.',
+  installNotice: 'Installs every mod in this modpack (its full set of dependencies). This can take a while; watch the download queue.',
+  detail(item): BrowseDetail {
+    const c = item.raw as CollectionItem;
+    const byline = `by ${c.author} · ${c.mod_count} mod${c.mod_count === 1 ? '' : 's'}`
+      + (c.endorsements ? ` · ${c.endorsements} like${c.endorsements === 1 ? '' : 's'}` : '');
+    return { byline, tags: [], description: c.summary };
+  },
+};

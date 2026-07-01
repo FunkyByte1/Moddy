@@ -48,7 +48,7 @@ class ThunderstoreCascadeTest(unittest.TestCase):
         self.install_results = {}    # id -> result override (default True)
         self.rolled_back = []        # ids uninstalled by rollback
 
-        async def _install_mod(game, install_dir, mod, version=None, url=None, variant=None):
+        async def _install_mod(game, install_dir, mod, version=None, url=None, variant=None, source=None):
             self.installs.append(mod.id)
             return self.install_results.get(mod.id, True)
 

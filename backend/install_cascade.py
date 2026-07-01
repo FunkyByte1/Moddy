@@ -319,14 +319,19 @@ class FicsitProvider(ModProvider):
 
 async def run_cascade(provider: ModProvider, game, install_dir, ref, version, *, seen, installed,
                       top: bool = False, is_dependency: bool = False, with_deps: bool = True,
-                      allow_missing: bool = False, variant=None):
+                      allow_missing: bool = False, variant=None, source=None):
     """Install `ref` plus its dependencies (depth-first), via `provider`. Returns True (success),
     False (hard failure), None (cancelled), PREMIUM_REQUIRED, or a {"needs_variant": ...} dict when a
     top-level install needs the UI to pick a variant.
 
     `seen` dedups the tree; `installed` collects the install ids freshly placed this run (so the
     caller can roll them back on cancel/failure). Deps are installed at latest (version=None); only
-    the top-level mod honors an explicit `version` and a `variant` choice."""
+    the top-level mod honors an explicit `version` and a `variant` choice.
+
+    `source` stamps Installed-page provenance on every mod placed this run (the whole tree, since it's
+    threaded into the recursive calls). Defaults to None → install_mod records {"id":"manual"} as for
+    a direct Browse install; a modpack passes its collection:<slug> source so the set can be grouped
+    and ref-count-uninstalled."""
     key = provider.key(ref)
     if key in seen:
         return True
@@ -353,7 +358,7 @@ async def run_cascade(provider: ModProvider, game, install_dir, ref, version, *,
     for dep_ref, dep_label in (provider.dep_refs(game, item, ref) if with_deps else []):
         dep_res = await run_cascade(provider, game, install_dir, dep_ref, None, seen=seen,
                                     installed=installed, is_dependency=True, with_deps=True,
-                                    allow_missing=allow_missing)
+                                    allow_missing=allow_missing, source=source)
         if dep_res == PREMIUM_REQUIRED:
             return PREMIUM_REQUIRED
         if dep_res is None:
@@ -375,7 +380,7 @@ async def run_cascade(provider: ModProvider, game, install_dir, ref, version, *,
 
     await download_queue.note_item(spec.mod.name)
     res = await mods.install_mod(game, install_dir, spec.mod, version=spec.version, url=spec.url,
-                                 variant=variant if top else None)
+                                 variant=variant if top else None, source=source)
     if isinstance(res, dict) and (res.get("needs_variant") or res.get("needs_fomod")):
         if top:
             return res  # park for the UI (any deps already installed are recorded in `installed`)
@@ -388,7 +393,7 @@ async def run_cascade(provider: ModProvider, game, install_dir, ref, version, *,
             choice = (res.get("variants") or [{}])[0].get("id")
             decky.logger.warning(f"{key} bundles variants; installing default {choice!r} as a dependency")
         res = await mods.install_mod(game, install_dir, spec.mod, version=spec.version, url=spec.url,
-                                     variant=choice)
+                                     variant=choice, source=source)
     if res is True and was_fresh and installed is not None:
         installed.append(spec.mod.id)  # the install id (original case), not the lowercased dedup key
     return res

@@ -13,6 +13,7 @@ import {
 import { installedCollections, inCollection, InstalledCollection } from '../lib/modSources';
 import CollectionListItem from '../components/CollectionListItem';
 import CollectionDetailPanel from '../components/CollectionDetailPanel';
+import { collectionNoun } from './browse/collectionVenues';
 import { useQueueFooterProps } from '../components/DownloadQueueModal';
 import { ModEntry } from '../components/ModEntry';
 import ModDetailPanel from '../components/ModDetailPanel';
@@ -103,6 +104,8 @@ const InstalledTab: FC<{
   // shown ONCE regardless of how many collections include it; the filter's per-collection toggles
   // (installedMatchesFilter) narrow which mods show.
   const collections = useMemo(() => installedCollections(game.installed_mods), [game.installed_mods]);
+  // The venue's word for these sets ("Modpacks" for Thunderstore, "Collections" for Nexus).
+  const noun = collectionNoun(game.catalog_type);
   // When a collection row is focused, the right pane shows its detail (image + description + mods +
   // uninstall) instead of a mod's detail. Tracked by slug (derived back to the live entry) so it stays
   // fresh on refresh and falls away if the collection is uninstalled. Cleared when a mod regains focus.
@@ -542,7 +545,7 @@ const InstalledTab: FC<{
         {collections.length > 0 && !selectionMode && filter.showCollectionEntries && (
           <div style={{ marginBottom: '8px' }}>
             <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.8em', padding: '2px 4px', marginBottom: '2px' }}>
-              Collections
+              {noun.many}
             </div>
             {collections.map(c => (
               <CollectionListItem key={c.slug} collection={c} disabled={busy} innerRef={registerColRow(c.slug)}
@@ -623,7 +626,7 @@ const InstalledTab: FC<{
         </Focusable>
       ) : focusedCollection ? (
         <CollectionDetailPanel
-          appid={game.appid} collection={focusedCollection} busy={busy}
+          appid={game.appid} collection={focusedCollection} noun={noun} busy={busy}
           onEnableAll={() => runBulkEnable(collectionModIds(focusedCollection.slug).filter(id => !enabledLowerSet.has(id.toLowerCase())))}
           onDisableAll={() => runBulkDisable(collectionModIds(focusedCollection.slug).filter(id => enabledLowerSet.has(id.toLowerCase())))}
           onReinstall={() => reinstallCollection(focusedCollection)}

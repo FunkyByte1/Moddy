@@ -2,6 +2,7 @@ import { Focusable, ScrollPanelGroup, PanelSection, PanelSectionRow, ButtonItem 
 import { FC, RefObject, useState } from 'react';
 
 import { InstalledCollection } from '../lib/modSources';
+import { CollectionNoun } from '../tabs/browse/collectionVenues';
 import CollectionMods from './CollectionMods';
 import { useQueueFooterProps } from './DownloadQueueModal';
 
@@ -16,6 +17,7 @@ const ScrollArea = (ScrollPanelGroup ?? Focusable) as FC<any>;
 const CollectionDetailPanel: FC<{
   appid: number;
   collection: InstalledCollection;
+  noun: CollectionNoun;                  // the venue's word for the set ("modpack" / "collection")
   busy: boolean;
   onEnableAll: () => void;
   onDisableAll: () => void;
@@ -23,7 +25,7 @@ const CollectionDetailPanel: FC<{
   onUninstall: () => void;
   panelRef?: RefObject<HTMLDivElement | null>;  // so the row's A press can jump focus into here (the first action)
   onCancelButton?: () => void;           // B pressed here → return focus to the collection row on the left
-}> = ({ appid, collection, busy, onEnableAll, onDisableAll, onReinstall, onUninstall, panelRef, onCancelButton }) => {
+}> = ({ appid, collection, noun, busy, onEnableAll, onDisableAll, onReinstall, onUninstall, panelRef, onCancelButton }) => {
   const [summary, setSummary] = useState('');
   // So Y opens the download queue while focused here (e.g. right after pressing Re-install) — without
   // it the prompt only worked on the left pane, leaving the queued collection unviewable from here.
@@ -77,12 +79,12 @@ const CollectionDetailPanel: FC<{
           </PanelSectionRow>
           <PanelSectionRow>
             <ButtonItem layout="below" disabled={busy} onClick={onUninstall}>
-              Uninstall collection
+              Uninstall {noun.one}
             </ButtonItem>
           </PanelSectionRow>
         </PanelSection>
 
-        <CollectionMods appid={appid} slug={collection.slug} onLoaded={d => setSummary(d.summary)} />
+        <CollectionMods appid={appid} slug={collection.slug} noun={noun} onLoaded={d => setSummary(d.summary)} />
       </Focusable>
     </ScrollArea>
   );

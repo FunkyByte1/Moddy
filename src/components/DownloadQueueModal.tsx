@@ -28,7 +28,7 @@ export function promptVariant(job: QueueJob): void {
   if (job.collection_options?.length) {
     showModal(
       <CollectionOptionsModal
-        collectionName={job.name.replace(/^Collection:\s*/i, '')}
+        collectionName={job.name.replace(/^(Collection|Modpack):\s*/i, '')}
         options={job.collection_options}
         onConfirm={(ids, close) => { close(); resumeDownloadJob(job.job_id, ids.join(',')); }}
       />

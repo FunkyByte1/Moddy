@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { nexusItem, nexusDetail } from './nexusAdapter';
 import { ficsitItem, ficsitDetail } from './ficsitAdapter';
 import { workshopItem, workshopDetail, fmtSubs } from './workshopAdapter';
-import { collectionBrowseItem, collectionsAdapter } from './collectionsAdapter';
-import { collectionsAdapterFor, venueHasCollections } from './collectionVenues';
+import { collectionBrowseItem, collectionsAdapter, modpacksAdapter } from './collectionsAdapter';
+import { collectionsAdapterFor, venueHasCollections, collectionNoun } from './collectionVenues';
 import type { ThunderstorePackage, WorkshopCatalogItem, CollectionItem, GameStatus } from '../../types';
 
 // The adapters' pure mappers normalize each venue's payload into the shared BrowseItem/BrowseDetail.
@@ -109,13 +109,38 @@ describe('collectionsAdapter', () => {
 });
 
 describe('collectionVenues', () => {
-  it('maps a Nexus game to the collections adapter; other venues have none (yet)', () => {
+  it('maps Nexus to collections and Thunderstore to modpacks; other venues have none', () => {
     expect(collectionsAdapterFor('nexus')).toBe(collectionsAdapter);
-    expect(collectionsAdapterFor('thunderstore')).toBeNull();
+    expect(collectionsAdapterFor('thunderstore')).toBe(modpacksAdapter);
+    expect(collectionsAdapterFor('workshop')).toBeNull();
     expect(collectionsAdapterFor(undefined)).toBeNull();
   });
   it('venueHasCollections gates the tab on the game venue', () => {
     expect(venueHasCollections({ catalog_type: 'nexus' } as GameStatus)).toBe(true);
+    expect(venueHasCollections({ catalog_type: 'thunderstore' } as GameStatus)).toBe(true);
     expect(venueHasCollections({ catalog_type: 'workshop' } as GameStatus)).toBe(false);
+  });
+  it('collectionNoun gives each venue its own terminology', () => {
+    expect(collectionNoun('thunderstore')).toEqual({ one: 'modpack', many: 'Modpacks' });
+    expect(collectionNoun('nexus')).toEqual({ one: 'collection', many: 'Collections' });
+    expect(collectionNoun(undefined)).toEqual({ one: 'collection', many: 'Collections' });
+  });
+});
+
+describe('modpacksAdapter', () => {
+  it('reuses the collections install/uninstall machinery but with Thunderstore terminology', () => {
+    expect(modpacksAdapter.catalogName).toBe('Modpacks');
+    expect(modpacksAdapter.noUninstall).toBe(true);
+    // Same item-key / installed-detection model as collections (slug = the modpack full_name).
+    const game = { installed_mods: [{ sources: { 'collection:Curator-Pack': { name: 'Pack', image: '' } } }] } as any;
+    expect(modpacksAdapter.installedIds(game).has('collection:Curator-Pack')).toBe(true);
+  });
+  it('renders a Thunderstore-flavored detail byline (likes, not endorsements)', () => {
+    const c: CollectionItem = {
+      slug: 'Curator-Pack', name: 'Pack', author: 'Curator', summary: 's',
+      mod_count: 3, endorsements: 12, tile_image: '',
+    };
+    const detail = modpacksAdapter.detail!(collectionBrowseItem(c));
+    expect(detail.byline).toBe('by Curator · 3 mods · 12 likes');
   });
 });

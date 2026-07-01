@@ -37,7 +37,7 @@ class NexusCascadeTest(unittest.TestCase):
         self.installs = []            # mod ids passed to install_mod, in order
         self.requirements = {}        # mod_id -> [ {domain, mod_id, name}, ... ]
 
-        async def _install_mod(game, install_dir, mod, version=None, url=None, variant=None):
+        async def _install_mod(game, install_dir, mod, version=None, url=None, variant=None, source=None):
             self.installs.append(mod.id)
             return True
 
