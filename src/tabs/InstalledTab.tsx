@@ -1,4 +1,4 @@
-import { showModal, ConfirmModal, Focusable, ButtonItem, PanelSection, PanelSectionRow } from '@decky/ui';
+import { showModal, ConfirmModal, DialogButton, Focusable, ButtonItem, PanelSection, PanelSectionRow } from '@decky/ui';
 import { toaster } from '@decky/api';
 import { useState, useEffect, useMemo, useCallback, useRef, FC } from 'react';
 
@@ -545,10 +545,12 @@ const InstalledTab: FC<{
         onSecondaryActionDescription="Filter"
       >
         {unusedLibraries.length > 0 && (
-          <div style={{ marginBottom: '4px' }}>
-            <ButtonItem layout="below" disabled={busy} onClick={showLibraryCleanup}>
+          // Borderless DialogButton (no ButtonItem Field wrapper); the wrapper's spacing is gone
+          // with it, so add a small manual gap below.
+          <div style={{ marginBottom: '8px' }}>
+            <DialogButton style={{ width: '100%' }} disabled={busy} onClick={showLibraryCleanup}>
               {`🧹 ${unusedLibraries.length} unused librar${unusedLibraries.length === 1 ? 'y' : 'ies'}`}
-            </ButtonItem>
+            </DialogButton>
           </div>
         )}
         {collections.length > 0 && !selectionMode && filter.showCollectionEntries && (
