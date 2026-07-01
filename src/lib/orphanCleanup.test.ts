@@ -10,10 +10,10 @@ import type { GameStatus, InstalledMod } from '../types';
 
 const mod = (
   id: string,
-  { deps = [], enabled = true, library = false, collection = '' }:
-    { deps?: string[]; enabled?: boolean; library?: boolean; collection?: string } = {},
+  { deps = [], enabled = true, library = false, collection = '', ignoreUnused = false }:
+    { deps?: string[]; enabled?: boolean; library?: boolean; collection?: string; ignoreUnused?: boolean } = {},
 ): InstalledMod => ({
-  id, filename: id, enabled, version: '1.0.0', is_library: library,
+  id, filename: id, enabled, version: '1.0.0', is_library: library, ignore_unused: ignoreUnused,
   sources: collection ? { [`collection:${collection}`]: { name: collection, image: '' } } : undefined,
   meta: { name: id, author: '', description: '', homepage: '', thumbnail: '', modloader: '', dependencies: deps },
 }) as InstalledMod;
@@ -73,6 +73,16 @@ describe('findUnusedLibraries', () => {
       mod('OldLib', { library: true }),                                 // manual orphan → flagged
     );
     expect(ids(findUnusedLibraries(g, new Set()))).toEqual(['OldLib']);
+  });
+
+  it('never flags a library the user marked as an intentional dep (ignore_unused)', () => {
+    // An unused-looking library that is actually required via an undocumented dependency: the user
+    // marked it "don't flag as unused", so the broom leaves it alone.
+    const g = game(mod('A'), mod('Lib', { library: true, ignoreUnused: true }));
+    expect(findUnusedLibraries(g, new Set())).toEqual([]);
+    // Control: the same library without the flag IS flagged.
+    const g2 = game(mod('A'), mod('Lib', { library: true }));
+    expect(ids(findUnusedLibraries(g2, new Set()))).toEqual(['Lib']);
   });
 
   it('never flags a denylisted (modloader-provided) package as unused', () => {

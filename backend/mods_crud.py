@@ -178,6 +178,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                 "version": record.get("version"),
                 "meta": record.get("meta"),
                 "is_library": record.get("is_library", False),
+                "ignore_unused": record.get("ignore_unused", False),
                 "added_at": record.get("added_at"),
                 "sources": record.get("sources"),
             })
@@ -244,6 +245,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             "enabled": enabled,
             "version": record.get("version"),
             "meta": record.get("meta"),
+            "ignore_unused": record.get("ignore_unused", False),
             "added_at": record.get("added_at"),
             "sources": record.get("sources"),
         })

@@ -8,7 +8,7 @@ import {
 import {
   installMod, installThunderstoreMod, enqueueFicsit, uninstallMod, toggleMod,
   getModReleases, getBackedUpVersions, deleteModVersion, getBrowseDenylist,
-  uninstallCollection, previewUninstallCollection, enqueueCollection,
+  uninstallCollection, previewUninstallCollection, enqueueCollection, setLibraryIgnored,
 } from '../lib/api';
 import { installedCollections, inCollection, InstalledCollection } from '../lib/modSources';
 import CollectionListItem from '../components/CollectionListItem';
@@ -90,6 +90,7 @@ const InstalledTab: FC<{
       hasUpdate: updatesById.has(im.id),
       dependenciesMet,
       isLibrary: !!im.is_library,
+      ignoreUnused: !!im.ignore_unused,
       addedAt: im.added_at ?? 0,
       sources: im.sources ?? null,
       info: {
@@ -310,6 +311,14 @@ const InstalledTab: FC<{
     if (ok === null) { await onRefresh(); setBusy(false); return; }
     if (!ok) { toaster.toast({ title: 'Moddy', body: `Failed to change ${mod.name} to ${version}` }); }
     await onRefresh(); setBusy(false);
+  };
+
+  // Mark/unmark a library as an intentional dep so the unused-libraries broom stops flagging it.
+  const handleToggleIgnoreUnused = async (mod: ModInfo, ignored: boolean) => {
+    setBusy(true);
+    await setLibraryIgnored(mod.id, ignored);
+    await onRefresh();
+    setBusy(false);
   };
 
   const handleChangeVersion = async (mod: ModInfo) => {
@@ -638,6 +647,7 @@ const InstalledTab: FC<{
           entry={selectedEntry} game={game} busy={busy} installing={installing} progress={progress}
           updates={updates} onInstall={() => {}} onDelete={handleDeleteMod}
           onUpdate={handleUpdateMod} onChangeVersion={handleChangeVersion}
+          onToggleIgnoreUnused={handleToggleIgnoreUnused}
           onCancel={onCancel} onMenuButton={onMenuButton} onFilterButton={onFilterButton}
           onCancelButton={focusModRow} denylist={denylist}
         />

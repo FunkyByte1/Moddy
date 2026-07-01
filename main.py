@@ -332,6 +332,12 @@ class Plugin:
             return False
         return await mods.toggle_mod(game, install_dir, mod_id, enable)
 
+    async def set_library_ignored(self, mod_id: str, ignored: bool) -> bool:
+        """Mark an installed library as an intentional (undocumented) dependency so the
+        unused-libraries cleanup stops flagging it — or clear that mark. The install store is
+        keyed by mod id across games, so no appid is needed."""
+        return mods.set_ignore_unused(mod_id, ignored)
+
     async def get_backed_up_versions(self, appid: int, mod_id: str) -> list:
         game = registry.get_game_by_appid(appid)
         if not game:

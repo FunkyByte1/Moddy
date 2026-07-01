@@ -179,6 +179,23 @@ def set_installed_record(
     _save_store(store)
 
 
+def set_ignore_unused(mod_id: str, ignored: bool) -> bool:
+    """Mark/unmark an installed mod as an intentional 'undocumented dependency' so the unused-
+    libraries cleanup (the Installed tab's broom) stops flagging it. Case-insensitive on the id,
+    since catalog casing can differ from what was persisted. Stores the flag only when True (drops
+    it when cleared) to keep records tidy. Returns True if a record was found and updated."""
+    store = _load_store()
+    key = mod_id if mod_id in store else next((k for k in store if k.lower() == mod_id.lower()), None)
+    if key is None:
+        return False
+    if ignored:
+        store[key]["ignore_unused"] = True
+    else:
+        store[key].pop("ignore_unused", None)
+    _save_store(store)
+    return True
+
+
 def get_installed_record(mod_id: str) -> dict | None:
     """Return the full persisted install record for a mod, or None if untracked."""
     return _load_store().get(mod_id)

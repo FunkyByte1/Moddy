@@ -1,4 +1,4 @@
-import { ButtonItem, Focusable, ModalRoot } from '@decky/ui';
+import { DialogButton, DialogCheckbox, Focusable, ModalRoot } from '@decky/ui';
 import { FC, useEffect, useRef, useState } from 'react';
 
 // On-demand cleanup for library mods nothing installed relies on anymore (opened from the Installed
@@ -7,8 +7,11 @@ import { FC, useEffect, useRef, useState } from 'react';
 const UnusedLibrariesModal: FC<{
   libraries: { id: string; name: string }[];
   onCleanup: (removeIds: string[], closeModal: () => void) => void;
+  // Mark the checked libraries as intentional deps so they stop being flagged as unused. For a
+  // framework that IS required, just via an undocumented dependency the graph can't see.
+  onIgnore: (ignoreIds: string[], closeModal: () => void) => void;
   closeModal?: () => void;
-}> = ({ libraries, onCleanup, closeModal }) => {
+}> = ({ libraries, onCleanup, onIgnore, closeModal }) => {
   const close = closeModal ?? (() => {});
   const [checked, setChecked] = useState<Set<string>>(() => new Set(libraries.map(l => l.id)));
   // Default gamepad focus to the primary "Remove all" action rather than the first library row, so
@@ -31,30 +34,40 @@ const UnusedLibrariesModal: FC<{
 
   return (
     <ModalRoot closeModal={closeModal}>
-      <div style={{ padding: '16px' }}>
-        <div style={{ fontWeight: 'bold', fontSize: '1.1em', marginBottom: '8px' }}>
+      <div style={{ padding: '4px 16px 12px' }}>
+        <div style={{ fontWeight: 'bold', fontSize: '1.05em', marginBottom: '6px' }}>
           Unused libraries
         </div>
-        <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.9em', marginBottom: '12px' }}>
-          These library mods aren’t required by anything installed. They’re all selected for removal —
-          untick any you want to keep.
+        <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.9em', marginBottom: '8px' }}>
+          Not required by anything installed. Remove them, or <b>Ignore</b> any that’s actually a needed dependency.
         </div>
-        <Focusable style={{ maxHeight: '40vh', overflowY: 'auto', marginBottom: '12px' }}>
+        {/* DialogCheckbox (the compact checkbox row used by the filter modal) — smaller and a better
+            fit for a checkable list than a ButtonItem, whose Field wrapper draws a boxed border. */}
+        <Focusable style={{ maxHeight: '38vh', overflowY: 'auto', marginBottom: '8px' }}>
           {libraries.map(lib => (
-            <ButtonItem key={lib.id} layout="below" onClick={() => toggle(lib.id)}>
-              {(checked.has(lib.id) ? '☑ ' : '☐ ') + lib.name}
-            </ButtonItem>
+            <DialogCheckbox
+              key={lib.id}
+              label={lib.name}
+              checked={checked.has(lib.id)}
+              onChange={() => toggle(lib.id)}
+            />
           ))}
         </Focusable>
-        <div ref={removeAllRef} style={{ marginBottom: '8px' }}>
-          <ButtonItem layout="below" disabled={count === 0} onClick={() => onCleanup([...checked], close)}>
-            {count === libraries.length ? `Remove all (${count})` : `Remove selected (${count})`}
-          </ButtonItem>
-        </div>
-        <div style={{ marginBottom: '8px' }}>
-          <ButtonItem layout="below" onClick={() => close()}>
-            Cancel
-          </ButtonItem>
+        {/* Actions on one row (raw DialogButtons, borderless — no Field wrapper — sized inline) to
+            keep the modal short. Labels are terse; the count conveys "all vs some". The wrapper div
+            carries the autofocus ref; its first button is Remove. */}
+        <div ref={removeAllRef}>
+          <Focusable style={{ display: 'flex', gap: '8px' }}>
+            <DialogButton style={{ flex: 1, minWidth: 0 }} disabled={count === 0} onClick={() => onCleanup([...checked], close)}>
+              {`Remove (${count})`}
+            </DialogButton>
+            <DialogButton style={{ flex: 1, minWidth: 0 }} disabled={count === 0} onClick={() => onIgnore([...checked], close)}>
+              {`Ignore (${count})`}
+            </DialogButton>
+            <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={() => close()}>
+              Cancel
+            </DialogButton>
+          </Focusable>
         </div>
       </div>
     </ModalRoot>

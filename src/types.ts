@@ -38,6 +38,7 @@ export interface InstalledMod {
   version: string | null;
   meta?: ModMeta | null;
   is_library?: boolean;  // stamped by the backend from the catalog/frameworks
+  ignore_unused?: boolean;  // user marked this library an intentional dep — excluded from the unused-libraries broom
   added_at?: number | null;  // unix seconds the mod was first installed; absent for legacy/untracked
   // Provenance for grouping: {sourceId -> {name, image}}. sourceId is "manual" or "collection:<slug>".
   // A mod brought in by a collection AND installed directly carries both. Absent = treat as "You".

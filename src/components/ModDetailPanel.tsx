@@ -24,6 +24,7 @@ const ModDetailPanel: FC<{
   onDelete: (mod: ModInfo) => void;
   onUpdate: (mod: ModInfo) => void;
   onChangeVersion: (mod: ModInfo) => void;
+  onToggleIgnoreUnused: (mod: ModInfo, ignored: boolean) => void;
   onCancel: () => void;
   onMenuButton: () => void;
   onFilterButton: () => void;
@@ -31,7 +32,7 @@ const ModDetailPanel: FC<{
   // Install ids (lowercase) that aren't real dependencies — modloaders / mod-manager apps like
   // Fluffy — so they're not listed or flagged as a missing dependency.
   denylist?: Set<string>;
-}> = ({ entry, game, busy, installing, progress, updates, onInstall, onDelete, onUpdate, onChangeVersion, onCancel, onMenuButton, onFilterButton, onCancelButton, denylist }) => {
+}> = ({ entry, game, busy, installing, progress, updates, onInstall, onDelete, onUpdate, onChangeVersion, onToggleIgnoreUnused, onCancel, onMenuButton, onFilterButton, onCancelButton, denylist }) => {
   const update = updates.find(u => u.id === entry.id);
   // A dep id may be a versioned Thunderstore full_name ("Owner-Mod-1.2.3") or a base id
   // ("nexus.<domain>.<id>"); test both forms against the denylist.
@@ -144,6 +145,17 @@ const ModDetailPanel: FC<{
               <PanelSectionRow>
                 <ButtonItem layout="below" onClick={() => onChangeVersion(entry.info)} disabled={busy}>
                   Change Version
+                </ButtonItem>
+              </PanelSectionRow>
+            )}
+            {entry.isLibrary && (
+              <PanelSectionRow>
+                <ButtonItem
+                  layout="below"
+                  onClick={() => onToggleIgnoreUnused(entry.info, !entry.ignoreUnused)}
+                  disabled={busy}
+                >
+                  {entry.ignoreUnused ? 'Flag as unused again' : 'Don’t flag as unused'}
                 </ButtonItem>
               </PanelSectionRow>
             )}

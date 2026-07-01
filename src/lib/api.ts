@@ -287,6 +287,9 @@ export const toggleMod = async (appid: number, mod_id: string, enable: boolean):
   if (wid) setWorkshopItemDisabled(appid, wid, !enable);
   return _toggleMod(appid, mod_id, enable);
 };
+// Mark an installed library as an intentional (undocumented) dependency so the unused-libraries
+// cleanup ("broom") stops flagging it — or clear that mark. Keyed by mod id (game-agnostic backend).
+export const setLibraryIgnored = callable<[mod_id: string, ignored: boolean], boolean>('set_library_ignored');
 export const getModReleases = callable<[appid: number, mod_id: string], ModRelease[]>('get_mod_releases');
 export const checkModUpdates = callable<[appid: number], ModUpdate[]>('check_mod_updates');
 export const getBackedUpVersions = callable<[appid: number, mod_id: string], string[]>('get_backed_up_versions');
