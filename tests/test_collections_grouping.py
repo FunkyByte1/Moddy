@@ -77,14 +77,14 @@ class CollectionMembershipTest(unittest.TestCase):
     def _meta_names(self):
         # preview_uninstall_collection reports meta.name (falls back to id); our minimal records have
         # no meta, so it should fall back to the id. Confirm partition by id.
-        return nc.preview_uninstall_collection("abc")
+        return nc.preview_uninstall_collection(1, "abc")
 
     def test_collection_members_lists_only_tagged_mods(self):
-        self.assertEqual(sorted(nc.collection_members("abc")), ["only", "shared"])
-        self.assertEqual(nc.collection_members("xyz"), ["other"])
+        self.assertEqual(sorted(nc.collection_members(1, "abc")), ["only", "shared"])
+        self.assertEqual(nc.collection_members(1, "xyz"), ["other"])
 
     def test_preview_partitions_remove_vs_keep(self):
-        preview = nc.preview_uninstall_collection("abc")
+        preview = nc.preview_uninstall_collection(1, "abc")
         self.assertEqual(preview["remove"], ["only"])   # sole source is collection:abc
         self.assertEqual(preview["keep"], ["shared"])   # also manual -> kept
 

@@ -111,7 +111,7 @@ export function showUnusedLibrariesCleanup(opts: {
       }}
       onIgnore={async (ignoreIds, close) => {
         close(); setBusy(true);
-        for (const id of ignoreIds) await setLibraryIgnored(id, true);
+        for (const id of ignoreIds) await setLibraryIgnored(game.appid, id, true);
         await onRefresh(); setBusy(false);
       }}
     />

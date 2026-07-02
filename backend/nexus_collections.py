@@ -29,7 +29,6 @@ import mods
 import mods_fomod
 import mods_archive
 import download_queue
-import game_store
 import install_cascade
 
 _COLLECTION_URL_RE = re.compile(r"nexusmods\.com/(?:games/)?([a-z0-9]+)/collections/([A-Za-z0-9]+)", re.I)
@@ -514,27 +513,21 @@ async def enqueue_collection(appid: int, ref_text: str) -> int:
     )
 
 
-def collection_members(slug: str) -> list:
-    """Mod ids currently tagged as belonging to collection `slug` (any game), from their records."""
+def collection_members(appid: int, slug: str) -> list:
+    """Mod ids currently tagged as belonging to collection `slug` for THIS game, from their
+    records. Per-game keying means another game's copy of a shared Thunderstore id can no
+    longer cross-count here."""
     sid = f"collection:{slug}"
-    # TEMPORARY until the RPC gains appid: merge every game's store to keep the any-game view.
-    merged: dict = {}
-    for a in game_store.appids():
-        merged.update(mods._load_store(int(a)))
-    return [mid for mid, rec in merged.items() if sid in (rec.get("sources") or {})]
+    return [mid for mid, rec in mods._load_store(appid).items() if sid in (rec.get("sources") or {})]
 
 
-def preview_uninstall_collection(slug: str) -> dict:
+def preview_uninstall_collection(appid: int, slug: str) -> dict:
     """What "Uninstall collection <slug>" would do, WITHOUT touching anything: which member mods
     would be removed (sole source is this collection) vs kept (also manual / in another collection).
     Lets the UI show an honest "removes N · keeps M" summary before the user commits."""
     sid = f"collection:{slug}"
-    # TEMPORARY until the RPC gains appid: merge every game's store to keep the any-game view.
-    merged: dict = {}
-    for a in game_store.appids():
-        merged.update(mods._load_store(int(a)))
     remove, keep = [], []
-    for mid, rec in merged.items():
+    for mid, rec in mods._load_store(appid).items():
         sources = rec.get("sources") or {}
         if sid not in sources:
             continue
@@ -553,7 +546,7 @@ async def uninstall_collection(appid: int, slug: str) -> dict:
         return {"removed": [], "kept": []}
     sid = f"collection:{slug}"
     removed, kept = [], []
-    for mid in collection_members(slug):
+    for mid in collection_members(appid, slug):
         remaining = mods.remove_record_source(appid, mid, sid)
         if remaining:
             kept.append(mid)  # still wanted by manual / another collection — leave its files

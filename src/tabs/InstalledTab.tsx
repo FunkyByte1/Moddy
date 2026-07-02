@@ -176,7 +176,7 @@ const InstalledTab: FC<{
   // Uninstall a whole collection from its detail panel — confirm first, showing the ref-counted
   // outcome (a member also installed manually / in another collection is kept, not removed).
   const confirmUninstallCollection = async (c: InstalledCollection) => {
-    const preview = await previewUninstallCollection(c.slug).catch(() => ({ remove: [], keep: [] }));
+    const preview = await previewUninstallCollection(game.appid, c.slug).catch(() => ({ remove: [], keep: [] }));
     const removeN = preview.remove.length || c.count;
     const keepN = preview.keep.length;
     showModal(
@@ -316,7 +316,7 @@ const InstalledTab: FC<{
   // Mark/unmark a library as an intentional dep so the unused-libraries broom stops flagging it.
   const handleToggleIgnoreUnused = async (mod: ModInfo, ignored: boolean) => {
     setBusy(true);
-    await setLibraryIgnored(mod.id, ignored);
+    await setLibraryIgnored(game.appid, mod.id, ignored);
     await onRefresh();
     setBusy(false);
   };

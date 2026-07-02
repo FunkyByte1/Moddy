@@ -334,15 +334,11 @@ class Plugin:
             return False
         return await mods.toggle_mod(game, install_dir, mod_id, enable)
 
-    async def set_library_ignored(self, mod_id: str, ignored: bool) -> bool:
+    async def set_library_ignored(self, appid: int, mod_id: str, ignored: bool) -> bool:
         """Mark an installed library as an intentional (undocumented) dependency so the
-        unused-libraries cleanup stops flagging it — or clear that mark.
-        TEMPORARY until the RPC gains appid: try every known game's store until one has
-        the record."""
-        for appid in game_store.appids():
-            if mods.set_ignore_unused(int(appid), mod_id, ignored):
-                return True
-        return False
+        unused-libraries cleanup stops flagging it — or clear that mark. Per-game: ignoring
+        a library for one game no longer ignores it everywhere."""
+        return mods.set_ignore_unused(appid, mod_id, ignored)
 
     async def get_backed_up_versions(self, appid: int, mod_id: str) -> list:
         game = registry.get_game_by_appid(appid)
@@ -687,10 +683,10 @@ class Plugin:
             return await thunderstore_modpacks.enqueue_modpack(appid, ref)
         return await nexus_collections.enqueue_collection(appid, ref)
 
-    async def preview_uninstall_collection(self, slug: str) -> dict:
+    async def preview_uninstall_collection(self, appid: int, slug: str) -> dict:
         """Preview "Uninstall collection <slug>": {remove:[names], keep:[names]} — keep = mods also
         installed manually or in another collection, so the UI can warn before removing."""
-        return nexus_collections.preview_uninstall_collection(slug)
+        return nexus_collections.preview_uninstall_collection(appid, slug)
 
     async def uninstall_collection(self, appid: int, slug: str) -> dict:
         """Ref-counted removal of a whole collection: drop each member's collection:<slug> tag,

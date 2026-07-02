@@ -289,7 +289,7 @@ export const toggleMod = async (appid: number, mod_id: string, enable: boolean):
 };
 // Mark an installed library as an intentional (undocumented) dependency so the unused-libraries
 // cleanup ("broom") stops flagging it — or clear that mark. Keyed by mod id (game-agnostic backend).
-export const setLibraryIgnored = callable<[mod_id: string, ignored: boolean], boolean>('set_library_ignored');
+export const setLibraryIgnored = callable<[appid: number, mod_id: string, ignored: boolean], boolean>('set_library_ignored');
 export const getModReleases = callable<[appid: number, mod_id: string], ModRelease[]>('get_mod_releases');
 export const checkModUpdates = callable<[appid: number], ModUpdate[]>('check_mod_updates');
 export const getBackedUpVersions = callable<[appid: number, mod_id: string], string[]>('get_backed_up_versions');
@@ -352,7 +352,7 @@ export const getCollectionDetail =
 // Preview a collection uninstall: {remove, keep} display-name lists (keep = mods also installed
 // manually or in another collection, so they'd be kept). Lets the UI warn before removing.
 export const previewUninstallCollection =
-  callable<[slug: string], { remove: string[]; keep: string[] }>('preview_uninstall_collection');
+  callable<[appid: number, slug: string], { remove: string[]; keep: string[] }>('preview_uninstall_collection');
 // Ref-counted "remove this collection": drops each member's collection:<slug> tag, uninstalls a mod
 // only if that was its last source. Returns {removed, kept} mod-id lists.
 export const uninstallCollection =
