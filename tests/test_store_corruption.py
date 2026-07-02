@@ -100,7 +100,7 @@ class TestStoreCorruption(unittest.TestCase):
         finally:
             del decky.DECKY_PLUGIN_VERSION
         data = json_store.read(_store_path())
-        self.assertEqual(data["schema"], 1)
+        self.assertEqual(data["schema"], 2)
         self.assertEqual(data["written_by"], "9.9.9")
 
     def test_update_section_preserves_other_sections(self):

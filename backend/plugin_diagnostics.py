@@ -41,7 +41,8 @@ async def export_logs() -> str | None:
 
         log_files = [p for p in glob.glob(os.path.join(log_dir, "*")) if os.path.isfile(p)]
         store = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "installed.json")
-        store_files = [p for p in (store, store + ".bak", *sorted(glob.glob(store + ".corrupt-*")))
+        store_files = [p for p in (store, store + ".bak", store + ".pre-schema2",
+                                   *sorted(glob.glob(store + ".corrupt-*")))
                        if os.path.isfile(p)]
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("moddy-info.txt", "\n".join(info) + "\n")

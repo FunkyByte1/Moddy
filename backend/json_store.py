@@ -115,7 +115,7 @@ def write(path: str, data: dict) -> bool:
     Every write stamps a schema number (for future format migrations) and the plugin
     version that wrote the file (so a user-supplied store in a bug report says which
     Moddy produced it)."""
-    data["schema"] = 1
+    data["schema"] = 2  # 2 = per-game "games" keying (schema 1 was flat global sections)
     version = getattr(decky, "DECKY_PLUGIN_VERSION", None)
     if version:
         data["written_by"] = version

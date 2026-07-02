@@ -168,7 +168,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             if mod_id in seen_ids:
                 continue
             src = record.get("source") or {}
-            if src.get("type") != "steamworkshop" or record.get("appid") != game.appid:
+            if src.get("type") != "steamworkshop":
                 continue
             seen_ids.add(mod_id)
             installed.append({
@@ -184,11 +184,10 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             })
         return installed
 
-    # Tracked installs from installed.json — browsed mods.
-    #    The store is keyed only by mod_id and shared across all games, so scope each
-    #    browsed mod to THIS game by requiring its files to physically exist under this
-    #    game's install dir (enabled or disabled form). Without this, mods installed for
-    #    one game leak into every other game's list as "disabled".
+    # Tracked installs from installed.json — browsed mods (this game's own store section).
+    #    The on-disk presence check is kept for ORPHAN detection: a record can outlive its
+    #    files (e.g. uninstalling the modloader rmtree'd the plugins away), and an orphaned
+    #    record must not list as an installed-but-"disabled" mod.
     for mod_id, record in store.items():
         if mod_id in seen_ids or mod_id in hidden_ids:
             continue

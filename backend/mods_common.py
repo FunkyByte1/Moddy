@@ -43,8 +43,8 @@ def _folder_mod_enabled(target_dirs: list[str], style: str = "dll") -> bool:
 
 def _tracked_present(path: str) -> bool:
     """Whether a zip_dir mod's tracked path is on disk for this game — the dir/file exists,
-    or (for a bare DLL) its disabled form does. Scopes globally-keyed records to the game
-    whose files are actually installed."""
+    or (for a bare DLL) its disabled form does. Presence distinguishes a live install from
+    an orphaned record whose files are gone."""
     return os.path.exists(path) or (path.endswith(".dll") and os.path.isfile(path + ".disabled"))
 
 
