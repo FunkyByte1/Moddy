@@ -25,9 +25,9 @@ import copy
 import decky
 import json_store
 
-# Top-level legacy sections this adopter understands. Grows as modloaders/profiles move
-# under "games" in later commits.
-_LEGACY_KEYS = ("mods", "vanilla")
+# Top-level legacy sections this adopter understands. Grows as profiles move
+# under "games" in a later commit.
+_LEGACY_KEYS = ("mods", "vanilla", "modloaders")
 
 
 def needs_adoption(full: dict) -> bool:
@@ -46,6 +46,7 @@ def adopt(path: str, full: dict) -> dict:
 
     games: dict = {}
     unadopted = _adopt_mods(full.pop("mods", None) or {}, games)
+    unadopted_ml = _adopt_modloaders(full.pop("modloaders", None) or {}, games)
     for appid, snapshot in (full.pop("vanilla", None) or {}).items():
         games.setdefault(str(appid), {})["vanilla"] = snapshot
 
@@ -55,6 +56,11 @@ def adopt(path: str, full: dict) -> dict:
         decky.logger.warning(
             f"store adoption: {len(unadopted)} record(s) matched no installed game — "
             f"kept under 'unadopted_mods' for hand recovery")
+    if unadopted_ml:
+        full["unadopted_modloaders"] = unadopted_ml
+        decky.logger.warning(
+            f"store adoption: {len(unadopted_ml)} modloader entr(ies) matched no supported "
+            f"game — kept under 'unadopted_modloaders'")
     json_store.write(path, full)
     decky.logger.info(
         f"Adopted legacy installed.json into the per-game schema ({len(games)} game(s))")
@@ -86,4 +92,34 @@ def _adopt_mods(records: dict, games: dict) -> dict:
                 placed = True
         if not placed:
             unadopted[mod_id] = rec
+    return unadopted
+
+
+def _adopt_modloaders(records: dict, games: dict) -> dict:
+    """Route each legacy modloader version entry to the game(s) declaring that loader id.
+    Loader ids are unique per game today only by registry convention, so a multi-declarer
+    tie is broken by whose install dir actually shows the loader's indicator."""
+    import os
+    import registry
+    import steam
+
+    unadopted: dict = {}
+    for ml_id, entry in records.items():
+        declaring = [g for g in registry.SUPPORTED_GAMES if g.get_modloader(ml_id)]
+        targets = declaring
+        if len(declaring) > 1:
+            hits = []
+            for g in declaring:
+                d = steam.find_game_install_dir(g.appid)
+                ml = g.get_modloader(ml_id)
+                ind = ml.indicator if ml else ""
+                if d and ind and (os.path.exists(os.path.join(d, ind))
+                                  or os.path.exists(os.path.join(d, ind + ".disabled"))):
+                    hits.append(g)
+            targets = hits or declaring
+        if not targets:
+            unadopted[ml_id] = entry
+            continue
+        for g in targets:
+            games.setdefault(str(g.appid), {}).setdefault("modloaders", {})[ml_id] = copy.deepcopy(entry)
     return unadopted

@@ -111,7 +111,7 @@ class Plugin:
         game = registry.get_game_by_appid(appid)
         if not game or not game.modloaders:
             return None
-        return modloaders.get_modloader_version(game.modloaders[0].id)
+        return modloaders.get_modloader_version(appid, game.modloaders[0].id)
 
     async def get_modloader_releases(self, appid: int) -> list:
         game = registry.get_game_by_appid(appid)
@@ -136,7 +136,7 @@ class Plugin:
         if not game or not game.modloaders:
             return None
         ml = game.modloaders[0]
-        installed = modloaders.get_modloader_version(ml.id)
+        installed = modloaders.get_modloader_version(appid, ml.id)
         if not installed:
             return None
         if ml.source.type == "ficsit":

@@ -180,7 +180,6 @@ class ZipFolderInstallTest(unittest.TestCase):
 class NmsSetupLoaderTest(unittest.TestCase):
     def setUp(self):
         reset_store()
-        modloaders._modloader_versions = {}   # NOT cleared by reset_store
         self.install_dir = tempfile.mkdtemp(prefix="moddy-nms-")
         self.ml = nms_setup_loader()
         self.game = registry.GameProfile(id="nms", name="NMS", appid=275850,
@@ -286,7 +285,6 @@ class WorkshopDecouplingTest(unittest.TestCase):
 class NmsVanillaTest(unittest.TestCase):
     def setUp(self):
         reset_store()
-        modloaders._modloader_versions = {}
         self.install_dir = tempfile.mkdtemp(prefix="moddy-nms-")
         self.ml = nms_setup_loader()
         self.game = registry.GameProfile(id="nms", name="NMS", appid=275850,

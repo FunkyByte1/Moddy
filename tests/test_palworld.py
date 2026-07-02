@@ -345,7 +345,7 @@ class Ue4ssLoaderTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.w("Pal/Binaries/Win64/ue4ss/Mods/mods.json")))
         self.assertTrue(modloaders.is_modloader_installed(self.game, self.install_dir, "ue4ss-palworld"))
         self.assertTrue(modloaders.is_modloader_enabled(self.game, self.install_dir, "ue4ss-palworld"))
-        self.assertEqual(modloaders.get_modloader_version("ue4ss-palworld"), "3.0.1")
+        self.assertEqual(modloaders.get_modloader_version(self.game.appid, "ue4ss-palworld"), "3.0.1")
 
     def test_missing_proxy_dll_fails(self):
         self.assertFalse(self.install({"ue4ss/UE4SS.dll": b"X"}))  # no dwmapi.dll in the archive

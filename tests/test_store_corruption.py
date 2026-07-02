@@ -36,7 +36,6 @@ def _write_raw(text: str) -> None:
 class TestStoreCorruption(unittest.TestCase):
     def setUp(self):
         reset_store()
-        modloaders._modloader_versions = {}
         json_store._quarantined.clear()
 
     def test_corrupt_store_is_quarantined_and_reads_empty(self):
@@ -117,15 +116,15 @@ class TestStoreCorruption(unittest.TestCase):
         _write_raw("{oops")
         # First reader quarantines; the rest see a clean empty store, and every writer works.
         self.assertEqual(mods._load_store(1), {})
-        self.assertEqual(modloaders._load_version_store(), {})
+        self.assertIsNone(modloaders.get_modloader_version(1, "bepinex"))
         self.assertEqual(profiles.list_profiles("game1"), [])
         self.assertEqual(len(_quarantined()), 1)
         mods.set_installed_record(1, "test.mod", "1.0", "TestMod")
-        modloaders.set_modloader_version("bepinex", "5.4")
+        modloaders.set_modloader_version(1, "bepinex", "5.4")
         self.assertTrue(profiles.save_profile("game1", "main", []))
         full = json_store.read(_store_path())
         self.assertEqual(full["games"]["1"]["mods"]["test.mod"]["version"], "1.0")
-        self.assertEqual(full["modloaders"]["bepinex"]["version"], "5.4")
+        self.assertEqual(full["games"]["1"]["modloaders"]["bepinex"]["version"], "5.4")
         self.assertEqual(full["profiles"]["game1"][0]["name"], "main")
 
 
