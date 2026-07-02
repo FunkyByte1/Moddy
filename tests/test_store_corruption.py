@@ -117,15 +117,15 @@ class TestStoreCorruption(unittest.TestCase):
         # First reader quarantines; the rest see a clean empty store, and every writer works.
         self.assertEqual(mods._load_store(1), {})
         self.assertIsNone(modloaders.get_modloader_version(1, "bepinex"))
-        self.assertEqual(profiles.list_profiles("game1"), [])
+        self.assertEqual(profiles.list_profiles(1), [])
         self.assertEqual(len(_quarantined()), 1)
         mods.set_installed_record(1, "test.mod", "1.0", "TestMod")
         modloaders.set_modloader_version(1, "bepinex", "5.4")
-        self.assertTrue(profiles.save_profile("game1", "main", []))
+        self.assertTrue(profiles.save_profile(1, "main", []))
         full = json_store.read(_store_path())
         self.assertEqual(full["games"]["1"]["mods"]["test.mod"]["version"], "1.0")
         self.assertEqual(full["games"]["1"]["modloaders"]["bepinex"]["version"], "5.4")
-        self.assertEqual(full["profiles"]["game1"][0]["name"], "main")
+        self.assertEqual(full["games"]["1"]["profiles"][0]["name"], "main")
 
 
 if __name__ == "__main__":

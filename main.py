@@ -727,7 +727,7 @@ class Plugin:
         game = registry.get_game_by_appid(appid)
         if not game:
             return []
-        return profiles.list_profiles(game.id)
+        return profiles.list_profiles(appid)
 
     async def save_profile(self, appid: int, name: str) -> bool:
         game = registry.get_game_by_appid(appid)
@@ -741,19 +741,19 @@ class Plugin:
             {"id": m["id"], "enabled": m["enabled"], "version": m.get("version")}
             for m in installed
         ]
-        return profiles.save_profile(game.id, name, snapshot)
+        return profiles.save_profile(appid, name, snapshot)
 
     async def rename_profile(self, appid: int, old_name: str, new_name: str) -> bool:
         game = registry.get_game_by_appid(appid)
         if not game:
             return False
-        return profiles.rename_profile(game.id, old_name, new_name)
+        return profiles.rename_profile(appid, old_name, new_name)
 
     async def delete_profile(self, appid: int, name: str) -> bool:
         game = registry.get_game_by_appid(appid)
         if not game:
             return False
-        return profiles.delete_profile(game.id, name)
+        return profiles.delete_profile(appid, name)
 
     async def _main(self):
         decky.logger.info("Decky Mod Manager loaded")

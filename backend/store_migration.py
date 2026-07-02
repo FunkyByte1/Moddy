@@ -25,9 +25,8 @@ import copy
 import decky
 import json_store
 
-# Top-level legacy sections this adopter understands. Grows as profiles move
-# under "games" in a later commit.
-_LEGACY_KEYS = ("mods", "vanilla", "modloaders")
+# Top-level legacy sections this adopter understands.
+_LEGACY_KEYS = ("mods", "vanilla", "modloaders", "profiles")
 
 
 def needs_adoption(full: dict) -> bool:
@@ -49,6 +48,7 @@ def adopt(path: str, full: dict) -> dict:
     unadopted_ml = _adopt_modloaders(full.pop("modloaders", None) or {}, games)
     for appid, snapshot in (full.pop("vanilla", None) or {}).items():
         games.setdefault(str(appid), {})["vanilla"] = snapshot
+    unadopted_prof = _adopt_profiles(full.pop("profiles", None) or {}, games)
 
     full["games"] = games
     if unadopted:
@@ -61,6 +61,11 @@ def adopt(path: str, full: dict) -> dict:
         decky.logger.warning(
             f"store adoption: {len(unadopted_ml)} modloader entr(ies) matched no supported "
             f"game — kept under 'unadopted_modloaders'")
+    if unadopted_prof:
+        full["unadopted_profiles"] = unadopted_prof
+        decky.logger.warning(
+            f"store adoption: profiles for {len(unadopted_prof)} unknown game slug(s) kept "
+            f"under 'unadopted_profiles'")
     json_store.write(path, full)
     decky.logger.info(
         f"Adopted legacy installed.json into the per-game schema ({len(games)} game(s))")
@@ -122,4 +127,19 @@ def _adopt_modloaders(records: dict, games: dict) -> dict:
             continue
         for g in targets:
             games.setdefault(str(g.appid), {}).setdefault("modloaders", {})[ml_id] = copy.deepcopy(entry)
+    return unadopted
+
+
+def _adopt_profiles(by_slug: dict, games: dict) -> dict:
+    """Legacy profiles were keyed by GameProfile.id slug; map each slug to its appid."""
+    import registry
+
+    slug_to_appid = {g.id: g.appid for g in registry.SUPPORTED_GAMES}
+    unadopted: dict = {}
+    for slug, plist in by_slug.items():
+        appid = slug_to_appid.get(slug)
+        if appid is None:
+            unadopted[slug] = plist
+            continue
+        games.setdefault(str(appid), {})["profiles"] = plist
     return unadopted

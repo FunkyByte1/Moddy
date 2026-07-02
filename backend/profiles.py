@@ -1,25 +1,15 @@
-import os
 from datetime import datetime, timezone
 
-import decky
-import json_store
+import game_store
 
 
-def _get_store_path() -> str:
-    return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "installed.json")
+def _profiles(appid: int) -> list:
+    """One game's live profiles list (see game_store); mutate + game_store.save()."""
+    return game_store.game(appid).setdefault("profiles", [])
 
 
-def _load_full() -> dict:
-    return json_store.read(_get_store_path())
-
-
-def _save_full(full: dict) -> bool:
-    return json_store.write(_get_store_path(), full)
-
-
-def list_profiles(game_id: str) -> list[dict]:
-    full = _load_full()
-    return list(full.get("profiles", {}).get(game_id, []))
+def list_profiles(appid: int) -> list[dict]:
+    return list(_profiles(appid))
 
 
 def _find(profiles_for_game: list[dict], name: str) -> int:
@@ -29,14 +19,12 @@ def _find(profiles_for_game: list[dict], name: str) -> int:
     return -1
 
 
-def save_profile(game_id: str, name: str, mods: list[dict]) -> bool:
+def save_profile(appid: int, name: str, mods: list[dict]) -> bool:
     """Create or overwrite a profile. Returns True on success."""
     name = (name or "").strip()
     if not name:
         return False
-    full = _load_full()
-    profiles_root = full.setdefault("profiles", {})
-    game_profiles = profiles_root.setdefault(game_id, [])
+    game_profiles = _profiles(appid)
     record = {
         "name": name,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -50,29 +38,27 @@ def save_profile(game_id: str, name: str, mods: list[dict]) -> bool:
         game_profiles[idx] = record
     else:
         game_profiles.append(record)
-    return _save_full(full)
+    return game_store.save()
 
 
-def rename_profile(game_id: str, old_name: str, new_name: str) -> bool:
+def rename_profile(appid: int, old_name: str, new_name: str) -> bool:
     new_name = (new_name or "").strip()
     if not new_name:
         return False
-    full = _load_full()
-    game_profiles = full.get("profiles", {}).get(game_id, [])
+    game_profiles = _profiles(appid)
     if _find(game_profiles, new_name) >= 0 and old_name != new_name:
         return False
     idx = _find(game_profiles, old_name)
     if idx < 0:
         return False
     game_profiles[idx]["name"] = new_name
-    return _save_full(full)
+    return game_store.save()
 
 
-def delete_profile(game_id: str, name: str) -> bool:
-    full = _load_full()
-    game_profiles = full.get("profiles", {}).get(game_id, [])
+def delete_profile(appid: int, name: str) -> bool:
+    game_profiles = _profiles(appid)
     idx = _find(game_profiles, name)
     if idx < 0:
         return False
     del game_profiles[idx]
-    return _save_full(full)
+    return game_store.save()
