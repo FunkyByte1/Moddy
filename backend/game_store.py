@@ -28,11 +28,7 @@ def _path() -> str:
 def _load() -> dict:
     global _GAMES
     if _GAMES is None:
-        full = json_store.read(_path())
-        import store_migration  # lazy: throwaway adopter pulls registry/steam/mods_common
-        if store_migration.needs_adoption(full):
-            full = store_migration.adopt(_path(), full)
-        _GAMES = full.get("games") or {}
+        _GAMES = json_store.read(_path()).get("games") or {}
     return _GAMES
 
 
