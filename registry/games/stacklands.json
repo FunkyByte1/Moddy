@@ -1,0 +1,9 @@
+{
+  "id": "stacklands",
+  "name": "Stacklands",
+  "appid": 1948280,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "stacklands",
+  "modloader_ids": ["bepinex-stacklands"]
+}

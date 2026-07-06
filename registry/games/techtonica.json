@@ -1,0 +1,9 @@
+{
+  "id": "techtonica",
+  "name": "Techtonica",
+  "appid": 1457320,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "techtonica",
+  "modloader_ids": ["bepinex-mono"]
+}

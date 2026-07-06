@@ -1,0 +1,9 @@
+{
+  "id": "totally-accurate-battle-simulator",
+  "name": "Totally Accurate Battle Simulator",
+  "appid": 508440,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "totally-accurate-battle-simulator",
+  "modloader_ids": ["bepinex-tabs"]
+}

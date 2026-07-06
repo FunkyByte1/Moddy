@@ -1,0 +1,9 @@
+{
+  "id": "bopl-battle",
+  "name": "Bopl Battle",
+  "appid": 1686940,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "bopl-battle",
+  "modloader_ids": ["bepinex-mono"]
+}

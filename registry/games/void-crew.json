@@ -1,0 +1,9 @@
+{
+  "id": "void-crew",
+  "name": "Void Crew",
+  "appid": 1063420,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "void-crew",
+  "modloader_ids": ["bepinex-mono"]
+}

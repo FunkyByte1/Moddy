@@ -1,0 +1,9 @@
+{
+  "id": "outward",
+  "name": "Outward",
+  "appid": 794260,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "outward",
+  "modloader_ids": ["bepinex-outward"]
+}

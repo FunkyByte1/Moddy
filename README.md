@@ -33,15 +33,28 @@ Moddy installs mods from several sources. What you need to do depends on where a
 ### Thunderstore
 No setup. Moddy installs from Thunderstore automatically.
 
+- ATLYSS
+- Bomb Rush Cyberfunk
+- Bopl Battle
 - Cult of the Lamb
+- Dyson Sphere Program
 - Enter the Gungeon
 - Inscryption
 - Lethal Company
+- Muck
+- Nine Sols
+- Outward
 - PEAK
 - R.E.P.O.
 - Risk of Rain 2
 - ROUNDS
+- Stacklands
+- Techtonica
+- Totally Accurate Battle Simulator
+- Trombone Champ
+- ULTRAKILL
 - Valheim
+- Void Crew
 
 ### Nexus Mods
 Requires a Nexus account and a **personal API key** (Premium only — see [Setting up your Nexus Mods API key](#setting-up-your-nexus-mods-api-key)).

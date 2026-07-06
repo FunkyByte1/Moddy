@@ -1,0 +1,15 @@
+{
+  "id": "bepinex-dsp",
+  "name": "BepInEx (Dyson Sphere Program)",
+  "files": ["winhttp.dll", "doorstop_config.ini", ".doorstop_version"],
+  "dirs": ["BepInEx"],
+  "indicator": "BepInEx",
+  "ready_indicator": null,
+  "launch_options": "WINEDLLOVERRIDES=\"winhttp=n,b\" %command%",
+  "source": {
+    "type": "thunderstore",
+    "owner": "xiaoye97",
+    "repo": "BepInEx",
+    "install_type": "zip_into_game"
+  }
+}
