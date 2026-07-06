@@ -1,0 +1,9 @@
+{
+  "id": "content-warning",
+  "name": "Content Warning",
+  "appid": 2881650,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "content-warning",
+  "modloader_ids": ["bepinex-mono"]
+}

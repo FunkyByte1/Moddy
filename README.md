@@ -37,10 +37,12 @@ No setup. Moddy installs from Thunderstore automatically.
 - ATLYSS
 - Bomb Rush Cyberfunk
 - Bopl Battle
+- Content Warning
 - Crab Game
 - Cult of the Lamb
 - Dyson Sphere Program
 - Enter the Gungeon
+- Gamble With Your Friends
 - GTFO
 - Inscryption
 - Lethal Company

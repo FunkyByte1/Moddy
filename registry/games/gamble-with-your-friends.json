@@ -1,0 +1,9 @@
+{
+  "id": "gamble-with-your-friends",
+  "name": "Gamble With Your Friends",
+  "appid": 3892270,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "gamble-with-your-friends",
+  "modloader_ids": ["bepinex-mono"]
+}
