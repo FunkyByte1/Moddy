@@ -41,6 +41,7 @@ No setup. Moddy installs from Thunderstore automatically.
 - Enter the Gungeon
 - Inscryption
 - Lethal Company
+- Megabonk
 - Muck
 - Nine Sols
 - Outward

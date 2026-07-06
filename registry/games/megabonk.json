@@ -1,0 +1,9 @@
+{
+  "id": "megabonk",
+  "name": "Megabonk",
+  "appid": 3405340,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "megabonk",
+  "modloader_ids": ["bepinex-il2cpp"]
+}
