@@ -76,6 +76,8 @@ Requires a Nexus account and a **personal API key** (Premium only — see [Setti
 - Resident Evil 2
 - Resident Evil 3
 - Resident Evil 4
+- Resident Evil 7
+- Resident Evil Village
 - Slime Rancher 2
 - Stardew Valley
 

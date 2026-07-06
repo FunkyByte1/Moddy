@@ -42,6 +42,7 @@ _NEXUS_DENYLIST = {
     "nexus.residentevil22019.119",  # Fluffy Mod Manager 5000 on RE2 (desktop app, not an in-game mod)
     "nexus.residentevil32020.8",    # Fluffy Mod Manager 5000 on RE3
     "nexus.devilmaycry5.64",        # Fluffy Mod Manager 5000 on DMC5
+    "nexus.residentevilvillage.18",  # Fluffy Mod Manager 5000 on RE Village (RE7's Fluffy is the site-wide site/818 above)
 }
 
 
