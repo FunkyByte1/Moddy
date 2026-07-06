@@ -100,7 +100,10 @@ def game_has_modpacks(appid: int) -> bool:
     except Exception:
         catalog = thunderstore.get_cached_community_catalog(game.thunderstore_community) or []
     denylist = plugin_install_denylists.thunderstore_browse_denylist()
-    return any(is_installable_modpack(p, denylist) for p in catalog)
+    # Same predicate list_modpacks_for_game uses (incl. the is_deprecated filter) so the tab-visibility
+    # gate never disagrees with the list — otherwise a community whose only installable modpack is
+    # deprecated shows an empty Modpacks tab.
+    return any(is_installable_modpack(p, denylist) and not p.get("is_deprecated") for p in catalog)
 
 
 def list_modpacks_for_game(appid: int, query: str = "", page: int = 1) -> list:
