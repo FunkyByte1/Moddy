@@ -1,0 +1,10 @@
+{
+  "id": "crab-game",
+  "name": "Crab Game",
+  "appid": 1782210,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "crab-game",
+  "requires_proton": true,
+  "modloader_ids": ["bepinex-crabgame"]
+}

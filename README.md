@@ -33,12 +33,15 @@ Moddy installs mods from several sources. What you need to do depends on where a
 ### Thunderstore
 No setup. Moddy installs from Thunderstore automatically.
 
+- Among Us
 - ATLYSS
 - Bomb Rush Cyberfunk
 - Bopl Battle
+- Crab Game
 - Cult of the Lamb
 - Dyson Sphere Program
 - Enter the Gungeon
+- GTFO
 - Inscryption
 - Lethal Company
 - Megabonk
@@ -49,11 +52,14 @@ No setup. Moddy installs from Thunderstore automatically.
 - R.E.P.O.
 - Risk of Rain 2
 - ROUNDS
+- Shadows of Doubt
+- Sons of the Forest
 - Stacklands
 - Techtonica
 - Totally Accurate Battle Simulator
 - Trombone Champ
 - ULTRAKILL
+- V Rising
 - Valheim
 - Void Crew
 

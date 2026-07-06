@@ -1,0 +1,9 @@
+{
+  "id": "shadows-of-doubt",
+  "name": "Shadows of Doubt",
+  "appid": 986130,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "shadows-of-doubt",
+  "modloader_ids": ["bepinex-il2cpp"]
+}

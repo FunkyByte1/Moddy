@@ -1,0 +1,9 @@
+{
+  "id": "sons-of-the-forest",
+  "name": "Sons of the Forest",
+  "appid": 1326470,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "sons-of-the-forest",
+  "modloader_ids": ["bepinex-il2cpp"]
+}
