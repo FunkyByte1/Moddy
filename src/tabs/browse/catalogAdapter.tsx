@@ -29,12 +29,15 @@ const libCategorySet = (game: GameStatus): Set<string> =>
 const isLibraryPkg = (p: ThunderstorePackage, libSet: Set<string>): boolean =>
   p.categories.some(c => libSet.has(c.toLowerCase()));
 
-// Thunderstore's curated-pack category. Modpacks have their own Collections tab (and are often
-// dual-tagged 'Mods'+'Modpacks'), so they're kept out of the mods Browse list entirely — mirrors
-// the backend's is_modpack (thunderstore_modpacks.py).
+// Thunderstore's curated-pack category. A real modpack has its own Collections tab and a dependency
+// tree to install, so it's kept out of the mods Browse list. But a 'Modpacks'-tagged package whose
+// only deps are the loader (denylisted) ships its own content and is really a mod mis-tagged as a
+// modpack (e.g. Megabonk's Rizzotto-Megamod) — that one belongs in Browse. Mirrors the backend's
+// is_installable_modpack (thunderstore_modpacks.py).
 const MODPACK_CATEGORY = 'modpacks';
-const isModpackPkg = (p: ThunderstorePackage): boolean =>
-  p.categories.some(c => c.toLowerCase() === MODPACK_CATEGORY);
+const isModpackPkg = (p: ThunderstorePackage, denylist: Set<string>): boolean =>
+  p.categories.some(c => c.toLowerCase() === MODPACK_CATEGORY) &&
+  p.latest.dependencies.some(d => !denylist.has(stripVersion(d).toLowerCase()));
 
 export function catalogItem(p: ThunderstorePackage, libSet: Set<string>): BrowseItem {
   return {
@@ -72,7 +75,7 @@ export function filterCatalog(
   const cats = filter?.categories;
   let list = catalog.filter(p => {
     if (denylist.has(p.full_name.toLowerCase())) return false;
-    if (isModpackPkg(p)) return false;  // curated packs live in the Collections tab, not the mods list
+    if (isModpackPkg(p, denylist)) return false;  // real curated packs live in the Collections tab, not the mods list
     if (p.is_deprecated && !showDeprecated) return false;
     if (p.has_nsfw_content && !showNsfw) return false;
     if (cats && cats.length > 0 && !p.categories.some(c => cats.includes(c))) return false;
@@ -103,7 +106,7 @@ export function catalogCategories(
   const set = new Set<string>();
   for (const p of catalog) {
     if (denylist.has(p.full_name.toLowerCase())) continue;
-    if (isModpackPkg(p)) continue;  // modpacks aren't in the mods list, so don't offer 'Modpacks' as a filter
+    if (isModpackPkg(p, denylist)) continue;  // real modpacks aren't in the mods list, so don't offer 'Modpacks' as a filter
     for (const c of p.categories) if (!libSet.has(c.toLowerCase())) set.add(c);
   }
   return [...set].sort();

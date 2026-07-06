@@ -51,6 +51,26 @@ def _deps(pkg: dict) -> list:
     return (pkg.get("latest") or {}).get("dependencies", []) or []
 
 
+def _installable_dep_count(pkg: dict, denylist: set) -> int:
+    """How many of the package's deps are actual mods — i.e. NOT the loader / a denylisted tool. A
+    real modpack installs its dependency tree (its own archive is skipped), so it needs ≥1 of these."""
+    n = 0
+    for dep in _deps(pkg):
+        parsed = thunderstore.parse_dep(dep)
+        if parsed and parsed[0].lower() not in denylist:
+            n += 1
+    return n
+
+
+def is_installable_modpack(pkg: dict, denylist: set) -> bool:
+    """Whether a package should be ROUTED as a modpack (Collections tab), vs shown as a normal mod.
+    A modpack model only works if there's a dependency tree to install: a 'Modpacks'-tagged package
+    whose only deps are the loader (e.g. Megabonk's Rizzotto-Megamod, which ships its own dll and
+    depends solely on BepInExPack) is really a content mod mis-tagged as a modpack — routing it as a
+    modpack would skip its archive and install nothing. Such packages fall through to Browse as mods."""
+    return is_modpack(pkg) and _installable_dep_count(pkg, denylist) > 0
+
+
 def _modpack_item(pkg: dict) -> dict:
     """Shape a modpack package into the CollectionItem the Collections browse tab consumes."""
     latest = pkg.get("latest") or {}
@@ -79,7 +99,8 @@ def game_has_modpacks(appid: int) -> bool:
         catalog = thunderstore.get_community_catalog(game.thunderstore_community)
     except Exception:
         catalog = thunderstore.get_cached_community_catalog(game.thunderstore_community) or []
-    return any(is_modpack(p) for p in catalog)
+    denylist = plugin_install_denylists.thunderstore_browse_denylist()
+    return any(is_installable_modpack(p, denylist) for p in catalog)
 
 
 def list_modpacks_for_game(appid: int, query: str = "", page: int = 1) -> list:
@@ -90,7 +111,8 @@ def list_modpacks_for_game(appid: int, query: str = "", page: int = 1) -> list:
     if not game:
         return []
     catalog = thunderstore.get_community_catalog(game.thunderstore_community)
-    packs = [p for p in catalog if is_modpack(p) and not p.get("is_deprecated")]
+    denylist = plugin_install_denylists.thunderstore_browse_denylist()
+    packs = [p for p in catalog if is_installable_modpack(p, denylist) and not p.get("is_deprecated")]
     q = (query or "").strip().lower()
     if q:
         packs = [p for p in packs
