@@ -61,8 +61,10 @@ No setup. Moddy subscribes the mods through Steam.
 - Crusader Kings III
 - Darkest Dungeon
 - Dead Cells
+- Divinity: Original Sin 2
 - Don't Starve Together
 - Dwarf Fortress
+- Euro Truck Simulator 2
 - Europa Universalis IV
 - Garry's Mod
 - Hand of Fate 2
