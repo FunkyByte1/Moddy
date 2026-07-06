@@ -33,8 +33,12 @@ Moddy installs mods from several sources. What you need to do depends on where a
 ### Thunderstore
 No setup. Moddy installs from Thunderstore automatically.
 
+- Cult of the Lamb
 - Enter the Gungeon
+- Inscryption
+- Lethal Company
 - PEAK
+- R.E.P.O.
 - Risk of Rain 2
 - ROUNDS
 - Valheim

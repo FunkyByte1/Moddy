@@ -1,0 +1,9 @@
+{
+  "id": "inscryption",
+  "name": "Inscryption",
+  "appid": 1092790,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "inscryption",
+  "modloader_ids": ["bepinex-inscryption"]
+}
