@@ -564,7 +564,7 @@ class Plugin:
         Implicit deps are unioned in only here, NOT into _BROWSE_DENYLIST: that set is what the
         install cascade uses to *skip* installs, and the modloader cores must still get installed."""
         implicit = {dep.lower() for g in registry.SUPPORTED_GAMES for dep in g.implicit_deps}
-        return sorted(plugin_install_denylists._BROWSE_DENYLIST | plugin_install_denylists.nexus_browse_denylist()
+        return sorted(plugin_install_denylists.thunderstore_browse_denylist() | plugin_install_denylists.nexus_browse_denylist()
                       | plugin_install_denylists.ficsit_browse_denylist() | implicit)
 
     async def get_unresolved_dependencies(self, appid: int, full_name: str, with_deps: bool = True) -> list:

@@ -66,12 +66,19 @@ def _modpack_item(pkg: dict) -> dict:
 
 
 def game_has_modpacks(appid: int) -> bool:
-    """Whether this game's Thunderstore community has ANY modpack — gates the Collections tab. Reads
-    the cached catalog only (never fetches), so it's cheap on the latency-sensitive status path."""
+    """Whether this game's Thunderstore community has ANY modpack — gates the Collections tab. Fetches
+    the community catalog if it isn't cached yet (1-day TTL) so the tab-visibility probe is correct
+    even before the Browse tab has loaded the catalog (otherwise a freshly-added game's probe reads an
+    empty cache, returns False, and the frontend caches that False for the session). This runs only
+    from the async gameHasCollections probe, never the latency-sensitive status path; on a fetch
+    failure it falls back to whatever is cached."""
     game = _is_thunderstore_game(appid)
     if not game:
         return False
-    catalog = thunderstore.get_cached_community_catalog(game.thunderstore_community) or []
+    try:
+        catalog = thunderstore.get_community_catalog(game.thunderstore_community)
+    except Exception:
+        catalog = thunderstore.get_cached_community_catalog(game.thunderstore_community) or []
     return any(is_modpack(p) for p in catalog)
 
 
@@ -180,7 +187,7 @@ async def run_modpack(appid: int, full_name: str, job) -> "bool | None":
     sid = f"collection:{full_name}"
     source = {"id": sid, "name": name, "image": (pkg.get("latest") or {}).get("icon", "") or ""}
 
-    denylist = plugin_install_denylists._BROWSE_DENYLIST
+    denylist = plugin_install_denylists.thunderstore_browse_denylist()
     provider = install_cascade.ThunderstoreProvider(denylist)
 
     # The complete member set (transitive closure of the modpack's deps), so we can size progress and

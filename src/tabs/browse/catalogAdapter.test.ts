@@ -54,6 +54,10 @@ describe('filterCatalog', () => {
   it('drops denylisted packages', () => {
     expect(names(filterCatalog(catalog, new Set(['o-b']), ''))).toEqual(['O-A', 'O-C']); // rating sort: A(5), C(1)
   });
+  it('drops modpack-category packages (they live in the Collections tab), even if dual-tagged Mods', () => {
+    const pack = pkg({ full_name: 'O-Pack', categories: ['Mods', 'Modpacks'] });
+    expect(names(filterCatalog([...catalog, pack], new Set(), ''))).toEqual(['O-B', 'O-A', 'O-C']); // O-Pack excluded
+  });
   it('hides deprecated/nsfw unless explicitly shown', () => {
     const dep = pkg({ full_name: 'O-D', is_deprecated: true });
     const nsfw = pkg({ full_name: 'O-N', has_nsfw_content: true });
@@ -90,5 +94,12 @@ describe('catalogCategories', () => {
     ];
     expect(catalogCategories(catalog, new Set(['o-deny']), new Set(['libraries'])))
       .toEqual(['Audio', 'Tweaks']); // 'Libraries' excluded (library), 'Secret' excluded (denylisted), deduped + sorted
+  });
+  it('does not offer Modpacks as a filter category (modpacks are excluded from the mods list)', () => {
+    const catalog = [
+      pkg({ full_name: 'O-A', categories: ['Tweaks'] }),
+      pkg({ full_name: 'O-Pack', categories: ['Mods', 'Modpacks'] }),
+    ];
+    expect(catalogCategories(catalog, new Set(), new Set(['libraries']))).toEqual(['Tweaks']);
   });
 });

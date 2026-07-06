@@ -66,3 +66,18 @@ def ficsit_browse_denylist() -> set[str]:
             if ml.source.type == "ficsit" and ml.source.mod_reference:
                 ids.add(f"ficsit.{ml.source.mod_reference}".lower())
     return ids
+
+
+def thunderstore_browse_denylist() -> set[str]:
+    """The full set of Thunderstore package ids ('<owner>-<name>', lowercase) to keep out of Browse
+    AND skip in the dependency cascade: the hand-curated _BROWSE_DENYLIST (legacy generic packs +
+    desktop mod-manager apps) plus every game's Thunderstore-sourced modloader, derived from the
+    registry so a newly-added BepInEx variant (e.g. BepInExPack_IL2CPP) is hidden automatically —
+    no second place to update. Mirrors nexus_browse_denylist()/ficsit_browse_denylist()."""
+    ids = set(_BROWSE_DENYLIST)
+    for g in registry.SUPPORTED_GAMES:
+        for ml in g.modloaders:
+            s = ml.source
+            if s.type == "thunderstore" and s.owner and s.repo:
+                ids.add(f"{s.owner}-{s.repo}".lower())
+    return ids
