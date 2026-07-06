@@ -39,6 +39,9 @@ _NEXUS_DENYLIST = {
     "nexus.palworld.1121",  # UE4SS Prepackaged — the loader, installed via the Mod Loader
     # tab (GitHub Okaetsu/RE-UE4SS), also listed on Nexus; hide it
     "nexus.palworld.3405",  # RE-UE4SS (Experimental) Linux — same loader, another listing
+    "nexus.residentevil22019.119",  # Fluffy Mod Manager 5000 on RE2 (desktop app, not an in-game mod)
+    "nexus.residentevil32020.8",    # Fluffy Mod Manager 5000 on RE3
+    "nexus.devilmaycry5.64",        # Fluffy Mod Manager 5000 on DMC5
 }
 
 
@@ -53,6 +56,15 @@ def nexus_browse_denylist() -> set[str]:
             s = ml.source
             if s.type == "nexus" and s.nexus_domain and s.mod_id:
                 ids.add(f"nexus.{s.nexus_domain}.{s.mod_id}".lower())
+        # A loader installed from elsewhere (e.g. REFramework from GitHub) is still MIRRORED on the
+        # game's own Nexus page; its `nexus_skip_ids` name those listings on the game's domain. Derive
+        # them here too so a new RE-Engine game only sets nexus_skip_ids on its loader — REFramework
+        # never leaks into Browse as an installable "mod" and needs no separate _NEXUS_DENYLIST entry.
+        domain = g.catalog.get("nexus_domain")
+        if domain:
+            for ml in g.modloaders:
+                for sid in ml.nexus_skip_ids:
+                    ids.add(f"nexus.{domain}.{sid}".lower())
     return ids
 
 

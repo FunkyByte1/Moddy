@@ -66,10 +66,13 @@ No setup. Moddy installs from Thunderstore automatically.
 ### Nexus Mods
 Requires a Nexus account and a **personal API key** (Premium only — see [Setting up your Nexus Mods API key](#setting-up-your-nexus-mods-api-key)).
 
+- Devil May Cry 5
 - Monster Hunter Rise
 - Monster Hunter World
 - No Man's Sky
 - Palworld
+- Resident Evil 2
+- Resident Evil 3
 - Resident Evil 4
 - Slime Rancher 2
 - Stardew Valley
