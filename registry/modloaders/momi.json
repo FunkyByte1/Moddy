@@ -2,6 +2,7 @@
   "id": "momi",
   "name": "Mods of Mistria Installer",
   "source": { "type": "external_cli" },
+  "nexus_skip_ids": ["78"],
   "merge_tool": {
     "tool_id": "momi",
     "owner": "Garethp",
