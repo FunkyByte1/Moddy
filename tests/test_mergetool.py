@@ -5,6 +5,7 @@ parsing of the declarative merge_tool config, the Fields game routing to install
 the Aurie high-risk detector, and the game-update staleness semantics (is_stale vs _buildid_changed).
 """
 import os
+import json
 import asyncio
 import tempfile
 import unittest
@@ -12,6 +13,21 @@ import unittest
 from _harness import registry, reset_store
 import mods_mergetool as mt
 import game_store
+
+
+def _fields_profile(appid=2142790):
+    """A synthetic Fields-of-Mistria GameProfile wired to the real `momi` merge loader.
+
+    Fields is gated OFF in the registry (enabled=false — MOMI can't mod the current game
+    build; see the game JSON's disabled_reason), so `get_game_by_appid` returns None. The
+    merge-tool *framework* is game-agnostic, so its tests build the profile directly from
+    the still-present momi loader rather than depending on any enabled game."""
+    momi = registry._load_modloaders()["momi"]
+    return registry.GameProfile(
+        id="fields-of-mistria", name="Fields of Mistria", appid=appid, mods_dir="mods",
+        catalog={"type": "nexus", "nexus_domain": "fieldsofmistria", "install_type": "external_merge"},
+        modloaders=[momi],
+    )
 
 
 class MergeToolRegistryTest(unittest.TestCase):
@@ -32,13 +48,23 @@ class MergeToolRegistryTest(unittest.TestCase):
         self.assertEqual(cfg.high_risk_glob, "aurie/*.dll")
         self.assertEqual(cfg.high_risk_policy, "deny")
 
-    def test_fields_game_routes_to_external_merge(self):
-        game = registry.get_game_by_appid(2142790)
-        self.assertIsNotNone(game)
-        self.assertEqual(game.mods_dir, "mods")
-        self.assertFalse(game.requires_proton)
-        self.assertEqual(game.catalog.get("install_type"), "external_merge")
-        ml = mt.merge_loader(game)
+    def test_fields_is_gated_off_in_registry(self):
+        # Fields is intentionally disabled (enabled=false) until MOMI can mod the new engine —
+        # so it must NOT surface as a supported game.
+        self.assertIsNone(registry.get_game_by_appid(2142790))
+
+    def test_fields_json_routes_to_external_merge_when_reenabled(self):
+        # Guard the routing config so re-enabling later is a one-line `enabled` flip, not a rediscovery.
+        path = os.path.join(registry._REGISTRY_DIR, "games", "fields-of-mistria.json")
+        with open(path) as f:
+            data = json.load(f)
+        self.assertFalse(data.get("enabled", True), "Fields should stay gated off until MOMI is fixed")
+        self.assertEqual(data["mods_dir"], "mods")
+        self.assertEqual(data["modloader_ids"], ["momi"])
+        self.assertEqual(data["catalog"].get("install_type"), "external_merge")
+
+    def test_synthetic_fields_profile_has_merge_loader(self):
+        ml = mt.merge_loader(_fields_profile())
         self.assertIsNotNone(ml)
         self.assertEqual(ml.id, "momi")
 
@@ -122,7 +148,7 @@ class PendingTest(unittest.TestCase):
         # A successful rebuild bakes the staged changes → clears the pending prompt.
         game_store.section(self.appid, "mergetool")["dirty"] = True
         game_store.save()
-        game = registry.get_game_by_appid(self.appid)
+        game = _fields_profile(self.appid)
         ml = mt.merge_loader(game)
         orig = (mt.is_tool_available, mt._run, mt.steam.get_build_id)
         mt.is_tool_available = lambda _ml: True

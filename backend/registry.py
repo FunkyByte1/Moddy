@@ -220,6 +220,16 @@ def _load_game(path: str, ml_catalog: dict[str, ModloaderInfo]) -> GameProfile |
         with open(path, "r") as f:
             data = json.load(f)
 
+        # A game can be shipped-but-gated: kept in the registry (so its config and history
+        # survive) yet excluded from SUPPORTED_GAMES, so Moddy treats it as unsupported and
+        # it never surfaces as working. Used when an upstream tool can't yet mod the current
+        # game build (e.g. Fields of Mistria — MOMI's new-engine detection is broken; see
+        # `disabled_reason` in the JSON). Flip `enabled` back to true when upstream is fixed.
+        if not data.get("enabled", True):
+            reason = data.get("disabled_reason", "")
+            decky.logger.info(f"{where}: gated off (enabled=false){f' — {reason}' if reason else ''}")
+            return None
+
         game_id = _require(data, "id", where)
         name = _require(data, "name", where)
         appid = _require(data, "appid", where)

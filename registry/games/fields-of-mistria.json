@@ -6,5 +6,8 @@
   "mods_dir_type": "game",
   "modloader_ids": ["momi"],
   "requires_proton": false,
-  "catalog": { "type": "nexus", "nexus_domain": "fieldsofmistria", "install_type": "external_merge" }
+  "catalog": { "type": "nexus", "nexus_domain": "fieldsofmistria", "install_type": "external_merge" },
+
+  "enabled": false,
+  "disabled_reason": "MOMI can't mod the current game build. Fields dropped data.win for a packed assets.zip (~516MB); MOMI's new-engine support is beta-only (v0.12.0-beta+) AND its Linux game-detection is broken (relative Steam-library paths; data.win-gated cwd fallback that fails even with data.win present; no path-override arg/env/config; exits 0 on failure). Verified non-functional on-device 2026-07-07 (Steam Deck, SD-card library). Re-enable once MOMI ships working new-engine detection. Tracking: <MOMI issue URL>."
 }
