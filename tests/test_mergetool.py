@@ -12,7 +12,6 @@ import unittest
 from _harness import registry, reset_store
 import mods_mergetool as mt
 import game_store
-import download_queue
 
 
 class MergeToolRegistryTest(unittest.TestCase):
@@ -107,8 +106,8 @@ class StalenessTest(unittest.TestCase):
         self.assertFalse(mt.is_applied(self.appid))
 
 
-class CoalesceTest(unittest.TestCase):
-    """The debounced-rebuild bookkeeping (the async settle timer itself is integration-only)."""
+class PendingTest(unittest.TestCase):
+    """Deployment-model bookkeeping: mod ops mark 'pending'; the rebuild happens on demand via Apply."""
     def setUp(self):
         reset_store()
         self.appid = 2142790
@@ -119,11 +118,24 @@ class CoalesceTest(unittest.TestCase):
         game_store.save()
         self.assertTrue(mt.is_apply_pending(self.appid))
 
-    def test_flush_pending_is_noop_when_not_dirty(self):
-        self.assertFalse(asyncio.run(mt.flush_pending(self.appid)))
-
-    def test_download_queue_idle_by_default(self):
-        self.assertFalse(download_queue.is_active())
+    def test_run_apply_clears_pending_on_success(self):
+        # A successful rebuild bakes the staged changes → clears the pending prompt.
+        game_store.section(self.appid, "mergetool")["dirty"] = True
+        game_store.save()
+        game = registry.get_game_by_appid(self.appid)
+        ml = mt.merge_loader(game)
+        orig = (mt.is_tool_available, mt._run, mt.steam.get_build_id)
+        mt.is_tool_available = lambda _ml: True
+        async def _fake_run(_ml, _dir, _argv):
+            return True
+        mt._run = _fake_run
+        mt.steam.get_build_id = lambda appid, libraries=None: "1"
+        try:
+            ok = asyncio.run(mt.run_apply(game, tempfile.mkdtemp(), ml))
+        finally:
+            mt.is_tool_available, mt._run, mt.steam.get_build_id = orig
+        self.assertTrue(ok)
+        self.assertFalse(mt.is_apply_pending(self.appid))
 
 
 if __name__ == "__main__":

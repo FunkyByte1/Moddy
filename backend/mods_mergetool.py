@@ -28,8 +28,6 @@ import steam
 
 _SECTION = "mergetool"
 _APPLY_TIMEOUT = 600  # seconds; patching data.win + JSONs is not instant but shouldn't hang forever
-_DEBOUNCE_SEC = 1.2   # settle window: coalesce a burst of mod changes into ONE rebuild
-_pending: "dict[int, asyncio.Future]" = {}  # appid -> in-flight settle-and-apply task
 
 
 def merge_loader(game) -> "object | None":
@@ -127,11 +125,12 @@ async def run_apply(game, install_dir, ml) -> bool:
     cfg = ml.merge_tool
     if _buildid_changed(game.appid, install_dir):
         _clear_stale_backups(install_dir, cfg)
-    ok = _run(ml, install_dir, list(cfg.apply_argv))
+    ok = await _run(ml, install_dir, list(cfg.apply_argv))
     sect = game_store.section(game.appid, _SECTION)
     sect["last_apply_ok"] = ok
     if ok:
         sect["applied"] = True
+        sect["dirty"] = False  # staged changes are now baked in — clear the pending prompt
         sect["last_buildid"] = steam.get_build_id(game.appid)
     game_store.save()
     return ok
@@ -143,7 +142,7 @@ async def run_restore(game, install_dir, ml) -> bool:
         decky.logger.error(f"merge tool {ml.id}: binary unavailable; cannot restore")
         return False
     cfg = ml.merge_tool
-    ok = _run(ml, install_dir, list(cfg.restore_argv))
+    ok = await _run(ml, install_dir, list(cfg.restore_argv))
     if ok:
         sect = game_store.section(game.appid, _SECTION)
         sect["applied"] = False
@@ -151,85 +150,29 @@ async def run_restore(game, install_dir, ml) -> bool:
     return ok
 
 
-async def request_apply(game, install_dir, ml) -> None:
-    """Coalesce a burst of mod changes into ONE rebuild. Marks the game dirty and (re)schedules a
-    single settle-then-apply task, so installing/deleting a HANDFUL of mods rebuilds data.win once
-    instead of once per mod. The rebuild fires once the install queue is idle AND no newer change has
-    landed for _DEBOUNCE_SEC. Returns immediately — the mod op no longer blocks on the (slow) rebuild.
-    A crash before it fires leaves the dirty flag set; recover_pending() flushes it on next startup."""
-    appid = game.appid
+async def mark_pending(appid: int) -> None:
+    """Record that mods changed but the shared game file hasn't been rebuilt yet. Deployment model:
+    install/delete/toggle just stage folders (instant) and mark 'pending'; the user rebuilds ONCE via
+    'Apply mods' (reapply). This avoids a slow data.win rebuild after every single mod op. Emits a
+    status refresh so the UI shows the pending-changes prompt. Cheap — no rebuild here."""
     game_store.section(appid, _SECTION)["dirty"] = True
     game_store.save()
     try:
-        await decky.emit("game_status_stale", appid)  # UI shows "Applying mods…"
+        await decky.emit("game_status_stale", appid)
     except Exception:
         pass
-    prev = _pending.get(appid)
-    if prev is not None and not prev.done():
-        prev.cancel()
-    _pending[appid] = asyncio.ensure_future(_settle_and_apply(game, install_dir, ml))
-
-
-async def _settle_and_apply(game, install_dir, ml) -> None:
-    import download_queue  # lazy — avoid an import cycle
-    appid = game.appid
-    try:
-        while True:
-            await asyncio.sleep(_DEBOUNCE_SEC)
-            if not download_queue.is_active():  # don't rebuild mid-batch; wait for the queue to drain
-                break
-    except asyncio.CancelledError:
-        return  # a newer change rescheduled us — let that task do the (single) rebuild
-    if game_store.section(appid, _SECTION).get("dirty"):
-        game_store.section(appid, _SECTION)["dirty"] = False
-        game_store.save()
-        await run_apply(game, install_dir, ml)
-        try:
-            await decky.emit("game_status_stale", appid)  # clear "Applying mods…" once baked
-        except Exception:
-            pass
-    _pending.pop(appid, None)
 
 
 def is_apply_pending(appid: int) -> bool:
-    """True while a coalesced rebuild is queued/running (mods staged but not yet baked in) — the UI
-    shows 'Applying mods…' so the user doesn't launch mid-rebuild."""
+    """True when mods were staged but not yet rebuilt into the shared game file — the UI shows an
+    'Apply mods' prompt, and the changes won't appear in-game until the user applies."""
     return bool(game_store.section(appid, _SECTION).get("dirty"))
 
 
-async def flush_pending(appid: int) -> bool:
-    """Apply now if a rebuild is pending — startup recovery for a dirty flag left by a crash/unload.
-    Returns True if it rebuilt, False if nothing was pending / couldn't resolve the game."""
-    import registry  # lazy
-    if not game_store.section(appid, _SECTION).get("dirty"):
-        return False
-    game = registry.get_game_by_appid(appid)
-    ml = merge_loader(game) if game else None
-    install_dir = steam.find_game_install_dir(appid)
-    if not game or not ml or not install_dir or not is_tool_available(ml):
-        return False
-    game_store.section(appid, _SECTION)["dirty"] = False
-    game_store.save()
-    return await run_apply(game, install_dir, ml)
-
-
-async def recover_pending() -> None:
-    """On plugin startup, flush any external-merge game left with a pending rebuild (dirty flag)."""
-    for appid_str in list(game_store.appids()):
-        try:
-            appid = int(appid_str)
-        except (TypeError, ValueError):
-            continue
-        try:
-            await flush_pending(appid)
-        except Exception as e:
-            decky.logger.error(f"merge tool: recover_pending failed for {appid}: {e}")
-
-
 async def reapply(appid: int) -> dict:
-    """User-triggered rebuild of an external-merge game's shared file from the current mod set — used
-    after a Steam game update wiped the baked mods (see is_stale). run_apply clears the tool's stale
-    pristine backups first so the update is preserved. Returns {"ok": bool, "reason": str}."""
+    """The 'Apply mods' action: rebuild the shared game file from the current mod set (deploy staged
+    changes, and re-bake after a Steam game update wiped them — run_apply clears the tool's stale
+    pristine backups first so the update is preserved). Returns {"ok": bool, "reason": str}."""
     import registry  # lazy — avoid registry load cost at module import
     game = registry.get_game_by_appid(appid)
     if not game:
@@ -258,13 +201,18 @@ def last_apply_ok(appid: int) -> bool:
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _run(ml, install_dir, argv) -> bool:
+async def _run(ml, install_dir, argv) -> bool:
+    # The merge tool rewrites the whole data.win (seconds) — run it in a thread so the blocking
+    # subprocess doesn't freeze the asyncio event loop (which would stall the install queue + UI).
     binary = tool_binary_path(ml)
-    try:
-        result = subprocess.run(
+
+    def _blocking():
+        return subprocess.run(
             [binary, *argv], cwd=install_dir, env=_merge_env(ml),
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=_APPLY_TIMEOUT,
         )
+    try:
+        result = await asyncio.get_running_loop().run_in_executor(None, _blocking)
     except subprocess.TimeoutExpired:
         decky.logger.error(f"merge tool {ml.id}: timed out after {_APPLY_TIMEOUT}s")
         return False

@@ -122,11 +122,11 @@ export interface GameStatus {
   // off but kept on disk, ready to switch back.
   vanilla: boolean;
   // External-merge games (Fields of Mistria/MOMI): true when a Steam game update wiped the mods
-  // baked into the shared file, so the UI offers a one-tap "reapply mods".
+  // baked into the shared file, so the UI offers a one-tap "Apply mods" to rebuild.
   merge_tool_stale?: boolean;
-  // True while a coalesced background rebuild is queued/running after mod changes — the shared game
-  // file isn't baked yet, so the UI shows "Applying mods…" and warns against launching mid-rebuild.
-  merge_tool_applying?: boolean;
+  // Mods were staged (installed/deleted/toggled) but the shared game file hasn't been rebuilt yet —
+  // the UI shows the "Apply mods" prompt (deployment model); changes aren't in-game until applied.
+  merge_tool_pending?: boolean;
 }
 
 export interface VanillaResult {

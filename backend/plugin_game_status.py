@@ -171,9 +171,10 @@ def _build_game_status(game: "registry.GameProfile", libraries: "list[str] | Non
             install_dir and installed_mods_list
             and mods_mergetool.merge_loader(game) and mods_mergetool.is_stale(game.appid)
         ),
-        # True while a coalesced rebuild is queued/running after mod changes — the shared game file
-        # isn't baked yet, so the UI shows "Applying mods…" and warns against launching mid-rebuild.
-        "merge_tool_applying": bool(
+        # External-merge games: mods were staged (installed/deleted/toggled) but the shared game file
+        # hasn't been rebuilt yet — the UI shows an "Apply mods" prompt (deployment model), and the
+        # changes won't appear in-game until applied.
+        "merge_tool_pending": bool(
             install_dir and mods_mergetool.merge_loader(game) and mods_mergetool.is_apply_pending(game.appid)
         ),
     }

@@ -712,31 +712,25 @@ const ModPage: FC = () => {
           </DialogButton>
         </div>
       )}
-      {/* Background-rebuild indicator for external-merge games: after a burst of mod changes the tool
-          rebuilds the shared game file once (coalesced). Until it finishes the mods aren't baked in,
-          so warn against launching. Clears automatically when the backend emits game_status_stale. */}
-      {game?.installed && game.merge_tool_applying && (
-        <div style={{
-          margin: '8px 12px', padding: '10px 12px', borderRadius: '4px',
-          background: 'var(--gpColorBgTertiary, rgba(255,255,255,0.05))', borderLeft: '3px solid #1a9fff',
-          color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', lineHeight: 1.5,
-        }}>
-          ⟳ Applying mods… rebuilding the game's files. Wait for this to finish before launching.
-        </div>
-      )}
-      {/* Reapply prompt for external-merge games (Fields of Mistria/MOMI): a Steam game update
-          overwrites the shared file (data.win), wiping the mods baked into it. The backend detects
-          the build-id change and flags merge_tool_stale; one tap rebuilds from the current mod set
-          (clearing the tool's now-stale pristine backups first so the update is preserved). */}
-      {game?.installed && game.merge_tool_stale && (
+      {/* "Apply mods" prompt for external-merge games (Fields of Mistria/MOMI). These bake all mods
+          into one shared game file (data.win), and each rebuild is slow — so install/delete/toggle are
+          instant (they just stage folders) and the rebuild happens ONCE, on demand (a deployment model
+          like Vortex/Mod Organizer). Shown when there are staged-but-unapplied changes
+          (merge_tool_pending) OR a Steam game update wiped the baked mods (merge_tool_stale). Apply
+          rebuilds from the current mod set (clearing the tool's now-stale backups first so an update is
+          preserved). Runs off the event loop, so the button just shows a spinner while it works. */}
+      {game?.installed && (game.merge_tool_pending || game.merge_tool_stale) && (
         <div style={{
           margin: '8px 12px', padding: '12px', borderRadius: '4px',
           background: 'var(--gpColorBgTertiary, rgba(255,255,255,0.05))', borderLeft: '3px solid #f8a623',
         }}>
-          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>⚠ Reapply mods after game update</div>
+          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+            {game.merge_tool_stale ? '⚠ Reapply mods after game update' : '⚠ Unapplied mod changes'}
+          </div>
           <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', lineHeight: 1.5, marginBottom: '10px' }}>
-            {game.name} was updated, which reset the game files your mods were merged into. Reapply to
-            rebuild them with your installed mods.
+            {game.merge_tool_stale
+              ? `${game.name} was updated, which reset the game files your mods were merged into. Apply to rebuild them with your installed mods.`
+              : 'Your mod changes are staged but not in the game yet. Apply to rebuild the game files — do this before you launch.'}
           </div>
           <DialogButton
             disabled={reapplying}
@@ -744,11 +738,11 @@ const ModPage: FC = () => {
               setReapplying(true);
               const res = await reapplyMergeTool(appid).catch(() => ({ ok: false, reason: 'failed' }));
               setReapplying(false);
-              toaster.toast({ title: 'Moddy', body: res.ok ? 'Mods reapplied' : `Couldn't reapply mods — ${res.reason || 'try again'}` });
+              toaster.toast({ title: 'Moddy', body: res.ok ? 'Mods applied' : `Couldn't apply mods — ${res.reason || 'try again'}` });
               if (res.ok) refresh();
             }}
           >
-            {reapplying ? 'Reapplying…' : 'Reapply mods'}
+            {reapplying ? 'Applying…' : 'Apply mods'}
           </DialogButton>
         </div>
       )}

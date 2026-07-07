@@ -395,9 +395,8 @@ async def _install_mod_external_merge(game: GameProfile, install_dir: str, mods_
         placed = _folder_commit(game.appid, install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
         if placed is not True:
             return placed
-        # Schedule a coalesced background rebuild of the shared game file — the (slow) merge runs once
-        # after a burst of installs settles, so the op returns immediately instead of blocking on it.
-        await mods_mergetool.request_apply(game, install_dir, ml)
+        # Stage only — the (slow) shared-file rebuild happens once, on demand, via "Apply mods".
+        await mods_mergetool.mark_pending(game.appid)
         return True
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
@@ -484,7 +483,7 @@ async def install_external_merge_files(game: GameProfile, install_dir: str, mod:
                 txn.place(staged_abs, install_rel)
         mods.set_installed_record(game.appid, mod.id, version or "latest", mod.filename, paths=folder_rels, mod=mod)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {len(folder_rels)} folder(s)")
-        await mods_mergetool.request_apply(game, install_dir, ml)  # coalesced background rebuild
+        await mods_mergetool.mark_pending(game.appid)  # stage only; user rebuilds once via "Apply mods"
         return True
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
