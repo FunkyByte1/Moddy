@@ -721,19 +721,18 @@ const ModPage: FC = () => {
           preserved). Runs off the event loop, so the button just shows a spinner while it works. */}
       {game?.installed && (game.merge_tool_pending || game.merge_tool_stale) && (
         <div style={{
-          margin: '8px 12px', padding: '12px', borderRadius: '4px',
+          display: 'flex', alignItems: 'center', gap: '10px',
+          margin: '6px 12px', padding: '5px 6px 5px 10px', borderRadius: '4px',
           background: 'var(--gpColorBgTertiary, rgba(255,255,255,0.05))', borderLeft: '3px solid #f8a623',
         }}>
-          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
-            {game.merge_tool_stale ? '⚠ Reapply mods after game update' : '⚠ Unapplied mod changes'}
-          </div>
-          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', lineHeight: 1.5, marginBottom: '10px' }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: '0.82em', lineHeight: 1.3, color: 'var(--gpColorTextSecondary)' }}>
             {game.merge_tool_stale
-              ? `${game.name} was updated, which reset the game files your mods were merged into. Apply to rebuild them with your installed mods.`
-              : 'Your mod changes are staged but not in the game yet. Apply to rebuild the game files — do this before you launch.'}
-          </div>
+              ? `${game.name} was updated — reapply your mods.`
+              : 'Unapplied mod changes — apply before you launch.'}
+          </span>
           <DialogButton
             disabled={reapplying}
+            style={{ minWidth: 0, width: 'auto', padding: '3px 14px', alignSelf: 'center' }}
             onClick={async () => {
               setReapplying(true);
               const res = await reapplyMergeTool(appid).catch(() => ({ ok: false, reason: 'failed' }));
@@ -742,7 +741,7 @@ const ModPage: FC = () => {
               if (res.ok) refresh();
             }}
           >
-            {reapplying ? 'Applying…' : 'Apply mods'}
+            {reapplying ? 'Applying…' : 'Apply'}
           </DialogButton>
         </div>
       )}

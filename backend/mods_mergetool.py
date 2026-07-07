@@ -169,6 +169,13 @@ def is_apply_pending(appid: int) -> bool:
     return bool(game_store.section(appid, _SECTION).get("dirty"))
 
 
+def clear_state(appid: int) -> None:
+    """Drop all merge-tool bookkeeping for a game (on loader uninstall / Reset Game) so no stale
+    'Apply mods' prompt or applied/buildid state lingers after the tool is gone."""
+    game_store.section(appid, _SECTION).clear()
+    game_store.save()
+
+
 async def reapply(appid: int) -> dict:
     """The 'Apply mods' action: rebuild the shared game file from the current mod set (deploy staged
     changes, and re-bake after a Steam game update wiped them — run_apply clears the tool's stale

@@ -173,8 +173,10 @@ def _build_game_status(game: "registry.GameProfile", libraries: "list[str] | Non
         ),
         # External-merge games: mods were staged (installed/deleted/toggled) but the shared game file
         # hasn't been rebuilt yet — the UI shows an "Apply mods" prompt (deployment model), and the
-        # changes won't appear in-game until applied.
+        # changes won't appear in-game until applied. Suppressed in vanilla mode (pristine is the goal
+        # there, so there's nothing to apply until the user leaves vanilla).
         "merge_tool_pending": bool(
-            install_dir and mods_mergetool.merge_loader(game) and mods_mergetool.is_apply_pending(game.appid)
+            install_dir and mods_mergetool.merge_loader(game)
+            and mods_mergetool.is_apply_pending(game.appid) and not mods.is_game_vanilla(game.appid)
         ),
     }

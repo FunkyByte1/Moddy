@@ -269,6 +269,7 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
             await mods_mergetool.run_restore(game, install_dir, ml)  # unbake mods (best-effort; pristine data.win)
             shutil.rmtree(mods_mergetool.tool_dir(ml), ignore_errors=True)  # remove the CLI binary
             clear_modloader_version(game.appid, modloader_id)
+            mods_mergetool.clear_state(game.appid)  # no stale "Apply mods" prompt after reset
             decky.logger.info(f"Uninstalled {modloader_id}")
             return True
         except Exception as e:
