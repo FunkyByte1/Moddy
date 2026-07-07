@@ -135,9 +135,10 @@ class ThunderstoreModpacksTest(unittest.TestCase):
         self.assertEqual(it["tile_image"], "i.png")
 
     def test_list_modpacks_sorted_by_likes(self):
-        self.add_modpack("X-Low", likes=1)
-        self.add_modpack("X-High", likes=100)
-        self.add_modpack("X-Mid", likes=10)
+        # Modpacks need >=1 installable (non-loader) dependency to count (is_installable_modpack).
+        self.add_modpack("X-Low", deps=["A-One"], likes=1)
+        self.add_modpack("X-High", deps=["A-One"], likes=100)
+        self.add_modpack("X-Mid", deps=["A-One"], likes=10)
         self.assertEqual([i["slug"] for i in tm.list_modpacks_for_game(632360)],
                          ["X-High", "X-Mid", "X-Low"])
 
@@ -148,8 +149,17 @@ class ThunderstoreModpacksTest(unittest.TestCase):
     def test_game_has_modpacks(self):
         self.add_pkg("Owner-PlainMod")
         self.assertFalse(tm.game_has_modpacks(632360))
-        self.add_modpack("Curator-Pack")
+        self.add_modpack("Curator-Pack", deps=["A-One"])  # needs an installable (non-loader) dep to count
         self.assertTrue(tm.game_has_modpacks(632360))
+
+    def test_loader_only_or_empty_modpack_is_not_installable(self):
+        # A 'Modpacks'-tagged pack whose only dep is the (denylisted) loader ships its own content
+        # and is a mis-tagged mod, not a real modpack (Megabonk's Rizzotto-Megamod). It must NOT be
+        # listed or gate the Collections tab. An empty-dep 'modpack' is excluded for the same reason.
+        self.add_modpack("Rizzotto-Megamod", deps=["BepInEx-BepInExPack"])  # loader only → denylisted
+        self.add_modpack("Empty-Pack")                                       # no deps at all
+        self.assertFalse(tm.game_has_modpacks(632360))
+        self.assertEqual(tm.list_modpacks_for_game(632360), [])
 
     def test_modpack_detail_lists_members(self):
         self.add_pkg("A-One", icon="one.png")

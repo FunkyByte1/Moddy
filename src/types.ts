@@ -121,6 +121,9 @@ export interface GameStatus {
   // True while the game is in "vanilla" (play-unmodded) mode — every mod + the modloader toggled
   // off but kept on disk, ready to switch back.
   vanilla: boolean;
+  // External-merge games (Fields of Mistria/MOMI): true when a Steam game update wiped the mods
+  // baked into the shared file, so the UI offers a one-tap "reapply mods".
+  merge_tool_stale?: boolean;
 }
 
 export interface VanillaResult {

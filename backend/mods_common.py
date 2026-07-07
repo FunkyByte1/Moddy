@@ -62,7 +62,7 @@ def mod_files_present(game: GameProfile, install_dir: str, record: dict) -> bool
     paths = record.get("paths")
     if install_type in ("zip_flat", "zip_natives", "zip_nativepc"):
         return _flat_mod_present(_flat_target_paths(install_dir, paths))
-    if install_type == "zip_folder":
+    if install_type in ("zip_folder", "external_merge"):
         return _zipfolder_present(install_dir, paths)
     if install_type == "zip_smapi":
         return _smapi_mod_present(_flat_target_paths(install_dir, paths))

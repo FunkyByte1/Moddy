@@ -9,6 +9,7 @@ import registry
 import steam
 import modloaders
 import mods
+import mods_mergetool
 import game_store
 import profiles
 import github
@@ -623,6 +624,12 @@ class Plugin:
         via SteamClient; `modloader_id` is returned when the loader was toggled so the frontend can
         add/remove its launch options. Returns a summary dict."""
         return await plugin_game_lifecycle.set_game_vanilla_mode(appid, vanilla)
+
+    async def reapply_merge_tool(self, appid: int) -> dict:
+        """Rebuild an external-merge game's shared file (e.g. Fields of Mistria's data.win) from the
+        current mod set. Used after a Steam game update wiped the baked mods (status.merge_tool_stale);
+        clears the tool's stale pristine backups first so the update is preserved. Returns {ok, reason}."""
+        return await mods_mergetool.reapply(appid)
 
     async def cancel_install(self) -> None:
         utils.cancel_install()

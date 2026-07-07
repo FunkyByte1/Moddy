@@ -3,6 +3,7 @@ import mods
 import mods_common
 import mods_pak
 import mods_installers
+import mods_mergetool
 import mods_smapi
 import mods_palworld
 from install_txn import _MODDY_ORIG_SUFFIX, _STAGED_BAK_SUFFIX, _discard
@@ -216,10 +217,10 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             if not mods_common._smapi_mod_present(target_paths):
                 continue  # installed for a different game
             enabled = mods_common._smapi_mod_enabled(target_paths)
-        elif install_type in ("zip_folder", "zip_smod"):
-            # Folder-per-mod data mod (NMS GAMEDATA/MODS/; Satisfactory FactoryGame/Mods/): one folder
-            # under the mods dir. Present iff it's live there OR parked in the disabled-staging dir;
-            # enabled iff the live folder is on disk.
+        elif install_type in ("zip_folder", "zip_smod", "external_merge"):
+            # Folder-per-mod data mod (NMS GAMEDATA/MODS/; Satisfactory FactoryGame/Mods/; Fields of
+            # Mistria mods/): one folder under the mods dir. Present iff it's live there OR parked in
+            # the disabled-staging dir; enabled iff the live folder is on disk (will be baked next apply).
             if not mods_common._zipfolder_present(install_dir, paths):
                 continue  # installed for a different game
             enabled = mods_common._zipfolder_enabled(install_dir, paths)
@@ -312,6 +313,8 @@ async def _install_dispatch(game: GameProfile, install_dir: str, mods_path: str,
         return await mods_smapi._install_mod_zip_smapi(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_folder":
         return await mods_installers._install_mod_zip_folder(game, install_dir, mods_path, mod, version, url)
+    if mod.source.install_type == "external_merge":
+        return await mods_installers._install_mod_external_merge(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_smod":
         return await mods_installers._install_mod_zip_smod(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_palworld":
@@ -404,7 +407,7 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
                 cands = [full, full + ".disabled"]
                 if install_type == "zip_smapi":
                     cands.append(mods_common._dotprefix_disabled(full))
-                if install_type in ("zip_folder", "zip_smod"):
+                if install_type in ("zip_folder", "zip_smod", "external_merge"):
                     cands.append(mods_common._zipfolder_disabled_path(install_dir, relpath))  # a disabled mod is parked outside the scan roots
                 for cand in cands:
                     if os.path.isdir(cand):
@@ -430,6 +433,11 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
             # loading (and keep their relative load-order/priority).
             if any(_PAK_PATCH_RE.match(os.path.basename(p)) for p in paths):
                 mods_pak._renumber_pak_mods(game.appid, install_dir)
+            if install_type == "external_merge":
+                # Rebuild the shared game file (data.win) from the remaining mod folders.
+                ml = mods_mergetool.merge_loader(game)
+                if ml:
+                    await mods_mergetool.run_apply(game, install_dir, ml)
             return True
         if is_dir_mod:
             # Remove folder and any backed-up versions
@@ -608,11 +616,12 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
             decky.logger.error(f"Failed to toggle {mod_id}: {e}")
             return False
 
-    if install_type in ("zip_folder", "zip_smod"):
-        # Folder-per-mod mod (NMS GAMEDATA/MODS/; Satisfactory FactoryGame/Mods/ + Mods/GameFeatures/):
-        # the loader discovers any plugin folder under its scan roots, so an in-place `.disabled`
-        # rename does NOT hide a mod (the .uplugin inside is still found). Disabling MOVES each tracked
-        # folder out into a game-root staging dir (outside the scan roots); enabling moves it back.
+    if install_type in ("zip_folder", "zip_smod", "external_merge"):
+        # Folder-per-mod mod (NMS GAMEDATA/MODS/; Satisfactory FactoryGame/Mods/ + Mods/GameFeatures/;
+        # Fields of Mistria mods/): the loader/merge-tool discovers any folder under its scan roots, so
+        # an in-place `.disabled` rename does NOT hide a mod. Disabling MOVES each tracked folder out
+        # into a game-root staging dir (outside the scan roots); enabling moves it back. For an
+        # external-merge game the moved-out set is then re-baked by the tool (rebuild-on-change).
         import shutil
         paths = record.get("paths") or []
         moved = 0
@@ -634,6 +643,11 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
                 decky.logger.warning(f"No folders to {'enable' if enable else 'disable'} for {mod_id}")
                 return False
             mods_common._zipfolder_prune_staging(install_dir)
+            if install_type == "external_merge":
+                ml = mods_mergetool.merge_loader(game)
+                if ml and not await mods_mergetool.run_apply(game, install_dir, ml):
+                    decky.logger.error(f"Toggled {filename} but the merge tool failed to apply — reapply to retry")
+                    return False
             decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} ({moved} folder{'s' if moved != 1 else ''})")
             return True
         except Exception as e:

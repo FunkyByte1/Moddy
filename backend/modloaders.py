@@ -5,6 +5,7 @@ import decky
 import game_store
 import github
 import mods
+import mods_mergetool
 import nexus
 import ficsit
 import thunderstore
@@ -138,6 +139,9 @@ def is_modloader_installed(game: GameProfile, install_dir: str, modloader_id: st
         # "not installed" — the Mod Loader tab would drop the toggle and offer to re-install, and
         # Reset Game would skip uninstalling it (main.py gates uninstall on is_modloader_installed).
         return get_modloader_version(game.appid, modloader_id) is not None
+    if ml.source.type == "external_cli":
+        # The CLI binary lives outside the game dir; "installed" = its version-store entry (like setup).
+        return get_modloader_version(game.appid, modloader_id) is not None
     if not ml.indicator:
         return False
     return (
@@ -152,6 +156,10 @@ def is_modloader_enabled(game: GameProfile, install_dir: str, modloader_id: str)
         return False
     if ml.native:
         return True
+    if ml.source.type == "external_cli":
+        # "enabled" = mods currently baked into the shared game file (tracked flag, since there's no
+        # on-disk indicator — the loader is stateless and apply/restore is driven per-op + by vanilla).
+        return mods_mergetool.is_applied(game.appid)
     if not ml.indicator:
         return False
     return os.path.exists(os.path.join(install_dir, ml.indicator))
@@ -176,6 +184,8 @@ async def enable_modloader(game: GameProfile, install_dir: str, modloader_id: st
         return True
     if ml.source.type == "ficsit":
         return _move_ficsit_loader(install_dir, ml, enable=True)  # move SML back into Mods/
+    if ml.source.type == "external_cli":
+        return await mods_mergetool.run_apply(game, install_dir, ml)  # re-bake mods (also: leaving vanilla)
     try:
         _apply_setup_removes(install_dir, ml)   # re-park setup files (e.g. NMS DISABLEMODS.TXT) on re-enable / leaving vanilla; no-op without a `setup` block
         for f in ml.files:
@@ -201,6 +211,8 @@ async def disable_modloader(game: GameProfile, install_dir: str, modloader_id: s
         return True
     if ml.source.type == "ficsit":
         return _move_ficsit_loader(install_dir, ml, enable=False)  # move SML out of Mods/ (scan roots)
+    if ml.source.type == "external_cli":
+        return await mods_mergetool.run_restore(game, install_dir, ml)  # unbake → pristine (also: entering vanilla)
     try:
         _restore_setup_removes(install_dir, ml)   # restore setup files (e.g. NMS DISABLEMODS.TXT) so mods stop loading on disable / entering vanilla; no-op without a `setup` block
         for f in ml.files:
@@ -252,6 +264,16 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
         return True
     if ml.source.type == "ficsit":
         return _uninstall_ficsit_loader(game, install_dir, ml)  # whole-folder removal (live or parked)
+    if ml.source.type == "external_cli":
+        try:
+            await mods_mergetool.run_restore(game, install_dir, ml)  # unbake mods (best-effort; pristine data.win)
+            shutil.rmtree(mods_mergetool.tool_dir(ml), ignore_errors=True)  # remove the CLI binary
+            clear_modloader_version(game.appid, modloader_id)
+            decky.logger.info(f"Uninstalled {modloader_id}")
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to uninstall {modloader_id}: {e}")
+            return False
     try:
         # Loaders installed by merging a whole archive (Stracker's: dinput8.dll, loader.dll,
         # loader-config.json, nativePC/plugins/*) tracked every placed path — remove exactly those
@@ -315,6 +337,10 @@ async def install_modloader(game: GameProfile, install_dir: str, modloader_id: s
         ok = await _install_ficsit_modloader(game, install_dir, ml, version)
     elif ml.source.type == "setup":
         ok = await _install_setup_modloader(game, install_dir, ml, version)
+    elif ml.source.type == "external_cli":
+        # Download the merge-tool CLI (to the runtime dir). Mods are baked lazily on first mod
+        # install/toggle via run_apply, so nothing to apply here on a fresh loader install.
+        ok = await mods_mergetool.ensure_tool_installed(game, install_dir, ml, version)
     else:
         decky.logger.error(f"Unsupported modloader source type: {ml.source.type}")
         return False

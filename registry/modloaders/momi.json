@@ -1,0 +1,19 @@
+{
+  "id": "momi",
+  "name": "Mods of Mistria Installer",
+  "source": { "type": "external_cli" },
+  "merge_tool": {
+    "tool_id": "momi",
+    "owner": "Garethp",
+    "repo": "Mods-of-Mistria-Installer",
+    "asset": "ModsOfMistriaInstaller-cli-linux",
+    "asset_is_zip": false,
+    "apply_argv": [],
+    "restore_argv": ["--uninstall"],
+    "env": { "EXIT_ON_COMPLETE": "true" },
+    "tool_owns_backup": true,
+    "backup_glob": ["data.bak.win", "*.bak.json"],
+    "high_risk_glob": "aurie/*.dll",
+    "high_risk_policy": "deny"
+  }
+}

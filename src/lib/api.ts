@@ -345,6 +345,10 @@ export const getCollectionsCatalog =
 // tab shows at all, independent of the NSFW setting (the list inside still filters NSFW).
 export const gameHasCollections =
   callable<[appid: number], boolean>('game_has_collections');
+// Rebuild an external-merge game's shared file (e.g. Fields of Mistria's data.win) from the current
+// mod set — used after a Steam game update wiped the baked mods (GameStatus.merge_tool_stale).
+export const reapplyMergeTool =
+  callable<[appid: number], { ok: boolean; reason: string }>('reapply_merge_tool');
 // A collection's detail — name/image/description + its mod list (name + thumbnail + optional). One
 // light GraphQL call; drives the browse-tab "mods in this collection" list and the Installed-tab panel.
 export const getCollectionDetail =

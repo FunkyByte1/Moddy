@@ -1,0 +1,10 @@
+{
+  "id": "fields-of-mistria",
+  "name": "Fields of Mistria",
+  "appid": 2142790,
+  "mods_dir": "mods",
+  "mods_dir_type": "game",
+  "modloader_ids": ["momi"],
+  "requires_proton": false,
+  "catalog": { "type": "nexus", "nexus_domain": "fieldsofmistria", "install_type": "external_merge" }
+}

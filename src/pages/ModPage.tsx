@@ -7,7 +7,7 @@ import { useQueueFooterProps, promptVariant } from '../components/DownloadQueueM
 import { useDownloadQueue } from '../lib/downloadQueue';
 
 import { GameStatus, ModUpdate } from '../types';
-import { getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, ensureModloaderLaunchOptions, setGameToProton, applyVanillaMode, getSetting, gameHasCollections, NSFW_ENABLED, NSFW_DEFAULT_ON } from '../lib/api';
+import { getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, ensureModloaderLaunchOptions, setGameToProton, reapplyMergeTool, applyVanillaMode, getSetting, gameHasCollections, NSFW_ENABLED, NSFW_DEFAULT_ON } from '../lib/api';
 import InstalledTab from '../tabs/InstalledTab';
 import ModLoaderTab from '../tabs/ModLoaderTab';
 import ProfilesTab from '../tabs/ProfilesTab';
@@ -77,6 +77,7 @@ const ModPage: FC = () => {
   // not have flushed by the time refresh() re-reads it, so don't wait on the backend round-trip.
   const [protonApplied, setProtonApplied] = useState(false);
   const [settingProton, setSettingProton] = useState(false);
+  const [reapplying, setReapplying] = useState(false);
   // Whole-page work (vanilla toggle, reset) shows a content-area spinner with this label and
   // gates input by replacing the tabs/buttons — null when idle.
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
@@ -708,6 +709,34 @@ const ModPage: FC = () => {
             }}
           >
             {settingProton ? 'Setting…' : 'Set to Proton'}
+          </DialogButton>
+        </div>
+      )}
+      {/* Reapply prompt for external-merge games (Fields of Mistria/MOMI): a Steam game update
+          overwrites the shared file (data.win), wiping the mods baked into it. The backend detects
+          the build-id change and flags merge_tool_stale; one tap rebuilds from the current mod set
+          (clearing the tool's now-stale pristine backups first so the update is preserved). */}
+      {game?.installed && game.merge_tool_stale && (
+        <div style={{
+          margin: '8px 12px', padding: '12px', borderRadius: '4px',
+          background: 'var(--gpColorBgTertiary, rgba(255,255,255,0.05))', borderLeft: '3px solid #f8a623',
+        }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>⚠ Reapply mods after game update</div>
+          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', lineHeight: 1.5, marginBottom: '10px' }}>
+            {game.name} was updated, which reset the game files your mods were merged into. Reapply to
+            rebuild them with your installed mods.
+          </div>
+          <DialogButton
+            disabled={reapplying}
+            onClick={async () => {
+              setReapplying(true);
+              const res = await reapplyMergeTool(appid).catch(() => ({ ok: false, reason: 'failed' }));
+              setReapplying(false);
+              toaster.toast({ title: 'Moddy', body: res.ok ? 'Mods reapplied' : `Couldn't reapply mods — ${res.reason || 'try again'}` });
+              if (res.ok) refresh();
+            }}
+          >
+            {reapplying ? 'Reapplying…' : 'Reapply mods'}
           </DialogButton>
         </div>
       )}

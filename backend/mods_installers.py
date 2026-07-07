@@ -4,6 +4,7 @@ import mods
 import mods_common
 import mods_archive
 import mods_fomod
+import mods_mergetool
 import mods_pak
 from registry import GameProfile, ModInfo
 import decky
@@ -348,6 +349,58 @@ async def _install_mod_zip_folder(game: GameProfile, install_dir: str, mods_path
         await utils.download(url, tmp_archive, game.appid)
         mods_archive.extract_archive(tmp_archive, tmp_extract)
         return _folder_commit(game.appid, install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
+    except utils.InstallCancelledError:
+        decky.logger.info(f"Install of {mod.name} was cancelled")
+        return None
+    except Exception as e:
+        decky.logger.error(f"Failed to install {mod.name}: {e}")
+        return False
+    finally:
+        if os.path.exists(tmp_archive):
+            os.remove(tmp_archive)
+        for p in (tmp_extract, staging):
+            if os.path.exists(p):
+                shutil.rmtree(p)
+
+
+async def _install_mod_external_merge(game: GameProfile, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
+    """Install a mod for an external-merge-tool game (Fields of Mistria / MOMI): place the mod as one
+    folder under the game mods dir (exactly like zip_folder), then run the tool to rebuild the shared
+    game file (data.win). A fragile native payload (Aurie aurie/*.dll) is refused when the loader's
+    high_risk_policy is "deny". The tool owns its own pristine backup, so the shared game file itself
+    is never staged by Moddy — only the mod folder placement goes through the install transaction."""
+    import shutil
+    ml = mods_mergetool.merge_loader(game)
+    if not ml:
+        decky.logger.error(f"{mod.name}: no external-merge loader configured for this game")
+        return False
+    tmp_archive = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_tmp.archive")
+    tmp_extract = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_extract")
+    staging = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_folder_staging")
+    for p in (tmp_extract, staging):
+        if os.path.exists(p):
+            shutil.rmtree(p)
+    old_paths = (mods._load_store(game.appid).get(mod.id) or {}).get("paths") or []
+    try:
+        decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
+        await utils.download(url, tmp_archive, game.appid)
+        mods_archive.extract_archive(tmp_archive, tmp_extract)
+        cfg = ml.merge_tool
+        if cfg.high_risk_policy == "deny" and mods_mergetool.detect_high_risk(tmp_extract, cfg):
+            decky.logger.error(
+                f"{mod.name}: refused — contains a native code payload matching "
+                f"{cfg.high_risk_glob!r} (Aurie/DLL mods aren't supported on Steam Deck yet)"
+            )
+            return False
+        placed = _folder_commit(game.appid, install_dir, mods_path, tmp_extract, staging, mod, version, old_paths)
+        if placed is not True:
+            return placed
+        # Rebuild the shared game file with the new mod set. On apply failure keep the folder + record
+        # (a later reapply retries) but report the failure so the UI can surface it.
+        if not await mods_mergetool.run_apply(game, install_dir, ml):
+            decky.logger.error(f"{mod.name}: placed, but the merge tool failed to apply — reapply to retry")
+            return False
+        return True
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
         return None

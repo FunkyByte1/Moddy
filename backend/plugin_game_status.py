@@ -4,6 +4,7 @@ import registry
 import steam
 import modloaders
 import mods
+import mods_mergetool
 import bmi
 import thunderstore
 
@@ -164,4 +165,10 @@ def _build_game_status(game: "registry.GameProfile", libraries: "list[str] | Non
         # In "vanilla" (play-unmodded) mode every mod + the modloader are toggled off but kept on
         # disk; the UI shows a banner and offers a one-tap switch back.
         "vanilla": mods.is_game_vanilla(game.appid),
+        # External-merge games (Fields of Mistria/MOMI): true when the game was updated since mods
+        # were last baked into the shared file, so Steam wiped them — the UI offers "reapply mods".
+        "merge_tool_stale": bool(
+            install_dir and installed_mods_list
+            and mods_mergetool.merge_loader(game) and mods_mergetool.is_stale(game.appid)
+        ),
     }

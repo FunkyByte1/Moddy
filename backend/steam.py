@@ -54,6 +54,25 @@ def find_game_install_dir(appid: int, libraries: list[str] | None = None) -> str
     return None
 
 
+def get_build_id(appid: int, libraries: list[str] | None = None) -> str:
+    """The installed build id for a game, from `"buildid"` in appmanifest_<appid>.acf — bumped by
+    Steam on every game update. Used to detect an update so an external merge tool (MOMI) can clear
+    its now-stale pristine backups before reapplying (else it would revert the game to pre-update).
+    Returns "" if not resolvable."""
+    for steamapps in (libraries if libraries is not None else find_steam_libraries()):
+        manifest_path = os.path.join(steamapps, f"appmanifest_{appid}.acf")
+        if os.path.isfile(manifest_path):
+            try:
+                with open(manifest_path, "r") as f:
+                    content = f.read()
+                match = re.search(r'"buildid"\s+"([^"]+)"', content)
+                if match:
+                    return match.group(1)
+            except Exception as e:
+                decky.logger.error(f"Failed to read buildid for {appid}: {e}")
+    return ""
+
+
 def get_launch_options(appid: int) -> str:
     """Get the current launch options for a game."""
     localconfig_path = _find_localconfig()
