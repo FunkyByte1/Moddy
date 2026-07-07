@@ -434,10 +434,11 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
             if any(_PAK_PATCH_RE.match(os.path.basename(p)) for p in paths):
                 mods_pak._renumber_pak_mods(game.appid, install_dir)
             if install_type == "external_merge":
-                # Rebuild the shared game file (data.win) from the remaining mod folders.
+                # Coalesced rebuild of the shared game file from the remaining mod folders — so deleting
+                # a handful of mods rebuilds once, after the burst settles, not once per delete.
                 ml = mods_mergetool.merge_loader(game)
                 if ml:
-                    await mods_mergetool.run_apply(game, install_dir, ml)
+                    await mods_mergetool.request_apply(game, install_dir, ml)
             return True
         if is_dir_mod:
             # Remove folder and any backed-up versions
@@ -645,9 +646,8 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
             mods_common._zipfolder_prune_staging(install_dir)
             if install_type == "external_merge":
                 ml = mods_mergetool.merge_loader(game)
-                if ml and not await mods_mergetool.run_apply(game, install_dir, ml):
-                    decky.logger.error(f"Toggled {filename} but the merge tool failed to apply — reapply to retry")
-                    return False
+                if ml:
+                    await mods_mergetool.request_apply(game, install_dir, ml)  # coalesced background rebuild
             decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} ({moved} folder{'s' if moved != 1 else ''})")
             return True
         except Exception as e:

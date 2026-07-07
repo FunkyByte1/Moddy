@@ -96,6 +96,12 @@ def _ensure_worker() -> None:
         _worker_task = asyncio.create_task(_worker())
 
 
+def is_active() -> bool:
+    """Whether the install queue is doing work — a job running now OR jobs still queued. Used to
+    coalesce external-merge rebuilds: don't rebuild mid-batch, wait until the queue drains."""
+    return _active_id is not None or (_queue is not None and not _queue.empty())
+
+
 def snapshot() -> list[dict]:
     return [_jobs[i].to_dict() for i in _order if i in _jobs]
 

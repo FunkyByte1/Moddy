@@ -124,6 +124,9 @@ export interface GameStatus {
   // External-merge games (Fields of Mistria/MOMI): true when a Steam game update wiped the mods
   // baked into the shared file, so the UI offers a one-tap "reapply mods".
   merge_tool_stale?: boolean;
+  // True while a coalesced background rebuild is queued/running after mod changes — the shared game
+  // file isn't baked yet, so the UI shows "Applying mods…" and warns against launching mid-rebuild.
+  merge_tool_applying?: boolean;
 }
 
 export interface VanillaResult {

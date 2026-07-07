@@ -5,12 +5,14 @@ parsing of the declarative merge_tool config, the Fields game routing to install
 the Aurie high-risk detector, and the game-update staleness semantics (is_stale vs _buildid_changed).
 """
 import os
+import asyncio
 import tempfile
 import unittest
 
 from _harness import registry, reset_store
 import mods_mergetool as mt
 import game_store
+import download_queue
 
 
 class MergeToolRegistryTest(unittest.TestCase):
@@ -103,6 +105,25 @@ class StalenessTest(unittest.TestCase):
         game_store.section(self.appid, "mergetool")["applied"] = False
         game_store.save()
         self.assertFalse(mt.is_applied(self.appid))
+
+
+class CoalesceTest(unittest.TestCase):
+    """The debounced-rebuild bookkeeping (the async settle timer itself is integration-only)."""
+    def setUp(self):
+        reset_store()
+        self.appid = 2142790
+
+    def test_is_apply_pending_reflects_dirty(self):
+        self.assertFalse(mt.is_apply_pending(self.appid))
+        game_store.section(self.appid, "mergetool")["dirty"] = True
+        game_store.save()
+        self.assertTrue(mt.is_apply_pending(self.appid))
+
+    def test_flush_pending_is_noop_when_not_dirty(self):
+        self.assertFalse(asyncio.run(mt.flush_pending(self.appid)))
+
+    def test_download_queue_idle_by_default(self):
+        self.assertFalse(download_queue.is_active())
 
 
 if __name__ == "__main__":

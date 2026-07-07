@@ -775,6 +775,12 @@ class Plugin:
                     mods.sweep_install_crumbs(game, install_dir)
         except Exception as e:
             decky.logger.warning(f"Install-crumb sweep failed: {e}")
+        try:
+            # Flush any external-merge game whose coalesced rebuild was interrupted (dirty flag left
+            # by a crash/unload before the debounced apply fired) so its mods are baked in.
+            await mods_mergetool.recover_pending()
+        except Exception as e:
+            decky.logger.warning(f"Merge-tool pending-apply recovery failed: {e}")
 
     async def _unload(self):
         download_queue.shutdown()

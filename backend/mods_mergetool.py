@@ -15,6 +15,7 @@ scratch dir under the plugin runtime dir.
 """
 import os
 import glob
+import asyncio
 import fnmatch
 import subprocess
 
@@ -27,6 +28,8 @@ import steam
 
 _SECTION = "mergetool"
 _APPLY_TIMEOUT = 600  # seconds; patching data.win + JSONs is not instant but shouldn't hang forever
+_DEBOUNCE_SEC = 1.2   # settle window: coalesce a burst of mod changes into ONE rebuild
+_pending: "dict[int, asyncio.Future]" = {}  # appid -> in-flight settle-and-apply task
 
 
 def merge_loader(game) -> "object | None":
@@ -146,6 +149,81 @@ async def run_restore(game, install_dir, ml) -> bool:
         sect["applied"] = False
         game_store.save()
     return ok
+
+
+async def request_apply(game, install_dir, ml) -> None:
+    """Coalesce a burst of mod changes into ONE rebuild. Marks the game dirty and (re)schedules a
+    single settle-then-apply task, so installing/deleting a HANDFUL of mods rebuilds data.win once
+    instead of once per mod. The rebuild fires once the install queue is idle AND no newer change has
+    landed for _DEBOUNCE_SEC. Returns immediately — the mod op no longer blocks on the (slow) rebuild.
+    A crash before it fires leaves the dirty flag set; recover_pending() flushes it on next startup."""
+    appid = game.appid
+    game_store.section(appid, _SECTION)["dirty"] = True
+    game_store.save()
+    try:
+        await decky.emit("game_status_stale", appid)  # UI shows "Applying mods…"
+    except Exception:
+        pass
+    prev = _pending.get(appid)
+    if prev is not None and not prev.done():
+        prev.cancel()
+    _pending[appid] = asyncio.ensure_future(_settle_and_apply(game, install_dir, ml))
+
+
+async def _settle_and_apply(game, install_dir, ml) -> None:
+    import download_queue  # lazy — avoid an import cycle
+    appid = game.appid
+    try:
+        while True:
+            await asyncio.sleep(_DEBOUNCE_SEC)
+            if not download_queue.is_active():  # don't rebuild mid-batch; wait for the queue to drain
+                break
+    except asyncio.CancelledError:
+        return  # a newer change rescheduled us — let that task do the (single) rebuild
+    if game_store.section(appid, _SECTION).get("dirty"):
+        game_store.section(appid, _SECTION)["dirty"] = False
+        game_store.save()
+        await run_apply(game, install_dir, ml)
+        try:
+            await decky.emit("game_status_stale", appid)  # clear "Applying mods…" once baked
+        except Exception:
+            pass
+    _pending.pop(appid, None)
+
+
+def is_apply_pending(appid: int) -> bool:
+    """True while a coalesced rebuild is queued/running (mods staged but not yet baked in) — the UI
+    shows 'Applying mods…' so the user doesn't launch mid-rebuild."""
+    return bool(game_store.section(appid, _SECTION).get("dirty"))
+
+
+async def flush_pending(appid: int) -> bool:
+    """Apply now if a rebuild is pending — startup recovery for a dirty flag left by a crash/unload.
+    Returns True if it rebuilt, False if nothing was pending / couldn't resolve the game."""
+    import registry  # lazy
+    if not game_store.section(appid, _SECTION).get("dirty"):
+        return False
+    game = registry.get_game_by_appid(appid)
+    ml = merge_loader(game) if game else None
+    install_dir = steam.find_game_install_dir(appid)
+    if not game or not ml or not install_dir or not is_tool_available(ml):
+        return False
+    game_store.section(appid, _SECTION)["dirty"] = False
+    game_store.save()
+    return await run_apply(game, install_dir, ml)
+
+
+async def recover_pending() -> None:
+    """On plugin startup, flush any external-merge game left with a pending rebuild (dirty flag)."""
+    for appid_str in list(game_store.appids()):
+        try:
+            appid = int(appid_str)
+        except (TypeError, ValueError):
+            continue
+        try:
+            await flush_pending(appid)
+        except Exception as e:
+            decky.logger.error(f"merge tool: recover_pending failed for {appid}: {e}")
 
 
 async def reapply(appid: int) -> dict:

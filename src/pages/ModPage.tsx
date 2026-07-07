@@ -712,6 +712,18 @@ const ModPage: FC = () => {
           </DialogButton>
         </div>
       )}
+      {/* Background-rebuild indicator for external-merge games: after a burst of mod changes the tool
+          rebuilds the shared game file once (coalesced). Until it finishes the mods aren't baked in,
+          so warn against launching. Clears automatically when the backend emits game_status_stale. */}
+      {game?.installed && game.merge_tool_applying && (
+        <div style={{
+          margin: '8px 12px', padding: '10px 12px', borderRadius: '4px',
+          background: 'var(--gpColorBgTertiary, rgba(255,255,255,0.05))', borderLeft: '3px solid #1a9fff',
+          color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', lineHeight: 1.5,
+        }}>
+          ⟳ Applying mods… rebuilding the game's files. Wait for this to finish before launching.
+        </div>
+      )}
       {/* Reapply prompt for external-merge games (Fields of Mistria/MOMI): a Steam game update
           overwrites the shared file (data.win), wiping the mods baked into it. The backend detects
           the build-id change and flags merge_tool_stale; one tap rebuilds from the current mod set
