@@ -43,7 +43,7 @@ async def install_nexus_mod(appid: int, full_name: str, version: str | None = No
     # to the single Steam file. (RE4/MHW archive-payload variants use zip_natives — they have no
     # selectable_files step and flow through the cascade below.)
     install_type = game.catalog.get("install_type")
-    if install_type in ("zip_smapi", "zip_palworld"):
+    if install_type in ("zip_smapi", "zip_palworld", "external_merge"):
         if variant is None:
             files = nexus.selectable_files(domain, mod_id)
             if install_type == "zip_palworld":
@@ -158,6 +158,8 @@ async def _install_nexus_multifile(game, install_dir, domain, mod_id, version, f
     await download_queue.note_item(spec.mod.name)
     if spec.mod.source.install_type == "zip_palworld":
         res = await mods.install_palworld_files(game, install_dir, spec.mod, version or spec.version, urls)
+    elif spec.mod.source.install_type == "external_merge":
+        res = await mods.install_external_merge_files(game, install_dir, spec.mod, version or spec.version, urls)
     else:
         res = await mods.install_smapi_files(game, install_dir, spec.mod, version or spec.version, urls)
     if res is True and was_fresh and installed is not None:

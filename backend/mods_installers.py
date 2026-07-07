@@ -415,6 +415,96 @@ async def _install_mod_external_merge(game: GameProfile, install_dir: str, mods_
                 shutil.rmtree(p)
 
 
+async def install_external_merge_files(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, urls: list) -> "bool | None":
+    """Install MULTIPLE user-chosen Nexus files of ONE external-merge (Fields of Mistria) mod as a
+    single record — the multi-file analogue of _install_mod_external_merge, for a mod page that lists
+    several files (e.g. Movement Speed Options' alternate main files + optional add-ons). Each file is
+    a self-contained MOMI mod (a wrapper folder holding manifest.json), so each is placed as its OWN
+    top-level folder under mods/ (MOMI reads manifest.json inside, regardless of folder name), all
+    tracked together; the merge tool rebuilds data.win once at the end. All-or-nothing. A fragile
+    native (Aurie) payload under a deny policy refuses the whole install."""
+    import shutil
+    ml = mods_mergetool.merge_loader(game)
+    if not ml:
+        decky.logger.error(f"{mod.name}: no external-merge loader configured for this game")
+        return False
+    cfg = ml.merge_tool
+    mods_path = mods.resolve_mods_path(game, install_dir)
+    os.makedirs(mods_path, exist_ok=True)
+    staging = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_em_staging")
+    if os.path.exists(staging):
+        shutil.rmtree(staging)
+    old_paths = (mods._load_store(game.appid).get(mod.id) or {}).get("paths") or []
+    archives: list[str] = []
+    extracts: list[str] = []
+    try:
+        placements: list[tuple[str, str]] = []  # (staged abs, install-dir-relative dest)
+        folder_rels: list[str] = []
+        multi = len(urls) > 1
+        for i, url in enumerate(urls):
+            arch = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_em_{i}.archive")
+            ex = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, f"{mod.filename}_em_x{i}")
+            archives.append(arch)
+            extracts.append(ex)
+            if os.path.exists(ex):
+                shutil.rmtree(ex)
+            decky.logger.info(f"Downloading {mod.name} file {i + 1}/{len(urls)} from {utils.redact_url(url)}")
+            await utils.download(url, arch, game.appid)
+            mods_archive.extract_archive(arch, ex)
+            if cfg.high_risk_policy == "deny" and mods_mergetool.detect_high_risk(ex, cfg):
+                decky.logger.error(
+                    f"{mod.name}: refused — a chosen file contains a native code payload matching "
+                    f"{cfg.high_risk_glob!r} (Aurie/DLL mods aren't supported on Steam Deck yet)"
+                )
+                return False
+            # Strip a single redundant top-level wrapper dir (the mod's own folder), like _folder_commit.
+            real = [e for e in os.listdir(ex) if not mods_archive._is_archive_junk(e)]
+            src_root = ex
+            if len(real) == 1 and os.path.isdir(os.path.join(ex, real[0])):
+                src_root = os.path.join(ex, real[0])
+            folder = mods_archive._safe_folder_name(mod.filename) + (f"-f{i}" if multi else "")
+            folder_rels.append(os.path.relpath(os.path.join(mods_path, folder), install_dir))
+            for sub_root, _dirs, files in os.walk(src_root):
+                for fn in files:
+                    src = os.path.join(sub_root, fn)
+                    rel = os.path.relpath(src, src_root)
+                    if mods_archive._is_archive_junk(rel):
+                        continue
+                    staged_abs = os.path.join(staging, folder, rel)
+                    os.makedirs(os.path.dirname(staged_abs), exist_ok=True)
+                    shutil.copyfile(src, staged_abs)
+                    placements.append((staged_abs, os.path.relpath(os.path.join(mods_path, folder, rel), install_dir)))
+        if not placements:
+            decky.logger.error(f"{mod.name}: chosen files had no content — refusing to install")
+            return False
+        is_foreign = mods_common._overwrite_guard(game.appid, install_dir, mods_path, mod, [r for _s, r in placements])
+        with _StagedInstall(install_dir, is_foreign=is_foreign) as txn:
+            for p in old_paths:
+                txn.retire(p)
+                txn.retire(os.path.join(mods_common._FOLDER_DISABLED_DIR, os.path.basename(p.rstrip("/\\"))))
+            for staged_abs, install_rel in placements:
+                txn.place(staged_abs, install_rel)
+        mods.set_installed_record(game.appid, mod.id, version or "latest", mod.filename, paths=folder_rels, mod=mod)
+        decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {len(folder_rels)} folder(s)")
+        if not await mods_mergetool.run_apply(game, install_dir, ml):
+            decky.logger.error(f"{mod.name}: placed, but the merge tool failed to apply — reapply to retry")
+            return False
+        return True
+    except utils.InstallCancelledError:
+        decky.logger.info(f"Install of {mod.name} was cancelled")
+        return None
+    except Exception as e:
+        decky.logger.error(f"Failed to install {mod.name}: {e}")
+        return False
+    finally:
+        for a in archives:
+            if os.path.exists(a):
+                os.remove(a)
+        for p in [staging, *extracts]:
+            if os.path.exists(p):
+                shutil.rmtree(p)
+
+
 async def install_folder_files(game: GameProfile, install_dir: str, mod: ModInfo, version: str | None, urls: list) -> "bool | None":
     """Install MULTIPLE files of ONE folder-per-mod (No Man's Sky) Nexus mod as a single record — the
     multi-file analogue of _install_mod_zip_folder, for a collection that pins several files of one mod

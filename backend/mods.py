@@ -491,7 +491,7 @@ from mods_installers import (  # noqa: F401
     _extract_to_mods_folder, _install_mod_zip_flat, _folder_commit,
     _install_mod_zip_folder, _smod_plugin_root, _install_mod_zip_smod,
     _install_mod_loose_merge, _install_mod_zip_natives, _install_mod_zip_nativepc,
-    install_folder_files, discard_natives_cache,
+    install_folder_files, install_external_merge_files, _install_mod_external_merge, discard_natives_cache,
 )
 from mods_smapi import (  # noqa: F401
     _smapi_commit, _install_mod_zip_smapi, install_smapi_files,

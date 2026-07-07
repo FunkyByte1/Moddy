@@ -264,7 +264,7 @@ const InstalledTab: FC<{
             strOKButtonText="Delete"
             strCancelButtonText="Cancel"
             bDestructiveWarning
-            onOK={async () => { setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
+            onOK={async () => { setBusy(true); toaster.toast({ title: 'Moddy', body: `Removing ${mod.name}…` }); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
           />
         );
         return;
@@ -272,7 +272,7 @@ const InstalledTab: FC<{
       showModal(
         <DeleteVersionModal
           modName={mod.name} currentVersion={currentVersion} backedUpVersions={backedUp}
-          onDeleteAll={async (c) => { c(); setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
+          onDeleteAll={async (c) => { c(); setBusy(true); toaster.toast({ title: 'Moddy', body: `Removing ${mod.name}…` }); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
           onDeleteVersion={async (version, c) => { c(); setBusy(true); if (currentVersion === version) { await uninstallMod(game.appid, mod.id); } else { await deleteModVersion(game.appid, mod.id, version); } await onRefresh(); setBusy(false); }}
         />
       );
@@ -285,7 +285,7 @@ const InstalledTab: FC<{
           primaryAction="delete"
           onDisable={async (close: () => void) => { close(); setBusy(true); for (const dep of dependents) await toggleMod(game.appid, dep.id, false); await onRefresh(); setBusy(false); showDeleteModal(); }}
           onKeep={async (close: () => void) => { close(); showDeleteModal(); }}
-          onDelete={async (close: () => void) => { close(); setBusy(true); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
+          onDelete={async (close: () => void) => { close(); setBusy(true); toaster.toast({ title: 'Moddy', body: `Removing ${mod.name}…` }); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
         />
       );
       return;
