@@ -153,8 +153,8 @@ class TokenLifecycleTest(unittest.TestCase):
         self.assertEqual(self._captured["code"], "thecode")
         self.assertEqual(self._captured["code_verifier"], "v")
         self.assertTrue(nexus_oauth.is_signed_in())
-        # Pending state is cleared one-shot.
-        self.assertEqual(settings.get_setting(nexus_oauth._PENDING), {})
+        # Pending state is cleared one-shot (key removed, not left as an empty dict).
+        self.assertIsNone(settings.get_setting(nexus_oauth._PENDING))
 
 
 class UsernameTest(unittest.TestCase):

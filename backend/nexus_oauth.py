@@ -154,7 +154,7 @@ def exchange_code(code: str, state: str) -> bool:
         "redirect_uri": REDIRECT_URI,
         "code_verifier": pending["verifier"],
     })
-    settings.set_setting(_PENDING, {})  # one-shot: clear regardless of outcome
+    settings.delete_setting(_PENDING)  # one-shot: clear regardless of outcome (don't leave an empty key)
     if not payload:
         return False
     return _store_token(payload)
