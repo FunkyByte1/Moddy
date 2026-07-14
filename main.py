@@ -14,6 +14,7 @@ import github
 import thunderstore
 import bmi
 import nexus
+import nexus_oauth
 import ficsit
 # Imported as `settings` for readability, but the file is app_settings.py: a bare module
 # named `settings` collides with decky_loader's own `settings` module (which wins on the
@@ -498,6 +499,34 @@ class Plugin:
         a parked-then-cancelled install can be rolled back); a cancel/failure rolls it back here."""
         return await plugin_nexus_install.install_nexus_mod(appid, full_name, version, variant, installed)
 
+    # ── Nexus account (OAuth2 + PKCE sign-in) ──────────────────────────────────
+    async def nexus_account(self) -> dict:
+        """Current Nexus auth state for the Settings card: whether the OAuth client is
+        provisioned, whether a token is stored, and the display name (from JWT claims)."""
+        return {
+            "configured": nexus_oauth.is_configured(),
+            "signed_in": nexus_oauth.is_signed_in(),
+            "username": nexus_oauth.username(),
+        }
+
+    async def nexus_login_start(self) -> dict:
+        """Begin sign-in: start the loopback listener and return {ok, authorize_url}. The
+        frontend opens authorize_url in the browser, then calls nexus_login_wait."""
+        return await nexus_oauth.start_login()
+
+    async def nexus_login_wait(self) -> dict:
+        """Block until the browser redirects back with a code (or the login times out), then
+        exchange it. Returns {ok:True, username} or {ok:False, reason}."""
+        return await nexus_oauth.wait_login()
+
+    async def nexus_login_cancel(self) -> None:
+        """Abort an in-flight sign-in (user backed out) — closes the loopback listener."""
+        await nexus_oauth.cancel_login()
+
+    async def nexus_sign_out(self) -> None:
+        """Forget the stored Nexus OAuth token."""
+        nexus_oauth.sign_out()
+
     # ── ficsit.app (Satisfactory) catalog ──────────────────────────────────────
     async def get_ficsit_catalog(self, appid: int, query: str = "", page: int = 1,
                                  sort: str = ficsit.DEFAULT_SORT) -> list:
@@ -754,6 +783,7 @@ class Plugin:
 
     async def _unload(self):
         download_queue.shutdown()
+        await nexus_oauth.cancel_login()  # close the loopback listener if a login was mid-flight
         decky.logger.info("Decky Mod Manager unloaded")
 
     async def _uninstall(self):

@@ -40,7 +40,7 @@ No setup. Moddy installs from Thunderstore automatically.
 - Valheim
 
 ### Nexus Mods
-Requires a Nexus account (Premium only for downloads).
+Sign in with your Nexus Mods account (Settings → Nexus Mods account). Premium is required for downloads.
 
 - Monster Hunter Rise
 - Monster Hunter World
@@ -100,7 +100,7 @@ No setup. Moddy subscribes the mods through Steam.
 
 Moddy downloads mods and mod loaders **directly from their original publishers** — GitHub, [Thunderstore](https://thunderstore.io), the [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index), [Nexus Mods](https://www.nexusmods.com), [ficsit.app](https://ficsit.app), and the Steam Workshop — the same way other mod managers do. It does **not** host, redistribute, or modify any mod content; each mod's license is set by its author.
 
-Nexus downloads use the official API. Moddy currently supports **Premium accounts only** (free accounts can browse, but Nexus only returns download links to Premium members).
+Nexus access uses the official API with **OAuth sign-in** (you log in with your own Nexus Mods account — Moddy never asks for an API key). Downloads currently require a **Premium account** (free accounts can browse, but Nexus only returns download links to Premium members).
 
 ## Reporting issues
 

@@ -1,8 +1,10 @@
-import { ButtonItem, ConfirmModal, PanelSection, PanelSectionRow, TextField, ToggleField, showModal } from '@decky/ui';
-import { FC, useState, useEffect, useRef } from 'react';
-import { FaEye, FaEyeSlash } from 'react-icons/fa';
+import { ButtonItem, ConfirmModal, Navigation, PanelSection, PanelSectionRow, ToggleField, showModal } from '@decky/ui';
+import { FC, useState, useEffect } from 'react';
 
-import { getSetting, setSetting, NEXUS_API_KEY, NSFW_ENABLED, NSFW_DEFAULT_ON } from '../lib/api';
+import {
+  getSetting, setSetting, NSFW_ENABLED, NSFW_DEFAULT_ON,
+  nexusAccount, nexusLoginStart, nexusLoginWait, nexusLoginCancel, nexusSignOut, NexusAccount,
+} from '../lib/api';
 
 // Account-global gate for NSFW content. Off by default; when on, each game's Browse
 // filter gains a "Show NSFW" checkbox (itself off by default) — a deliberate two-step
@@ -84,56 +86,119 @@ function NsfwToggle() {
   );
 }
 
-// The Nexus Mods personal API key — account-global, used by the Nexus Browse tab.
-function NexusApiKeyField() {
-  const [value, setValue] = useState('');
-  const [show, setShow] = useState(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+// A human-readable message for a failed sign-in reason from the backend.
+function loginErrorMessage(reason?: string): string {
+  switch (reason) {
+    case 'port_in_use': return "Couldn't start sign-in — the local port is busy. Close any other sign-in attempt and try again.";
+    case 'timeout': return 'Sign-in timed out or was cancelled.';
+    case 'exchange_failed': return 'Nexus rejected the sign-in. Please try again.';
+    case 'not_configured': return "Nexus sign-in isn't available in this build.";
+    case 'access_denied': return 'Sign-in was declined.';
+    default: return "Sign-in didn't complete. Please try again.";
+  }
+}
 
-  useEffect(() => {
-    // Populate from the stored key, but NEVER gate the field's enabled state on this load.
-    // A previous version disabled the field until the load resolved; when get_setting threw
-    // (the settings-module collision) it stayed disabled and unfocusable forever. Keep it
-    // always editable, and don't clobber anything the user has already typed.
-    getSetting(NEXUS_API_KEY)
-      .then(k => { if (typeof k === 'string' && k) setValue(prev => (prev === '' ? k : prev)); })
-      .catch(() => {});
-    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, []);
+// Nexus Mods account — account-global sign-in via OAuth2 + PKCE, used by the Nexus Browse
+// tab and installs. Replaces the old personal-API-key field: the user signs in through the
+// browser (loopback redirect), so no key handling here.
+function NexusAccountField() {
+  const [account, setAccount] = useState<NexusAccount | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const onChange = (next: string) => {
-    setValue(next);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { setSetting(NEXUS_API_KEY, next.trim()); }, 600);
+  const refresh = () => nexusAccount().then(setAccount).catch(() => {});
+  useEffect(() => { refresh(); }, []);
+
+  const signIn = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      const start = await nexusLoginStart();
+      if (!start.ok || !start.authorize_url) {
+        setError(loginErrorMessage(start.reason));
+        return;
+      }
+      // Hand off to the browser; the backend's loopback listener catches the redirect.
+      Navigation.NavigateToExternalWeb(start.authorize_url);
+      const result = await nexusLoginWait();
+      if (result.ok) {
+        await refresh();
+      } else {
+        setError(loginErrorMessage(result.reason));
+      }
+    } catch {
+      setError(loginErrorMessage());
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const cancel = () => { nexusLoginCancel().catch(() => {}); };
+
+  const signOut = () => {
+    showModal(
+      <ConfirmModal
+        strTitle="Sign out of Nexus Mods?"
+        strDescription="You'll need to sign in again to browse or install Nexus mods."
+        strOKButtonText="Sign out"
+        strCancelButtonText="Cancel"
+        onOK={async () => { await nexusSignOut(); await refresh(); }}
+      />
+    );
+  };
+
+  // First load (account still null) — render nothing rather than flicker a wrong state.
+  if (account === null) return null;
+
+  if (!account.configured) {
+    return (
+      <PanelSectionRow>
+        <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em' }}>
+          Nexus Mods sign-in isn't available in this build.
+        </div>
+      </PanelSectionRow>
+    );
+  }
+
+  if (account.signed_in) {
+    return (
+      <>
+        <PanelSectionRow>
+          <div style={{ fontSize: '0.9em' }}>
+            Signed in to Nexus Mods{account.username ? ` as ${account.username}` : ''}.
+          </div>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={signOut}>Sign out</ButtonItem>
+        </PanelSectionRow>
+      </>
+    );
+  }
 
   return (
     <>
-      {/* Decky's bIsPassword is a no-op on current Steam builds, so mask the input
-          visually with CSS instead. The real value stays intact (editing/paste work);
-          the Show/Hide toggle just flips the masking. */}
-      <style>{`.moddy-apikey-mask input { -webkit-text-security: disc !important; }`}</style>
       <PanelSectionRow>
-        <div className={show ? undefined : 'moddy-apikey-mask'}>
-          <TextField
-            label="Nexus Mods API key"
-            value={value}
-            onChange={e => onChange(e.target.value)}
-          />
-        </div>
-      </PanelSectionRow>
-      <PanelSectionRow>
-        <ButtonItem layout="below" onClick={() => setShow(s => !s)}>
-          {show
-            ? <span><FaEyeSlash style={{ marginRight: '6px', verticalAlign: 'middle' }} />Hide key</span>
-            : <span><FaEye style={{ marginRight: '6px', verticalAlign: 'middle' }} />Show key</span>}
+        <ButtonItem layout="below" onClick={busy ? cancel : signIn}>
+          {busy ? 'Cancel sign-in' : 'Sign in with Nexus Mods'}
         </ButtonItem>
       </PanelSectionRow>
+      {busy && (
+        <PanelSectionRow>
+          <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em' }}>
+            Complete the sign-in in the browser that just opened, then return here.
+          </div>
+        </PanelSectionRow>
+      )}
+      {error && (
+        <PanelSectionRow>
+          <div style={{ color: 'var(--gpColorError, #d33)', fontSize: '0.75em' }}>{error}</div>
+        </PanelSectionRow>
+      )}
       <PanelSectionRow>
         <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em' }}>
-          Generate a personal key at nexusmods.com → Account → API Keys. Premium accounts
-          can install; a key is required for browsing. Downloads use your own Nexus Mods
-          account and are subject to Nexus Mods' Terms of Service.
+          Sign in to browse and install Nexus Mods. Downloads use your own Nexus Mods account
+          and are subject to Nexus Mods' Terms of Service. Installing mods currently requires a
+          Premium account.
         </div>
       </PanelSectionRow>
     </>
@@ -149,8 +214,8 @@ const SettingsPage: FC = () => (
     overflowY: 'scroll',
     padding: '8px',
   }}>
-    <PanelSection title="Account">
-      <NexusApiKeyField />
+    <PanelSection title="Nexus Mods account">
+      <NexusAccountField />
     </PanelSection>
     <PanelSection title="Content">
       <NsfwToggle />

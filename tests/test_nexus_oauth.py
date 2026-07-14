@@ -5,6 +5,7 @@ and the token bundle round-trips through the real app_settings store (temp dir v
 fake decky in _harness). Pins: PKCE S256 correctness, authorize-URL shape, and the
 refresh-on-expiry branch of get_access_token (the part most likely to silently break).
 """
+import asyncio
 import base64
 import hashlib
 import json
@@ -169,6 +170,130 @@ class UsernameTest(unittest.TestCase):
 
     def test_none_when_signed_out(self):
         self.assertIsNone(nexus_oauth.username())
+
+
+class ConfigTest(unittest.TestCase):
+    """Guard the Nexus-confirmed client config so an accidental edit is caught."""
+    def test_confirmed_client_values(self):
+        self.assertEqual(nexus_oauth.CLIENT_ID, "moddy")
+        self.assertEqual(nexus_oauth.REDIRECT_URI, "http://127.0.0.1:53682/callback")
+        self.assertEqual(nexus_oauth.SCOPES, "public openid profile")
+        self.assertTrue(nexus_oauth.is_configured())
+
+
+class _FakeReader:
+    def __init__(self, data: bytes):
+        self._data = data
+
+    async def readline(self):
+        line, sep, rest = self._data.partition(b"\n")
+        self._data = rest
+        return line + sep
+
+
+class _FakeWriter:
+    def __init__(self):
+        self.buffer = bytearray()
+        self.closed = False
+
+    def write(self, data):
+        self.buffer.extend(data)
+
+    async def drain(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+class LoopbackListenerTest(unittest.TestCase):
+    """The one-shot loopback listener that catches Nexus's redirect-with-code."""
+    def setUp(self):
+        _reset_settings()
+        nexus_oauth._login_server = None
+        nexus_oauth._login_result = None
+        self._real_exchange = nexus_oauth.exchange_code
+        self._real_username = nexus_oauth.username
+
+    def tearDown(self):
+        nexus_oauth.exchange_code = self._real_exchange
+        nexus_oauth.username = self._real_username
+        nexus_oauth._login_server = None
+        nexus_oauth._login_result = None
+
+    def test_callback_resolves_future_and_writes_ok_page(self):
+        async def go():
+            nexus_oauth._login_result = asyncio.get_running_loop().create_future()
+            writer = _FakeWriter()
+            await nexus_oauth._handle_callback(
+                _FakeReader(b"GET /callback?code=abc&state=xyz HTTP/1.1\r\n"), writer)
+            return nexus_oauth._login_result, writer
+        fut, writer = asyncio.run(go())
+        self.assertTrue(fut.done())
+        self.assertEqual(fut.result(), {"code": "abc", "state": "xyz", "error": ""})
+        self.assertIn(b"200 OK", bytes(writer.buffer))
+        self.assertTrue(writer.closed)
+
+    def test_favicon_probe_does_not_resolve(self):
+        async def go():
+            nexus_oauth._login_result = asyncio.get_running_loop().create_future()
+            writer = _FakeWriter()
+            await nexus_oauth._handle_callback(
+                _FakeReader(b"GET /favicon.ico HTTP/1.1\r\n"), writer)
+            return nexus_oauth._login_result, writer
+        fut, writer = asyncio.run(go())
+        self.assertFalse(fut.done())          # keeps waiting for the real callback
+        self.assertIn(b"404 Not Found", bytes(writer.buffer))
+
+    def test_wait_login_no_login_in_progress(self):
+        nexus_oauth._login_result = None
+        self.assertEqual(asyncio.run(nexus_oauth.wait_login()),
+                         {"ok": False, "reason": "no_login_in_progress"})
+
+    def test_wait_login_success_exchanges_and_returns_username(self):
+        nexus_oauth.exchange_code = lambda code, state: True
+        nexus_oauth.username = lambda: "DeckModder"
+        async def go():
+            nexus_oauth._login_result = asyncio.get_running_loop().create_future()
+            nexus_oauth._login_result.set_result({"code": "c", "state": "s", "error": ""})
+            return await nexus_oauth.wait_login()
+        self.assertEqual(asyncio.run(go()), {"ok": True, "username": "DeckModder"})
+
+    def test_wait_login_propagates_provider_error(self):
+        async def go():
+            nexus_oauth._login_result = asyncio.get_running_loop().create_future()
+            nexus_oauth._login_result.set_result({"code": "", "state": "", "error": "access_denied"})
+            return await nexus_oauth.wait_login()
+        self.assertEqual(asyncio.run(go()), {"ok": False, "reason": "access_denied"})
+
+    def test_wait_login_exchange_failure(self):
+        nexus_oauth.exchange_code = lambda code, state: False
+        async def go():
+            nexus_oauth._login_result = asyncio.get_running_loop().create_future()
+            nexus_oauth._login_result.set_result({"code": "c", "state": "s", "error": ""})
+            return await nexus_oauth.wait_login()
+        self.assertEqual(asyncio.run(go()), {"ok": False, "reason": "exchange_failed"})
+
+    def test_start_login_not_configured(self):
+        saved = nexus_oauth.CLIENT_ID
+        nexus_oauth.CLIENT_ID = ""
+        try:
+            self.assertEqual(asyncio.run(nexus_oauth.start_login()),
+                             {"ok": False, "reason": "not_configured"})
+        finally:
+            nexus_oauth.CLIENT_ID = saved
+
+    def test_start_then_cancel_binds_and_tears_down(self):
+        async def go():
+            started = await nexus_oauth.start_login()
+            up = nexus_oauth._login_server is not None
+            await nexus_oauth.cancel_login()
+            return started, up
+        started, up = asyncio.run(go())
+        self.assertTrue(started["ok"], started)
+        self.assertTrue(started["authorize_url"].startswith(nexus_oauth.AUTHORIZE_URL))
+        self.assertTrue(up)
+        self.assertIsNone(nexus_oauth._login_server)
 
 
 if __name__ == "__main__":

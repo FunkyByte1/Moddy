@@ -311,6 +311,20 @@ export const getNexusCatalog =
 export const installNexusMod =
   callable<[appid: number, full_name: string, version: string | null, variant: string | null], boolean | null | string | NeedsVariant>('install_nexus_mod');
 
+// ── Nexus account (OAuth2 + PKCE sign-in) ──────────────────────────────────
+// Sign-in uses a loopback redirect: nexusLoginStart returns an authorize URL to open in the
+// browser (Navigation.NavigateToExternalWeb) + starts a local listener; nexusLoginWait then
+// blocks until the browser redirects back with the code (or it times out). nexusLoginCancel
+// aborts an in-flight attempt. nexusAccount drives the Settings card's state.
+export type NexusAccount = { configured: boolean; signed_in: boolean; username: string | null };
+export type NexusLoginStart = { ok: boolean; authorize_url?: string; reason?: string };
+export type NexusLoginResult = { ok: boolean; username?: string; reason?: string };
+export const nexusAccount = callable<[], NexusAccount>('nexus_account');
+export const nexusLoginStart = callable<[], NexusLoginStart>('nexus_login_start');
+export const nexusLoginWait = callable<[], NexusLoginResult>('nexus_login_wait');
+export const nexusLoginCancel = callable<[], void>('nexus_login_cancel');
+export const nexusSignOut = callable<[], void>('nexus_sign_out');
+
 // ── Background download queue ──────────────────────────────────────────────
 // Catalog installs that fetch archives server-side (Thunderstore / Nexus / BMI) are enqueued
 // and drained by a single serial backend worker, so the UI can show a queue + per-item
@@ -370,11 +384,11 @@ export const clearDownloadJob = callable<[job_id: number], boolean>('clear_downl
 export const clearFinishedDownloads = callable<[appid?: number], void>('clear_finished_downloads');
 export const getDownloadQueue = callable<[], QueueJob[]>('get_download_queue');
 
-// Account-global plugin settings (e.g. the Nexus API key). Stored plaintext in the
-// plugin's settings dir; the key is account-wide, not per-game.
+// Account-global plugin settings (e.g. NSFW gate). Stored plaintext in the plugin's
+// settings dir; account-wide, not per-game. (Nexus auth is an OAuth token now, managed
+// by the nexus_* callables above — not a user-entered setting.)
 export const getSetting = callable<[key: string], any>('get_setting');
 export const setSetting = callable<[key: string, value: any], boolean>('set_setting');
-export const NEXUS_API_KEY = 'nexus_api_key';
 // Account-global gate for NSFW content. When off, the per-game Browse filter hides the
 // "Show NSFW" control and NSFW mods stay filtered out; when on, it's offered per-session.
 export const NSFW_ENABLED = 'nsfw_enabled';
