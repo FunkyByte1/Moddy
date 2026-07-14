@@ -32,7 +32,7 @@ export const nexusAdapter: PagedVenueAdapter = {
   sourceLabel: 'nexus',
   installModel: 'queue',
   hasFilter: true,
-  emptyText: 'Catalog unavailable — set your Nexus API key in the Moddy panel and check your network.',
+  emptyText: 'Catalog unavailable — sign in to Nexus Mods in Moddy\'s Settings and check your network.',
 
   async fetchPage(game, query, page, filter) {
     // Adult content and sort order are both server-side, so they're part of the query.

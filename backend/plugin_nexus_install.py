@@ -14,7 +14,7 @@ async def install_nexus_mod(appid: int, full_name: str, version: str | None = No
     """Install a Nexus mod by its `nexus.<domain>.<mod_id>` catalog id, via the Premium
     download link, recursively installing any declared same-domain Nexus requirements
     first. Returns True=success, False=failed, None=cancelled, and the string
-    "premium_required" when the user's API key isn't Premium (v1 can't serve free
+    "premium_required" when the signed-in account isn't Premium (v1 can't serve free
     downloads — those need the website's nxm:// handoff). When the mod's archive bundles
     multiple variants (e.g. RE4 stack-size .pak options) and `variant` isn't given, returns
     {"needs_variant": True, "variants": [...]} so the UI can ask which to install.

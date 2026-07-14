@@ -306,7 +306,7 @@ export const getBrowseDenylist = callable<[], string[]>('get_browse_denylist');
 
 // Nexus Mods catalog — server-paginated/searched (~25 items per page), returned in the
 // shared ThunderstorePackage item shape. installNexusMod resolves a Premium CDN download
-// link; it returns the string 'premium_required' when the configured key isn't Premium.
+// link; it returns the string 'premium_required' when the signed-in account isn't Premium.
 export const getNexusCatalog =
   callable<[appid: number, query: string, page: number, include_adult: boolean, sort: string], ThunderstorePackage[]>('get_nexus_catalog');
 // installNexusMod returns NeedsVariant when the archive bundles >1 variant and none was chosen —

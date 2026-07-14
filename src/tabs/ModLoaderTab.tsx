@@ -112,7 +112,7 @@ const ModLoaderTab: FC<{
       // Nexus-sourced loaders (e.g. Stracker's Loader) need a Premium account to fetch a download link.
       toaster.toast({
         title: 'Moddy',
-        body: `${game.modloader_name} downloads from Nexus Mods, which needs a Nexus Premium account. Add a Premium API key in Settings, then try again.`,
+        body: `${game.modloader_name} downloads from Nexus Mods, which requires a Nexus Premium account. Free Nexus accounts can browse but can't download through the API.`,
       });
     } else {
       toaster.toast({ title: 'Moddy', body: `Failed to install ${game.modloader_name}` });

@@ -442,7 +442,7 @@ class Plugin:
                                 sort: str = nexus.DEFAULT_SORT) -> list:
         """A page (~25 items) of the Nexus catalog for a game whose Browse source is Nexus,
         searched server-side by `query` via the v2 GraphQL API. Returns [] for non-Nexus
-        games, on error, or when no Nexus API key is configured.
+        games, on error, or when not signed in to Nexus.
 
         `include_adult` is driven per-fetch by the Browse filter's "Show NSFW" toggle. When
         the caller omits it, fall back to the `nexus_include_adult` setting key. `sort` picks
@@ -500,7 +500,7 @@ class Plugin:
         """Install a Nexus mod by its `nexus.<domain>.<mod_id>` catalog id, via the Premium
         download link, recursively installing any declared same-domain Nexus requirements
         first. Returns True=success, False=failed, None=cancelled, and the string
-        "premium_required" when the user's API key isn't Premium (v1 can't serve free
+        "premium_required" when the signed-in account isn't Premium (v1 can't serve free
         downloads — those need the website's nxm:// handoff). When the mod's archive bundles
         multiple variants (e.g. RE4 stack-size .pak options) and `variant` isn't given, returns
         {"needs_variant": True, "variants": [...]} so the UI can ask which to install.
@@ -580,8 +580,8 @@ class Plugin:
         """Bundle Moddy's logs + a small system-info file into one zip the user can
         attach to a bug report. Writes to the Deck's Desktop (easy to find and drag
         into a browser upload), falling back to the user's home, and returns the full
-        path. Deliberately excludes settings.json so the Nexus API key never leaves
-        the device."""
+        path. Deliberately excludes settings.json so Nexus credentials (the OAuth token)
+        never leave the device."""
         return await plugin_diagnostics.export_logs()
 
     async def get_browse_denylist(self) -> list[str]:

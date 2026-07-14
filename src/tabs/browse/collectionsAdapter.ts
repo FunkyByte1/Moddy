@@ -33,7 +33,7 @@ export const collectionsAdapter: PagedVenueAdapter = {
   // A collection is installed as a whole set; it's managed/removed from the Installed tab, not
   // item-by-item here — so an already-installed collection shows a disabled "Installed", not "Uninstall".
   noUninstall: true,
-  emptyText: 'No collections found — set your Nexus API key in the Moddy panel and check your network.',
+  emptyText: 'No collections found — sign in to Nexus Mods in Moddy\'s Settings and check your network.',
   installNotice: 'Installs every required mod in this collection (with the curator’s installer choices). This can take a while; watch the download queue.',
 
   async fetchPage(game, query, page) {

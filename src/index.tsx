@@ -11,7 +11,7 @@ import { initDownloadQueue, teardownDownloadQueue, useDownloadQueue, summarize, 
 import { promptVariant } from './components/DownloadQueueModal';
 
 // Bundles Moddy's logs into a zip on the Deck's Desktop so testers can attach it to a
-// bug report. Excludes the Nexus API key (handled backend-side).
+// bug report. Excludes the Nexus sign-in token (handled backend-side).
 function ExportLogsButton() {
   const [busy, setBusy] = useState(false);
 
@@ -40,7 +40,7 @@ function ExportLogsButton() {
       </PanelSectionRow>
       <PanelSectionRow>
         <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.75em' }}>
-          Saves a zip to your Desktop you can attach to a bug report. Your Nexus API key is
+          Saves a zip to your Desktop you can attach to a bug report. Your Nexus sign-in is
           not included.
         </div>
       </PanelSectionRow>
