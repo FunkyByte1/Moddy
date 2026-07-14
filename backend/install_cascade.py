@@ -410,7 +410,7 @@ def collect_plan(provider: ModProvider, game, ref, *, version=None, with_deps, s
     if key in seen or key in provider.denylist:
         return
     seen.add(key)
-    existing = mods.find_installed_record(key)
+    existing = mods.find_installed_record(game.appid, key)
     if existing and version is None and (install_dir is None or mods.mod_files_present(game, install_dir, existing)):
         return
     item = provider.find(game, ref)

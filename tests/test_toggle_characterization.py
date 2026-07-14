@@ -24,7 +24,7 @@ def run(coro):
 def register(mod_id, filename, install_type, paths=None):
     """Persist an install record the way the real installers do, so toggle reads a realistic record."""
     mod = make_mod(mod_id=mod_id, filename=filename, install_type=install_type)
-    mods.set_installed_record(mod_id, "1.0.0", filename, paths=paths, mod=mod)
+    mods.set_installed_record(1, mod_id, "1.0.0", filename, paths=paths, mod=mod)
     return mod
 
 

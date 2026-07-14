@@ -1,0 +1,10 @@
+{
+  "id": "muck",
+  "name": "Muck",
+  "appid": 1625450,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "muck",
+  "requires_proton": true,
+  "modloader_ids": ["bepinex-muck"]
+}

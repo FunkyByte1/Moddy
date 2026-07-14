@@ -67,7 +67,7 @@ class NexusCascadeTest(unittest.TestCase):
         ))
 
     def mark_installed_on_disk(self, key, rel):
-        mods.set_installed_record(key, "1.0", "f", paths=[rel])
+        mods.set_installed_record(self.game.appid, key, "1.0", "f", paths=[rel])
         p = os.path.join(self.install_dir, rel)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         open(p, "w").close()

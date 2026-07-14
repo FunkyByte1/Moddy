@@ -21,25 +21,40 @@ import os
 import decky
 
 _SETTINGS = None  # in-memory cache of the whole settings dict
+_MTIME = None     # mtime the cache was built from, so we notice external edits to the file
 
 
 def _path() -> str:
     return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "settings.json")
 
 
+def _file_mtime(path: str):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
 def _load() -> dict:
-    global _SETTINGS
-    if _SETTINGS is not None:
-        return _SETTINGS
+    """Return the settings dict, re-reading the file whenever its mtime has changed since
+    the cache was built. Settings can be edited on disk out-of-band (Desktop Mode / SSH), so a
+    cache that never reloaded would keep serving stale values — NSFW off, a stale token — until
+    the next plugin restart. Keying the cache on mtime picks external edits up on the next read."""
+    global _SETTINGS, _MTIME
     path = _path()
+    mtime = _file_mtime(path)
+    if _SETTINGS is not None and mtime == _MTIME:
+        return _SETTINGS
     try:
         if os.path.isfile(path):
             with open(path, "r") as f:
                 _SETTINGS = json.load(f)
+                _MTIME = mtime
                 return _SETTINGS
     except Exception as e:
         decky.logger.error(f"Failed to load settings: {e}")
     _SETTINGS = {}
+    _MTIME = mtime
     return _SETTINGS
 
 
@@ -49,7 +64,7 @@ def get_setting(key: str, default=None):
 
 def _persist(store: dict) -> bool:
     """Atomically write the whole settings dict (temp file + rename) and refresh the cache."""
-    global _SETTINGS
+    global _SETTINGS, _MTIME
     path = _path()
     tmp = path + ".tmp"
     try:
@@ -64,6 +79,7 @@ def _persist(store: dict) -> bool:
         except Exception:
             pass
         _SETTINGS = store
+        _MTIME = _file_mtime(path)  # our own write; don't mistake it for an external edit
         return True
     except Exception as e:
         decky.logger.error(f"Failed to save settings: {e}")

@@ -83,6 +83,9 @@ releases/
 CLAUDE.md
 CLAUDE.local.md
 
+# Local-only planning docs (never pushed to remote)
+*.local.md
+
 # Local scratch space for test artifacts (keep the dir, ignore its contents)
 tmp/*
 !tmp/.gitkeep

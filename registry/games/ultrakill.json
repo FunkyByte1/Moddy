@@ -1,0 +1,9 @@
+{
+  "id": "ultrakill",
+  "name": "ULTRAKILL",
+  "appid": 1229490,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "ultrakill",
+  "modloader_ids": ["bepinex-mono"]
+}

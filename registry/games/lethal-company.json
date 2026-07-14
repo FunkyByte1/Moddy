@@ -1,0 +1,9 @@
+{
+  "id": "lethal-company",
+  "name": "Lethal Company",
+  "appid": 1966720,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "lethal-company",
+  "modloader_ids": ["bepinex-mono"]
+}

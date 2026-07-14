@@ -28,7 +28,7 @@ async def install_thunderstore_mod(
     # "N of M". Cheap — resolves against the in-memory catalog, no downloads.
     plan: list[str] = []
     _resolve_thunderstore_plan(game, full_name, version, with_deps, set(), plan, [],
-                               install_dir, plugin_install_denylists._BROWSE_DENYLIST)
+                               install_dir, plugin_install_denylists.thunderstore_browse_denylist())
     await download_queue.note_total(len(plan))
     # Atomic cancel: track the packages this run freshly installs so a cancel mid-cascade can
     # undo them, leaving the system as if the install never started. Updates of already-present
@@ -37,7 +37,7 @@ async def install_thunderstore_mod(
     result = await _install_thunderstore_recursive(
         game, install_dir, full_name, version, seen=set(), with_deps=with_deps,
         installed_this_run=installed_this_run, allow_missing=allow_missing,
-        denylist=plugin_install_denylists._BROWSE_DENYLIST,
+        denylist=plugin_install_denylists.thunderstore_browse_denylist(),
     )
     # Roll back on cancel (None) or hard failure (False) — either way the install didn't
     # complete, so leave no partial trace.

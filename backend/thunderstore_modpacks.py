@@ -51,6 +51,26 @@ def _deps(pkg: dict) -> list:
     return (pkg.get("latest") or {}).get("dependencies", []) or []
 
 
+def _installable_dep_count(pkg: dict, denylist: set) -> int:
+    """How many of the package's deps are actual mods — i.e. NOT the loader / a denylisted tool. A
+    real modpack installs its dependency tree (its own archive is skipped), so it needs ≥1 of these."""
+    n = 0
+    for dep in _deps(pkg):
+        parsed = thunderstore.parse_dep(dep)
+        if parsed and parsed[0].lower() not in denylist:
+            n += 1
+    return n
+
+
+def is_installable_modpack(pkg: dict, denylist: set) -> bool:
+    """Whether a package should be ROUTED as a modpack (Collections tab), vs shown as a normal mod.
+    A modpack model only works if there's a dependency tree to install: a 'Modpacks'-tagged package
+    whose only deps are the loader (e.g. Megabonk's Rizzotto-Megamod, which ships its own dll and
+    depends solely on BepInExPack) is really a content mod mis-tagged as a modpack — routing it as a
+    modpack would skip its archive and install nothing. Such packages fall through to Browse as mods."""
+    return is_modpack(pkg) and _installable_dep_count(pkg, denylist) > 0
+
+
 def _modpack_item(pkg: dict) -> dict:
     """Shape a modpack package into the CollectionItem the Collections browse tab consumes."""
     latest = pkg.get("latest") or {}
@@ -66,13 +86,24 @@ def _modpack_item(pkg: dict) -> dict:
 
 
 def game_has_modpacks(appid: int) -> bool:
-    """Whether this game's Thunderstore community has ANY modpack — gates the Collections tab. Reads
-    the cached catalog only (never fetches), so it's cheap on the latency-sensitive status path."""
+    """Whether this game's Thunderstore community has ANY modpack — gates the Collections tab. Fetches
+    the community catalog if it isn't cached yet (1-day TTL) so the tab-visibility probe is correct
+    even before the Browse tab has loaded the catalog (otherwise a freshly-added game's probe reads an
+    empty cache, returns False, and the frontend caches that False for the session). This runs only
+    from the async gameHasCollections probe, never the latency-sensitive status path; on a fetch
+    failure it falls back to whatever is cached."""
     game = _is_thunderstore_game(appid)
     if not game:
         return False
-    catalog = thunderstore.get_cached_community_catalog(game.thunderstore_community) or []
-    return any(is_modpack(p) for p in catalog)
+    try:
+        catalog = thunderstore.get_community_catalog(game.thunderstore_community)
+    except Exception:
+        catalog = thunderstore.get_cached_community_catalog(game.thunderstore_community) or []
+    denylist = plugin_install_denylists.thunderstore_browse_denylist()
+    # Same predicate list_modpacks_for_game uses (incl. the is_deprecated filter) so the tab-visibility
+    # gate never disagrees with the list — otherwise a community whose only installable modpack is
+    # deprecated shows an empty Modpacks tab.
+    return any(is_installable_modpack(p, denylist) and not p.get("is_deprecated") for p in catalog)
 
 
 def list_modpacks_for_game(appid: int, query: str = "", page: int = 1) -> list:
@@ -83,7 +114,8 @@ def list_modpacks_for_game(appid: int, query: str = "", page: int = 1) -> list:
     if not game:
         return []
     catalog = thunderstore.get_community_catalog(game.thunderstore_community)
-    packs = [p for p in catalog if is_modpack(p) and not p.get("is_deprecated")]
+    denylist = plugin_install_denylists.thunderstore_browse_denylist()
+    packs = [p for p in catalog if is_installable_modpack(p, denylist) and not p.get("is_deprecated")]
     q = (query or "").strip().lower()
     if q:
         packs = [p for p in packs
@@ -180,7 +212,7 @@ async def run_modpack(appid: int, full_name: str, job) -> "bool | None":
     sid = f"collection:{full_name}"
     source = {"id": sid, "name": name, "image": (pkg.get("latest") or {}).get("icon", "") or ""}
 
-    denylist = plugin_install_denylists._BROWSE_DENYLIST
+    denylist = plugin_install_denylists.thunderstore_browse_denylist()
     provider = install_cascade.ThunderstoreProvider(denylist)
 
     # The complete member set (transitive closure of the modpack's deps), so we can size progress and
@@ -200,7 +232,7 @@ async def run_modpack(appid: int, full_name: str, job) -> "bool | None":
     async def _rollback_run() -> None:
         for mid in installed_ids:
             try:
-                if not mods.remove_record_source(mid, sid):
+                if not mods.remove_record_source(game.appid, mid, sid):
                     await mods.uninstall_mod(game, install_dir, mid)
             except Exception as e:  # noqa: BLE001 — best-effort cleanup
                 decky.logger.warning(f"modpack {full_name}: rollback of {mid} failed: {e}")
@@ -208,7 +240,7 @@ async def run_modpack(appid: int, full_name: str, job) -> "bool | None":
     # Claim present members up front (a re-install / overlapping modpack keeps them, ref-counted).
     # add_record_source resolves the record case-insensitively, so the catalog-cased ref is fine.
     for ref in present:
-        mods.add_record_source(ref, source)
+        mods.add_record_source(game.appid, ref, source)
 
     seen: set = set()
     for dep in deps:

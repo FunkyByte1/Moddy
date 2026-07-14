@@ -69,7 +69,7 @@ class SmlLoaderTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.sml_dir("Binaries", "Win64", "a.dll")))
         self.assertTrue(modloaders.is_modloader_installed(self.game, self.install_dir, "sml"))
         self.assertTrue(modloaders.is_modloader_enabled(self.game, self.install_dir, "sml"))
-        self.assertEqual(modloaders.get_modloader_version("sml"), "3.12.0")
+        self.assertEqual(modloaders.get_modloader_version(self.game.appid, "sml"), "3.12.0")
 
     def test_update_replaces_cleanly_without_cruft(self):
         self.install({"SML.uplugin": json.dumps({"FriendlyName": "SML"}),
@@ -118,7 +118,7 @@ class SmlLoaderTest(unittest.TestCase):
         # The disabled SML survives intact, and the version store stays consistent with disk.
         self.assertTrue(os.path.isfile(os.path.join(self.parked(), "keep.txt")), "parked SML preserved")
         self.assertTrue(modloaders.is_modloader_installed(self.game, self.install_dir, "sml"))
-        self.assertEqual(modloaders.get_modloader_version("sml"), "3.12.0")
+        self.assertEqual(modloaders.get_modloader_version(self.game.appid, "sml"), "3.12.0")
 
     def test_install_pinned_version_resolves_that_version(self):
         # The Mod Loader tab's version picker passes a specific version; install it (not latest).
@@ -132,7 +132,7 @@ class SmlLoaderTest(unittest.TestCase):
             _make_smod(dest, {"SML.uplugin": "{}"})
         utils.download = _dl
         self.assertTrue(run(modloaders.install_modloader(self.game, self.install_dir, "sml", "3.11.0")))
-        self.assertEqual(modloaders.get_modloader_version("sml"), "3.11.0")
+        self.assertEqual(modloaders.get_modloader_version(self.game.appid, "sml"), "3.11.0")
         self.assertIn("vOLD", captured["url"])  # pinned version's id, not the latest
 
     def test_install_pinned_version_missing_windows_build_fails(self):
@@ -146,7 +146,7 @@ class SmlLoaderTest(unittest.TestCase):
         self.assertTrue(run(modloaders.uninstall_modloader(self.game, self.install_dir, "sml")))
         self.assertFalse(os.path.isdir(self.sml_dir()))
         self.assertFalse(modloaders.is_modloader_installed(self.game, self.install_dir, "sml"))
-        self.assertIsNone(modloaders.get_modloader_version("sml"))
+        self.assertIsNone(modloaders.get_modloader_version(self.game.appid, "sml"))
 
     def test_uninstall_while_disabled_removes_parked(self):
         self.install({"SML.uplugin": "{}"})

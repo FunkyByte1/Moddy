@@ -1,0 +1,21 @@
+{
+  "id": "reframework-re8",
+  "name": "REFramework (Resident Evil Village)",
+  "files": ["dinput8.dll"],
+  "dirs": [],
+  "indicator": "dinput8.dll",
+  "ready_indicator": null,
+  "launch_options": "WINEDLLOVERRIDES=\"dinput8=n,b\" %command%",
+  "config_files": {
+    "re2_fw_config.txt": "LooseFileLoader_Enabled=true\n"
+  },
+  "uninstall_dirs": ["reframework"],
+  "uninstall_files": ["re2_fw_config.txt", "re2_framework_log.txt", "reframework_revision.txt", "reframework_loose_files.txt", "reframework_accessed_files.txt"],
+  "nexus_skip_ids": ["60"],
+  "source": {
+    "type": "github",
+    "owner": "praydog",
+    "repo": "REFramework",
+    "asset": "RE8.zip"
+  }
+}

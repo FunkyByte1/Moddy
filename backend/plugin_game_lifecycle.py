@@ -91,7 +91,7 @@ async def set_game_vanilla_mode(appid: int, vanilla: bool) -> dict:
         for entry in mods.get_installed_mods(game, install_dir):
             if not entry.get("enabled", True):
                 continue
-            rec = mods.get_installed_record(entry["id"]) or {}
+            rec = mods.get_installed_record(game.appid, entry["id"]) or {}
             if (rec.get("source") or {}).get("type") == "steamworkshop":
                 fileid = (rec.get("source") or {}).get("workshop_id")
                 if fileid:
@@ -135,7 +135,7 @@ async def set_game_vanilla_mode(appid: int, vanilla: bool) -> dict:
     enabled = 0
     for mod_id in snap.get("mods", []):
         # Skip a mod that was uninstalled while vanilla — its record is gone.
-        if mods.get_installed_record(mod_id) is None:
+        if mods.get_installed_record(game.appid, mod_id) is None:
             continue
         if await mods.toggle_mod(game, install_dir, mod_id, True):
             enabled += 1

@@ -1,0 +1,9 @@
+{
+  "id": "atlyss",
+  "name": "ATLYSS",
+  "appid": 2768430,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "atlyss",
+  "modloader_ids": ["bepinex-mono"]
+}

@@ -369,7 +369,7 @@ async def _install_group(game, install_dir: str, domain: str, entries: list, sou
     # The multi-file installers write the record but don't stamp provenance (install_mod does that for
     # the single-file path), so claim the mod for this collection here.
     if res is True and source:
-        mods.add_record_source(mod.id, source)
+        mods.add_record_source(game.appid, mod.id, source)
     return res
 
 
@@ -436,7 +436,7 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
     to_install_missing = []
     for m in to_install:
         if _present(m):
-            mods.add_record_source(f"nexus.{domain}.{m['mod_id']}", source)
+            mods.add_record_source(appid, f"nexus.{domain}.{m['mod_id']}", source)
         else:
             to_install_missing.append(m)
     already_present = len(to_install) - len(to_install_missing)
@@ -456,7 +456,7 @@ async def run_collection(appid: int, domain: str, slug: str, job) -> "bool | Non
         # stays — we only drop THIS collection's claim and remove a mod orphaned by that.
         for mid in installed_ids:
             try:
-                remaining = mods.remove_record_source(mid, sid)
+                remaining = mods.remove_record_source(appid, mid, sid)
                 if not remaining:
                     await mods.uninstall_mod(game, install_dir, mid)
             except Exception as e:  # noqa: BLE001 — best-effort cleanup
@@ -513,20 +513,21 @@ async def enqueue_collection(appid: int, ref_text: str) -> int:
     )
 
 
-def collection_members(slug: str) -> list:
-    """Mod ids currently tagged as belonging to collection `slug` (any game), from their records."""
+def collection_members(appid: int, slug: str) -> list:
+    """Mod ids currently tagged as belonging to collection `slug` for THIS game, from their
+    records. Per-game keying means another game's copy of a shared Thunderstore id can no
+    longer cross-count here."""
     sid = f"collection:{slug}"
-    return [mid for mid, rec in mods._load_store().items() if sid in (rec.get("sources") or {})]
+    return [mid for mid, rec in mods._load_store(appid).items() if sid in (rec.get("sources") or {})]
 
 
-def preview_uninstall_collection(slug: str) -> dict:
+def preview_uninstall_collection(appid: int, slug: str) -> dict:
     """What "Uninstall collection <slug>" would do, WITHOUT touching anything: which member mods
     would be removed (sole source is this collection) vs kept (also manual / in another collection).
     Lets the UI show an honest "removes N · keeps M" summary before the user commits."""
     sid = f"collection:{slug}"
-    store = mods._load_store()
     remove, keep = [], []
-    for mid, rec in store.items():
+    for mid, rec in mods._load_store(appid).items():
         sources = rec.get("sources") or {}
         if sid not in sources:
             continue
@@ -545,8 +546,8 @@ async def uninstall_collection(appid: int, slug: str) -> dict:
         return {"removed": [], "kept": []}
     sid = f"collection:{slug}"
     removed, kept = [], []
-    for mid in collection_members(slug):
-        remaining = mods.remove_record_source(mid, sid)
+    for mid in collection_members(appid, slug):
+        remaining = mods.remove_record_source(appid, mid, sid)
         if remaining:
             kept.append(mid)  # still wanted by manual / another collection — leave its files
         else:

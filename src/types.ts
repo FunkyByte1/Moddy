@@ -38,6 +38,7 @@ export interface InstalledMod {
   version: string | null;
   meta?: ModMeta | null;
   is_library?: boolean;  // stamped by the backend from the catalog/frameworks
+  ignore_unused?: boolean;  // user marked this library an intentional dep — excluded from the unused-libraries broom
   added_at?: number | null;  // unix seconds the mod was first installed; absent for legacy/untracked
   // Provenance for grouping: {sourceId -> {name, image}}. sourceId is "manual" or "collection:<slug>".
   // A mod brought in by a collection AND installed directly carries both. Absent = treat as "You".
@@ -120,6 +121,12 @@ export interface GameStatus {
   // True while the game is in "vanilla" (play-unmodded) mode — every mod + the modloader toggled
   // off but kept on disk, ready to switch back.
   vanilla: boolean;
+  // External-merge games (Fields of Mistria/MOMI): true when a Steam game update wiped the mods
+  // baked into the shared file, so the UI offers a one-tap "Apply mods" to rebuild.
+  merge_tool_stale?: boolean;
+  // Mods were staged (installed/deleted/toggled) but the shared game file hasn't been rebuilt yet —
+  // the UI shows the "Apply mods" prompt (deployment model); changes aren't in-game until applied.
+  merge_tool_pending?: boolean;
 }
 
 export interface VanillaResult {

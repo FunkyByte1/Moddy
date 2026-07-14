@@ -61,7 +61,7 @@ class SmapiInstallTest(unittest.TestCase):
         self.assertTrue(self.exists("Mods/CoolMod/CoolMod.dll"))
         self.assertTrue(self.exists("Mods/CoolMod/assets/x.png"))
         self.assertFalse(self.exists("Mods/manifest.json"))          # NOT flattened (the zip_flat bug)
-        rec = mods.get_installed_record(mod.id)
+        rec = mods.get_installed_record(self.game.appid, mod.id)
         self.assertEqual(rec["paths"], ["Mods/CoolMod"])
 
     def test_strips_outer_wrapper_folder(self):
@@ -73,7 +73,7 @@ class SmapiInstallTest(unittest.TestCase):
         self.assertIs(res, True)
         self.assertTrue(self.exists("Mods/CoolMod/manifest.json"))
         self.assertFalse(self.exists("Mods/CoolMod 1.2.3"))
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["Mods/CoolMod"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["Mods/CoolMod"])
 
     def test_multiple_sibling_mod_folders(self):
         res, mod = self._install({
@@ -85,7 +85,7 @@ class SmapiInstallTest(unittest.TestCase):
         self.assertIs(res, True)
         self.assertTrue(self.exists("Mods/ModA/manifest.json"))
         self.assertTrue(self.exists("Mods/ModB/manifest.json"))
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["Mods/ModA", "Mods/ModB"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["Mods/ModA", "Mods/ModB"])
 
     def test_nested_content_pack_travels_with_parent(self):
         # A mod that bundles a content pack inside its own folder: only the parent is a top-level
@@ -99,7 +99,7 @@ class SmapiInstallTest(unittest.TestCase):
         self.assertIs(res, True)
         self.assertTrue(self.exists("Mods/Big/ContentPack/manifest.json"))
         self.assertFalse(self.exists("Mods/ContentPack"))            # not duplicated to the top level
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["Mods/Big"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["Mods/Big"])
 
     def test_manifest_at_archive_root_is_wrapped(self):
         res, mod = self._install({
@@ -109,7 +109,7 @@ class SmapiInstallTest(unittest.TestCase):
         self.assertIs(res, True)
         self.assertTrue(self.exists("Mods/Loose Mod/manifest.json"))
         self.assertTrue(self.exists("Mods/Loose Mod/content.json"))
-        self.assertEqual(mods.get_installed_record(mod.id)["paths"], ["Mods/Loose Mod"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["paths"], ["Mods/Loose Mod"])
 
     def test_no_manifest_installs_as_overlay(self):
         # A manifest-less archive is a config/content overlay (Nexus collections ship these — e.g.
@@ -122,14 +122,14 @@ class SmapiInstallTest(unittest.TestCase):
         self.assertIs(res, True)
         self.assertTrue(self.exists("Mods/ChestsAnywhere/config.json"))
         self.assertTrue(self.exists("Mods/Some Mod/[CP] Pack/content.json"))
-        rec = mods.get_installed_record(mod.id)
+        rec = mods.get_installed_record(self.game.appid, mod.id)
         self.assertEqual(rec["install_type"], "zip_natives")  # tracked as a per-file overlay, not a folder mod
         self.assertEqual(sorted(rec["paths"]),
                          ["Mods/ChestsAnywhere/config.json", "Mods/Some Mod/[CP] Pack/content.json"])
         # Uninstall removes the overlay's files (and prunes the now-empty folders).
         self.assertIs(run(mods.uninstall_mod(self.game, self.install_dir, mod.id)), True)
         self.assertFalse(self.exists("Mods/ChestsAnywhere/config.json"))
-        self.assertIsNone(mods.get_installed_record(mod.id))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, mod.id))
 
     def test_overlay_merges_into_an_existing_mod_without_clobbering_it(self):
         # Install a real mod, then an overlay that drops a config into its folder — the mod's own
@@ -167,7 +167,7 @@ class SmapiInstallTest(unittest.TestCase):
         _res, mod = self._install({"CoolMod/manifest.json": MANIFEST, "CoolMod/c.dll": b"M"})
         self.assertIs(run(mods.uninstall_mod(self.game, self.install_dir, mod.id)), True)
         self.assertFalse(self.exists("Mods/CoolMod"))
-        self.assertIsNone(mods.get_installed_record(mod.id))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, mod.id))
 
     def test_uninstall_disabled_removes_dot_folder(self):
         _res, mod = self._install({"CoolMod/manifest.json": MANIFEST, "CoolMod/c.dll": b"M"})
@@ -175,7 +175,7 @@ class SmapiInstallTest(unittest.TestCase):
         self.assertTrue(self.exists("Mods/.CoolMod"))
         self.assertIs(run(mods.uninstall_mod(self.game, self.install_dir, mod.id)), True)
         self.assertFalse(self.exists("Mods/.CoolMod"))
-        self.assertIsNone(mods.get_installed_record(mod.id))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, mod.id))
 
     def test_uninstall_leaves_other_mods(self):
         _r1, mod1 = self._install({"ModA/manifest.json": MANIFEST}, mod_id="a", filename="A")
@@ -193,7 +193,7 @@ class SmapiInstallTest(unittest.TestCase):
         self.assertTrue(self.exists("Mods/CoolMod/new.dll"))
         self.assertFalse(self.exists("Mods/CoolMod/old.dll"))         # stale file gone
         self.assertFalse(self.exists("Mods/.CoolMod"))               # old disabled folder cleaned up
-        self.assertEqual(mods.get_installed_record(mod.id)["version"], "2.0.0")
+        self.assertEqual(mods.get_installed_record(self.game.appid, mod.id)["version"], "2.0.0")
 
     # ── multi-file install (the file picker) ───────────────────────────────────
     def _multi_download(self, mapping):
@@ -213,7 +213,7 @@ class SmapiInstallTest(unittest.TestCase):
         self.assertIs(res, True)
         self.assertTrue(self.exists("Mods/SVE_Core/manifest.json"))
         self.assertTrue(self.exists("Mods/IF2R/manifest.json"))
-        self.assertEqual(mods.get_installed_record("multi")["paths"], ["Mods/IF2R", "Mods/SVE_Core"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, "multi")["paths"], ["Mods/IF2R", "Mods/SVE_Core"])
 
     def test_install_smapi_files_reinstall_retires_old(self):
         self._multi_download({
@@ -227,7 +227,7 @@ class SmapiInstallTest(unittest.TestCase):
         self.assertIs(res, True)
         self.assertTrue(self.exists("Mods/SVE_Core"))
         self.assertFalse(self.exists("Mods/IF2R"))
-        self.assertEqual(mods.get_installed_record("multi")["paths"], ["Mods/SVE_Core"])
+        self.assertEqual(mods.get_installed_record(self.game.appid, "multi")["paths"], ["Mods/SVE_Core"])
 
     # ── atomicity ────────────────────────────────────────────────────────────
     def test_failed_commit_rolls_back(self):
@@ -247,7 +247,7 @@ class SmapiInstallTest(unittest.TestCase):
             res = run(mods.install_mod(self.game, self.install_dir, mod, "1.0.0", "http://x"))
         self.assertIs(res, False)
         self.assertEqual(tree_snapshot(self.install_dir), before)    # tree restored exactly
-        self.assertIsNone(mods.get_installed_record("new"))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, "new"))
         self.assertEqual(bak_crumbs(self.install_dir), [])
 
 

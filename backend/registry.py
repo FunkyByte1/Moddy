@@ -7,13 +7,13 @@ import decky
 
 @dataclass
 class ModSource:
-    type: str          # "github" | "github_source" | "thunderstore" | "url" | "steamworkshop" | "nexus" | "setup" | "ficsit"
+    type: str          # "github" | "github_source" | "thunderstore" | "url" | "steamworkshop" | "nexus" | "setup" | "ficsit" | "external_cli"
     owner: str = ""    # GitHub owner / Thunderstore author
     repo: str = ""     # GitHub repo / Thunderstore package name
     asset: str = ""    # Asset filename to download (for type="github")
     branch: str = "main"  # Branch to download (for type="github_source")
     url: str = ""      # Direct URL (for type="url")
-    install_type: str = "file"  # "file" | "zip_dir" | "zip_flat" | "zip_folder" | "zip_smod" | "zip_natives" | "zip_nativepc" | "zip_smapi" | "zip_palworld" | "zip_into_game" | "steamworkshop" | "smapi_installer"
+    install_type: str = "file"  # "file" | "zip_dir" | "zip_flat" | "zip_folder" | "zip_smod" | "zip_natives" | "zip_nativepc" | "zip_smapi" | "zip_palworld" | "zip_into_game" | "steamworkshop" | "smapi_installer" | "external_merge"
     workshop_id: str = ""  # Steam Workshop published file id (for type="steamworkshop")
     nexus_domain: str = ""  # Nexus game domain slug, e.g. "slimerancher2" (for type="nexus")
     mod_id: str = ""        # Nexus mod id (for type="nexus"); file_id is resolved at install time
@@ -53,6 +53,28 @@ class ModloaderInfo:
     uninstall_files: list[str] = field(default_factory=list)  # extra files removed on uninstall but NOT installed (e.g. REFramework runtime logs)
     uninstall_dirs: list[str] = field(default_factory=list)   # extra dirs removed on uninstall but NOT installed (e.g. REFramework's runtime-generated reframework/ config dir)
     setup: dict = field(default_factory=dict)                 # declarative host-side setup for a source.type=="setup" loader; setup.remove_files = game-dir-relative stock files parked aside to <f>.moddy-orig to ENABLE mods, restored to disable (e.g. NMS GAMEDATA/PCBANKS/DISABLEMODS.TXT)
+    merge_tool: "MergeToolInfo | None" = None                 # config for a source.type=="external_cli" merge-tool loader (e.g. Fields of Mistria's MOMI); None otherwise
+
+
+@dataclass
+class MergeToolInfo:
+    """Config for an external CLI that MERGES all active mods into a shared game file (rebuild-on-
+    change), rather than placing per-mod files. Carried by a source.type=="external_cli" modloader
+    and consumed by mods_mergetool. Declarative so a second tool (e.g. Hades' ModImporter) is mostly
+    JSON: only the zip-vs-bare-binary unpack differs in code."""
+    tool_id: str                                              # "momi" | "modimporter" — escape-hatch key, rarely branched on
+    owner: str                                                # GitHub owner, e.g. "Garethp"
+    repo: str                                                 # GitHub repo, e.g. "Mods-of-Mistria-Installer"
+    asset: str                                                # release asset name (Linux), e.g. "ModsOfMistriaInstaller-cli-linux"
+    asset_is_zip: bool = False                                # False = bare binary; True = zip → extract + find binary_in_zip
+    binary_in_zip: str = ""                                   # binary path/glob inside the zip when asset_is_zip
+    apply_argv: list[str] = field(default_factory=list)       # argv for "apply" (default run); [] = bare run
+    restore_argv: list[str] = field(default_factory=lambda: ["--uninstall"])  # argv for "restore to pristine"
+    env: dict = field(default_factory=dict)                   # extra env for the CLI, e.g. {"EXIT_ON_COMPLETE": "true"}
+    tool_owns_backup: bool = True                             # tool keeps its own pristine copy (MOMI's data.bak.win); Moddy never supplies a clean file
+    backup_glob: list[str] = field(default_factory=list)      # tool backup files (game-dir-relative) cleared before reapply after a game update (e.g. ["data.bak.win", "*.bak.json"])
+    high_risk_glob: str = ""                                  # in-mod glob flagging a fragile native mod (e.g. "aurie/*.dll")
+    high_risk_policy: str = "warn"                            # "deny" | "warn" | "allow" for high_risk_glob hits
 
 
 @dataclass
@@ -118,6 +140,26 @@ def _parse_source(s: dict) -> ModSource:
     )
 
 
+def _parse_merge_tool(d: "dict | None") -> "MergeToolInfo | None":
+    if not d:
+        return None
+    return MergeToolInfo(
+        tool_id=d.get("tool_id", ""),
+        owner=d.get("owner", ""),
+        repo=d.get("repo", ""),
+        asset=d.get("asset", ""),
+        asset_is_zip=bool(d.get("asset_is_zip", False)),
+        binary_in_zip=d.get("binary_in_zip", ""),
+        apply_argv=[str(x) for x in d.get("apply_argv", [])],
+        restore_argv=[str(x) for x in d.get("restore_argv", ["--uninstall"])],
+        env={str(k): str(v) for k, v in dict(d.get("env", {})).items()},
+        tool_owns_backup=bool(d.get("tool_owns_backup", True)),
+        backup_glob=[str(x) for x in d.get("backup_glob", [])],
+        high_risk_glob=d.get("high_risk_glob", ""),
+        high_risk_policy=d.get("high_risk_policy", "warn"),
+    )
+
+
 _REGISTRY_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "registry"))
 
 
@@ -164,6 +206,7 @@ def _load_modloaders() -> dict[str, ModloaderInfo]:
                 uninstall_files=list(data.get("uninstall_files", [])),
                 uninstall_dirs=list(data.get("uninstall_dirs", [])),
                 setup=dict(data.get("setup", {})),
+                merge_tool=_parse_merge_tool(data.get("merge_tool")),
             )
         except Exception as e:
             decky.logger.error(f"Failed to load modloader from {where}: {e}")
@@ -176,6 +219,16 @@ def _load_game(path: str, ml_catalog: dict[str, ModloaderInfo]) -> GameProfile |
     try:
         with open(path, "r") as f:
             data = json.load(f)
+
+        # A game can be shipped-but-gated: kept in the registry (so its config and history
+        # survive) yet excluded from SUPPORTED_GAMES, so Moddy treats it as unsupported and
+        # it never surfaces as working. Used when an upstream tool can't yet mod the current
+        # game build (e.g. Fields of Mistria — MOMI's new-engine detection is broken; see
+        # `disabled_reason` in the JSON). Flip `enabled` back to true when upstream is fixed.
+        if not data.get("enabled", True):
+            reason = data.get("disabled_reason", "")
+            decky.logger.info(f"{where}: gated off (enabled=false){f' — {reason}' if reason else ''}")
+            return None
 
         game_id = _require(data, "id", where)
         name = _require(data, "name", where)

@@ -1,0 +1,9 @@
+{
+  "id": "resident-evil-2",
+  "name": "Resident Evil 2",
+  "appid": 883710,
+  "mods_dir": "",
+  "mods_dir_type": "game",
+  "modloader_ids": ["reframework-re2"],
+  "catalog": { "type": "nexus", "nexus_domain": "residentevil22019", "install_type": "zip_natives" }
+}

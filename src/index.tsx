@@ -6,7 +6,7 @@ import contextMenuPatch, { LibraryContextMenu } from './lib/contextMenuPatch';
 import ModPage from './pages/ModPage';
 import SettingsPage from './pages/SettingsPage';
 import { GameStatus } from './types';
-import { getSupportedAppids, getSupportedGames, exportLogs, cancelDownloadJob, clearFinishedDownloads } from './lib/api';
+import { getSupportedAppids, getSupportedGames, exportLogs, getStoreHealth, QuarantineEvent, cancelDownloadJob, clearFinishedDownloads } from './lib/api';
 import { initDownloadQueue, teardownDownloadQueue, useDownloadQueue, summarize, isActiveStatus, jobStatusText } from './lib/downloadQueue';
 import { promptVariant } from './components/DownloadQueueModal';
 
@@ -109,6 +109,32 @@ function DownloadsSection() {
   );
 }
 
+// Explains an unexpectedly empty library: if installed.json was corrupt, the backend set it
+// aside and started fresh (see json_store.py) — without this notice that just looks like
+// "all my mods vanished". Only renders when a quarantine actually happened this session.
+function StoreHealthNotice() {
+  const [events, setEvents] = useState<QuarantineEvent[]>([]);
+
+  useEffect(() => {
+    getStoreHealth().then((h) => setEvents(h.quarantined)).catch(() => {});
+  }, []);
+
+  if (!events.length) return null;
+  const to = events[events.length - 1].to;
+  return (
+    <PanelSection title="Mod library notice">
+      <PanelSectionRow>
+        <div style={{ fontSize: '0.85em' }}>
+          ⚠ Moddy's mod library file was corrupt and has been set aside
+          {to ? ` as ${to}` : ''}. Your mod files on disk are untouched, but the tracked
+          list starts over and refills as you use Moddy. If this keeps happening, use
+          Export Logs below and report it — the set-aside file is included.
+        </div>
+      </PanelSectionRow>
+    </PanelSection>
+  );
+}
+
 function Content() {
   const [games, setGames] = useState<GameStatus[]>([]);
 
@@ -118,6 +144,7 @@ function Content() {
 
   return (
     <>
+      <StoreHealthNotice />
       <DownloadsSection />
       <PanelSection>
         <PanelSectionRow>

@@ -1,7 +1,8 @@
 import os
-import json
 import time
 import decky
+import game_store
+import json_store
 from registry import GameProfile, ModInfo
 import steam
 
@@ -17,75 +18,33 @@ def resolve_mods_path(game: GameProfile, install_dir: str) -> str:
         return os.path.join(base, game.mods_dir)
     return os.path.join(install_dir, game.mods_dir)
 
-_INSTALLED_STORE = None
-
-
 def _get_store_path() -> str:
     return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "installed.json")
 
 
-def _load_store() -> dict:
-    """Load the installed mods store from disk. Structure: {mod_id: {version, filename, enabled}}"""
-    global _INSTALLED_STORE
-    if _INSTALLED_STORE is not None:
-        return _INSTALLED_STORE
-    path = _get_store_path()
-    try:
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                data = json.load(f)
-                _INSTALLED_STORE = data.get("mods", {})
-                return _INSTALLED_STORE
-    except Exception as e:
-        decky.logger.error(f"Failed to load installed store: {e}")
-    _INSTALLED_STORE = {}
-    return _INSTALLED_STORE
+def _load_store(appid: int) -> dict:
+    """One game's installed-mods map: {mod_id: {version, filename, enabled, ...}}. This is
+    the LIVE cached sub-dict (game_store owns the single cache for the whole "games"
+    section) — mutate it in place and persist with _save_store."""
+    return game_store.section(appid, "mods")
 
 
-def _save_store(store: dict) -> None:
-    """Save the installed mods store to disk atomically."""
-    global _INSTALLED_STORE
-    _INSTALLED_STORE = store
-    path = _get_store_path()
-    tmp = path + ".tmp"
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        # Read full file first to preserve modloaders section
-        full = {}
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                full = json.load(f)
-        full["mods"] = store
-        with open(tmp, "w") as f:
-            json.dump(full, f, indent=2)
-        os.replace(tmp, path)
-    except Exception as e:
-        decky.logger.error(f"Failed to save installed store: {e}")
-        if os.path.exists(tmp):
-            os.remove(tmp)
+def _save_store(appid: int, store: dict) -> None:
+    """Persist one game's mods map atomically, preserving every other game and section."""
+    game_store.game(appid)["mods"] = store
+    game_store.save()
 
 
 # ── Vanilla-mode snapshot ─────────────────────────────────────────────────────
 # When a game is switched to "vanilla" (play unmodded) we disable every enabled mod and the
 # modloader, recording WHAT was enabled so switching back restores exactly that state — a mod the
-# user had individually disabled stays disabled. Stored under installed.json's own "vanilla" key,
-# keyed by appid, alongside (never clobbering) the "mods" and "modloaders" sections.
-
-def _read_full_store() -> dict:
-    try:
-        path = _get_store_path()
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                return json.load(f)
-    except Exception as e:
-        decky.logger.error(f"Failed to read installed store: {e}")
-    return {}
-
+# user had individually disabled stays disabled. Stored as the game's "vanilla" key (present ==
+# the game is vanilla), beside its "mods"/"modloaders" sections.
 
 def get_vanilla_state(appid: int) -> dict | None:
     """The snapshot captured when this game entered vanilla mode, or None if it isn't vanilla.
     Shape: {"mods": [enabled mod ids], "modloader": <ml id or None>, "workshop": [fileids]}."""
-    return (_read_full_store().get("vanilla") or {}).get(str(appid))
+    return game_store.game(appid).get("vanilla")
 
 
 def is_game_vanilla(appid: int) -> bool:
@@ -95,35 +54,20 @@ def is_game_vanilla(appid: int) -> bool:
 def set_vanilla_state(appid: int, snapshot: dict | None) -> None:
     """Persist (snapshot) or clear (None) a game's vanilla snapshot, preserving the rest of
     installed.json. Atomic write."""
-    path = _get_store_path()
-    tmp = path + ".tmp"
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        full = _read_full_store()
-        vanilla = full.get("vanilla") or {}
-        if snapshot is None:
-            vanilla.pop(str(appid), None)
-        else:
-            vanilla[str(appid)] = snapshot
-        if vanilla:
-            full["vanilla"] = vanilla
-        else:
-            full.pop("vanilla", None)
-        with open(tmp, "w") as f:
-            json.dump(full, f, indent=2)
-        os.replace(tmp, path)
-    except Exception as e:
-        decky.logger.error(f"Failed to save vanilla state: {e}")
-        if os.path.exists(tmp):
-            os.remove(tmp)
+    g = game_store.game(appid)
+    if snapshot is None:
+        g.pop("vanilla", None)
+    else:
+        g["vanilla"] = snapshot
+    game_store.save()
 
 
-def get_installed_version(mod_id: str) -> str | None:
-    store = _load_store()
-    return store.get(mod_id, {}).get("version")
+def get_installed_version(appid: int, mod_id: str) -> str | None:
+    return _load_store(appid).get(mod_id, {}).get("version")
 
 
 def set_installed_record(
+    appid: int,
     mod_id: str,
     version: str,
     filename: str,
@@ -137,7 +81,7 @@ def set_installed_record(
     `install_type`, when given, overrides the one derived from the ModInfo — used when an
     install lands in a different shape than its catalog type (e.g. a manifest-less SMAPI archive
     placed as a per-file overlay, tracked with zip_natives file semantics)."""
-    store = _load_store()
+    store = _load_store(appid)
     record: dict = {"version": version, "filename": filename}
     # Stamp when the mod first entered the library so the Installed tab can offer a
     # "recently downloaded" sort. Preserve an existing record's timestamp across version
@@ -176,19 +120,36 @@ def set_installed_record(
     if install_type is not None:
         record["install_type"] = install_type
     store[mod_id] = record
-    _save_store(store)
+    _save_store(appid, store)
 
 
-def get_installed_record(mod_id: str) -> dict | None:
+def set_ignore_unused(appid: int, mod_id: str, ignored: bool) -> bool:
+    """Mark/unmark an installed mod as an intentional 'undocumented dependency' so the unused-
+    libraries cleanup (the Installed tab's broom) stops flagging it. Case-insensitive on the id,
+    since catalog casing can differ from what was persisted. Stores the flag only when True (drops
+    it when cleared) to keep records tidy. Returns True if a record was found and updated."""
+    store = _load_store(appid)
+    key = mod_id if mod_id in store else next((k for k in store if k.lower() == mod_id.lower()), None)
+    if key is None:
+        return False
+    if ignored:
+        store[key]["ignore_unused"] = True
+    else:
+        store[key].pop("ignore_unused", None)
+    _save_store(appid, store)
+    return True
+
+
+def get_installed_record(appid: int, mod_id: str) -> dict | None:
     """Return the full persisted install record for a mod, or None if untracked."""
-    return _load_store().get(mod_id)
+    return _load_store(appid).get(mod_id)
 
 
-def find_installed_record(mod_id: str) -> dict | None:
+def find_installed_record(appid: int, mod_id: str) -> dict | None:
     """Like get_installed_record, but case-insensitive on the mod id. Install ids come
     from catalogs whose casing may differ from what was originally persisted, so an
     exact-key miss falls back to a case-insensitive scan of the store keys."""
-    store = _load_store()
+    store = _load_store(appid)
     record = store.get(mod_id)
     if record is not None:
         return record
@@ -205,51 +166,29 @@ def installed_files_present(game: GameProfile, install_dir: str, mod_id: str) ->
     already installed: a record alone isn't enough, because uninstalling a modloader can
     orphan records whose files are gone, and a stale record must not turn a reinstall into a
     silent no-op."""
-    record = find_installed_record(mod_id)
+    record = find_installed_record(game.appid, mod_id)
     return record is not None and mods_common.mod_files_present(game, install_dir, record)
 
 
-def set_mod_enabled(mod_id: str, enabled: bool) -> None:
+def set_mod_enabled(appid: int, mod_id: str, enabled: bool) -> None:
     """Persist a mod's enabled flag in its install record. Used by Workshop mods,
     whose enable/disable is a local Steam flag (SetWorkshopItemsDisabledLocally,
     applied in the frontend) rather than file presence on disk."""
-    store = _load_store()
+    store = _load_store(appid)
     if mod_id in store:
         store[mod_id]["enabled"] = enabled
-        _save_store(store)
+        _save_store(appid, store)
 
 
 # Workshop unsubscribe is async (SteamClient), so just-deleted items still appear in
 # GetSubscribedWorkshopItems for a moment. We tombstone them so reconcile doesn't re-add
 # the record the user just removed (the mirror of the install grace period).
 def _load_pending_unsub() -> dict:
-    path = _get_store_path()
-    if os.path.isfile(path):
-        try:
-            with open(path, "r") as f:
-                return json.load(f).get("workshop_unsub", {})
-        except Exception as e:
-            decky.logger.error(f"Failed to load pending unsubscribes: {e}")
-    return {}
+    return json_store.read(_get_store_path()).get("workshop_unsub", {})
 
 
 def _save_pending_unsub(pending: dict) -> None:
-    path = _get_store_path()
-    tmp = path + ".tmp"
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        full = {}
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                full = json.load(f)
-        full["workshop_unsub"] = pending
-        with open(tmp, "w") as f:
-            json.dump(full, f, indent=2)
-        os.replace(tmp, path)
-    except Exception as e:
-        decky.logger.error(f"Failed to save pending unsubscribes: {e}")
-        if os.path.exists(tmp):
-            os.remove(tmp)
+    json_store.update_section(_get_store_path(), "workshop_unsub", pending)
 
 
 def _mark_unsub_pending(fileid: str) -> None:
@@ -273,9 +212,9 @@ def _workshop_record(
     fileid: str, appid: int, name: str, thumbnail: str, description: str,
     filename: str, is_library: bool = False,
 ) -> dict:
-    """Build an installed.json record for a subscribed Workshop mod. `appid` scopes the
-    (globally-keyed) store to a game; metadata comes from what Steam reported for the
-    subscription."""
+    """Build an installed.json record for a subscribed Workshop mod. The record lives in
+    its game's own store; the `appid` field is kept purely as self-description (routing
+    no longer needs it). Metadata comes from what Steam reported for the subscription."""
     return {
         "version": "subscribed",
         "filename": filename,
@@ -310,7 +249,7 @@ def reconcile_workshop(game: GameProfile, items: list[dict]) -> bool:
     Each item is {id, name?, thumbnail?, description?}. An empty list is a valid
     "nothing subscribed" state and will clear this game's Workshop records; the
     frontend must pass None (skip) rather than [] when the query actually failed."""
-    store = _load_store()
+    store = _load_store(game.appid)
     subscribed = {str(it.get("id") or "").strip(): it for it in items if str(it.get("id") or "").strip()}
     lib_ids = set(game.library_workshop_ids)
     now = time.time()
@@ -379,8 +318,6 @@ def reconcile_workshop(game: GameProfile, items: list[dict]) -> bool:
         src = rec.get("source") or {}
         if src.get("type") != "steamworkshop":
             continue
-        if rec.get("appid") != game.appid:
-            continue  # belongs to a different game
         if src.get("workshop_id", "") not in subscribed:
             # Don't drop a just-installed record whose subscription hasn't shown up in
             # GetSubscribedWorkshopItems yet (SteamClient subscribe is async).
@@ -397,8 +334,6 @@ def reconcile_workshop(game: GameProfile, items: list[dict]) -> bool:
         src = rec.get("source") or {}
         if src.get("type") != "steamworkshop":
             continue
-        if rec.get("appid") != game.appid:
-            continue
         wid = src.get("workshop_id", "")
         if not wid:
             continue
@@ -410,15 +345,15 @@ def reconcile_workshop(game: GameProfile, items: list[dict]) -> bool:
             changed = True
 
     if changed:
-        _save_store(store)
+        _save_store(game.appid, store)
     return changed
 
 
-def clear_installed_record(mod_id: str) -> None:
-    store = _load_store()
+def clear_installed_record(appid: int, mod_id: str) -> None:
+    store = _load_store(appid)
     if mod_id in store:
         del store[mod_id]
-        _save_store(store)
+        _save_store(appid, store)
 
 
 def _find_record_key(store: dict, mod_id: str) -> str | None:
@@ -432,7 +367,7 @@ def _find_record_key(store: dict, mod_id: str) -> str | None:
     return None
 
 
-def add_record_source(mod_id: str, source: dict) -> None:
+def add_record_source(appid: int, mod_id: str, source: dict) -> None:
     """Record where an installed mod came from: union a provenance source into the record's
     `sources` map ({id -> {"name", "image"}}). `source` = {"id": "manual" | "collection:<slug>",
     "name": <display>, "image": <tile url>}. Idempotent: installing a mod that's already present
@@ -441,7 +376,7 @@ def add_record_source(mod_id: str, source: dict) -> None:
     sid = (source or {}).get("id")
     if not sid:
         return
-    store = _load_store()
+    store = _load_store(appid)
     key = _find_record_key(store, mod_id)
     if key is None:
         return
@@ -453,14 +388,14 @@ def add_record_source(mod_id: str, source: dict) -> None:
         "image": source.get("image") or prev.get("image") or "",
     }
     store[key]["sources"] = sources
-    _save_store(store)
+    _save_store(appid, store)
 
 
-def remove_record_source(mod_id: str, source_id: str) -> dict:
+def remove_record_source(appid: int, mod_id: str, source_id: str) -> dict:
     """Drop one provenance source from a record's `sources` map (the ref-counting step behind
     "uninstall collection"). Returns the REMAINING sources map ({} if none left, so the caller
     can decide whether the mod itself should be removed). No-op-safe on missing record/source."""
-    store = _load_store()
+    store = _load_store(appid)
     key = _find_record_key(store, mod_id)
     if key is None:
         return {}
@@ -470,7 +405,7 @@ def remove_record_source(mod_id: str, source_id: str) -> dict:
         store[key]["sources"] = sources
     else:
         store[key].pop("sources", None)
-    _save_store(store)
+    _save_store(appid, store)
     return sources
 
 
@@ -479,7 +414,7 @@ def set_workshop_meta(game: GameProfile, fileid: str, name: str, thumbnail: str,
     install so the real name shows immediately). Only touches the synthetic record for
     this file."""
     mod_id = f"workshop.{game.appid}.{fileid}"
-    store = _load_store()
+    store = _load_store(game.appid)
     rec = store.get(mod_id)
     if not rec:
         return False
@@ -492,7 +427,7 @@ def set_workshop_meta(game: GameProfile, fileid: str, name: str, thumbnail: str,
         meta["thumbnail"] = thumbnail
     if description:
         meta["description"] = description
-    _save_store(store)
+    _save_store(game.appid, store)
     return True
 
 
@@ -500,13 +435,13 @@ async def install_synthetic_workshop(game: GameProfile, mod_id: str, fileid: str
     """Record a Workshop subscription by its synthetic id. The frontend has already
     subscribed via SteamClient; reconcile enriches title/deps on the next refresh."""
     _clear_unsub_pending(fileid)
-    store = _load_store()
+    store = _load_store(game.appid)
     if mod_id not in store:
         store[mod_id] = _workshop_record(
             fileid, game.appid, f"Workshop item {fileid}", "", "", fileid,
             is_library=fileid in game.library_workshop_ids,
         )
-        _save_store(store)
+        _save_store(game.appid, store)
     return True
 
 
@@ -556,7 +491,7 @@ from mods_installers import (  # noqa: F401
     _extract_to_mods_folder, _install_mod_zip_flat, _folder_commit,
     _install_mod_zip_folder, _smod_plugin_root, _install_mod_zip_smod,
     _install_mod_loose_merge, _install_mod_zip_natives, _install_mod_zip_nativepc,
-    install_folder_files, discard_natives_cache,
+    install_folder_files, install_external_merge_files, _install_mod_external_merge, discard_natives_cache,
 )
 from mods_smapi import (  # noqa: F401
     _smapi_commit, _install_mod_zip_smapi, install_smapi_files,

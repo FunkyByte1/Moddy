@@ -1,0 +1,9 @@
+{
+  "id": "resident-evil-3",
+  "name": "Resident Evil 3",
+  "appid": 952060,
+  "mods_dir": "",
+  "mods_dir_type": "game",
+  "modloader_ids": ["reframework-re3"],
+  "catalog": { "type": "nexus", "nexus_domain": "residentevil32020", "install_type": "zip_natives" }
+}

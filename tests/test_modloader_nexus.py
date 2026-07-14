@@ -74,10 +74,10 @@ class NexusModloaderInstallTest(unittest.TestCase):
         for rel in ("dinput8.dll", "loader.dll", "loader-config.json",
                     "nativePC/plugins/MonsterLoader.dll", "nativePC/plugins/QuestLoader.dll"):
             self.assertTrue(self.exists(rel), f"missing {rel}")
-        paths = modloaders.get_modloader_paths("strackers-loader")
+        paths = modloaders.get_modloader_paths(self.game.appid, "strackers-loader")
         self.assertIn("loader.dll", paths)
         self.assertIn("nativePC/plugins/QuestLoader.dll", paths)
-        self.assertEqual(modloaders.get_modloader_version("strackers-loader"), "4.0.1")
+        self.assertEqual(modloaders.get_modloader_version(self.game.appid, "strackers-loader"), "4.0.1")
 
     def test_uninstall_removes_full_loader_but_keeps_other_mods(self):
         run(modloaders.install_modloader(self.game, self.install_dir, "strackers-loader"))

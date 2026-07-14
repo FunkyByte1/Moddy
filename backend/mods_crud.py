@@ -3,6 +3,7 @@ import mods
 import mods_common
 import mods_pak
 import mods_installers
+import mods_mergetool
 import mods_smapi
 import mods_palworld
 from install_txn import _MODDY_ORIG_SUFFIX, _STAGED_BAK_SUFFIX, _discard
@@ -25,7 +26,7 @@ def mods_under_modloader(game: GameProfile, install_dir: str, removed_dirs: list
         return t in rfiles or any(t == d or t.startswith(d + "/") for d in rdirs)
 
     out = []
-    for mod_id, rec in (mods._load_store() or {}).items():
+    for mod_id, rec in (mods._load_store(game.appid) or {}).items():
         if (rec.get("source") or {}).get("type") == "steamworkshop":
             continue
         if not mods_common.mod_files_present(game, install_dir, rec):
@@ -100,7 +101,7 @@ def sweep_install_crumbs(game: GameProfile, install_dir: str) -> None:
         dirs.add(mods.resolve_mods_path(game, install_dir))
     except Exception:
         pass
-    for rec in (mods._load_store() or {}).values():
+    for rec in (mods._load_store(game.appid) or {}).values():
         for rel in mods_common._record_target_relpaths(game, install_dir, rec):
             parent = os.path.dirname(os.path.join(install_dir, rel))
             if parent:
@@ -157,7 +158,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             claimed_paths.add(os.path.join(mods_path, filename))
 
     # Tracked installs from installed.json.
-    store = mods._load_store()
+    store = mods._load_store(game.appid)
 
     # Workshop games have no on-disk mods folder Moddy manages — their state is the
     # set of tracked subscriptions. List every subscribed Workshop item reconciled into
@@ -168,7 +169,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             if mod_id in seen_ids:
                 continue
             src = record.get("source") or {}
-            if src.get("type") != "steamworkshop" or record.get("appid") != game.appid:
+            if src.get("type") != "steamworkshop":
                 continue
             seen_ids.add(mod_id)
             installed.append({
@@ -178,16 +179,16 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                 "version": record.get("version"),
                 "meta": record.get("meta"),
                 "is_library": record.get("is_library", False),
+                "ignore_unused": record.get("ignore_unused", False),
                 "added_at": record.get("added_at"),
                 "sources": record.get("sources"),
             })
         return installed
 
-    # Tracked installs from installed.json — browsed mods.
-    #    The store is keyed only by mod_id and shared across all games, so scope each
-    #    browsed mod to THIS game by requiring its files to physically exist under this
-    #    game's install dir (enabled or disabled form). Without this, mods installed for
-    #    one game leak into every other game's list as "disabled".
+    # Tracked installs from installed.json — browsed mods (this game's own store section).
+    #    The on-disk presence check is kept for ORPHAN detection: a record can outlive its
+    #    files (e.g. uninstalling the modloader rmtree'd the plugins away), and an orphaned
+    #    record must not list as an installed-but-"disabled" mod.
     for mod_id, record in store.items():
         if mod_id in seen_ids or mod_id in hidden_ids:
             continue
@@ -216,10 +217,10 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             if not mods_common._smapi_mod_present(target_paths):
                 continue  # installed for a different game
             enabled = mods_common._smapi_mod_enabled(target_paths)
-        elif install_type in ("zip_folder", "zip_smod"):
-            # Folder-per-mod data mod (NMS GAMEDATA/MODS/; Satisfactory FactoryGame/Mods/): one folder
-            # under the mods dir. Present iff it's live there OR parked in the disabled-staging dir;
-            # enabled iff the live folder is on disk.
+        elif install_type in ("zip_folder", "zip_smod", "external_merge"):
+            # Folder-per-mod data mod (NMS GAMEDATA/MODS/; Satisfactory FactoryGame/Mods/; Fields of
+            # Mistria mods/): one folder under the mods dir. Present iff it's live there OR parked in
+            # the disabled-staging dir; enabled iff the live folder is on disk (will be baked next apply).
             if not mods_common._zipfolder_present(install_dir, paths):
                 continue  # installed for a different game
             enabled = mods_common._zipfolder_enabled(install_dir, paths)
@@ -244,6 +245,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
             "enabled": enabled,
             "version": record.get("version"),
             "meta": record.get("meta"),
+            "ignore_unused": record.get("ignore_unused", False),
             "added_at": record.get("added_at"),
             "sources": record.get("sources"),
         })
@@ -267,7 +269,7 @@ def get_installed_mods(game: GameProfile, install_dir: str) -> list[dict]:
                     "id": actual_filename,
                     "filename": actual_filename,
                     "enabled": enabled,
-                    "version": mods.get_installed_version(actual_filename),
+                    "version": mods.get_installed_version(game.appid, actual_filename),
                     "meta": None,
                     "added_at": None,
                 })
@@ -294,7 +296,7 @@ async def install_mod(game: GameProfile, install_dir: str, mod: ModInfo, version
 
     result = await _install_dispatch(game, install_dir, mods_path, mod, version, url, variant)
     if result is True:
-        mods.add_record_source(mod.id, source or {"id": "manual", "name": "You"})
+        mods.add_record_source(game.appid, mod.id, source or {"id": "manual", "name": "You"})
     return result
 
 
@@ -311,6 +313,8 @@ async def _install_dispatch(game: GameProfile, install_dir: str, mods_path: str,
         return await mods_smapi._install_mod_zip_smapi(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_folder":
         return await mods_installers._install_mod_zip_folder(game, install_dir, mods_path, mod, version, url)
+    if mod.source.install_type == "external_merge":
+        return await mods_installers._install_mod_external_merge(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_smod":
         return await mods_installers._install_mod_zip_smod(game, install_dir, mods_path, mod, version, url)
     if mod.source.install_type == "zip_palworld":
@@ -328,7 +332,7 @@ async def _install_dispatch(game: GameProfile, install_dir: str, mods_path: str,
 
 def get_backed_up_versions(game: GameProfile, install_dir: str, mod_id: str) -> list[str]:
     """Return a list of previously installed versions backed up on disk."""
-    record = mods.get_installed_record(mod_id) or {}
+    record = mods.get_installed_record(game.appid, mod_id) or {}
     filename = record.get("filename")
     if not filename:
         return []
@@ -347,7 +351,7 @@ def get_backed_up_versions(game: GameProfile, install_dir: str, mod_id: str) -> 
 
 def delete_mod_version(game: GameProfile, install_dir: str, mod_id: str, version: str) -> bool:
     """Delete a specific backed-up version of a mod (.vX.Y.Z.bak file)."""
-    record = mods.get_installed_record(mod_id) or {}
+    record = mods.get_installed_record(game.appid, mod_id) or {}
     filename = record.get("filename")
     if not filename:
         return False
@@ -374,7 +378,7 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
     """
     import shutil
     mods_path = mods.resolve_mods_path(game, install_dir)
-    store = mods._load_store()
+    store = mods._load_store(game.appid)
     record = store.get(mod_id, {})
 
     # Steam Workshop mods: the frontend unsubscribes via SteamClient (which deletes
@@ -385,7 +389,7 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
         fileid = rec_source.get("workshop_id") or ""
         if fileid:
             mods._mark_unsub_pending(fileid)  # don't let reconcile re-add it mid-unsubscribe
-        mods.clear_installed_record(mod_id)
+        mods.clear_installed_record(game.appid, mod_id)
         return True
 
     filename = record.get("filename", mod_id)
@@ -403,7 +407,7 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
                 cands = [full, full + ".disabled"]
                 if install_type == "zip_smapi":
                     cands.append(mods_common._dotprefix_disabled(full))
-                if install_type in ("zip_folder", "zip_smod"):
+                if install_type in ("zip_folder", "zip_smod", "external_merge"):
                     cands.append(mods_common._zipfolder_disabled_path(install_dir, relpath))  # a disabled mod is parked outside the scan roots
                 for cand in cands:
                     if os.path.isdir(cand):
@@ -419,16 +423,20 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
                 decky.logger.info(f"Removed legacy {filename}/")
             # Restore any stock game file this mod overwrote at install, for slots no other mod
             # still claims. Done before the prune so the restored file keeps its parent dir.
-            mods_common._restore_originals(install_dir, mods_path, [os.path.join(install_dir, p) for p in paths], mod_id)
+            mods_common._restore_originals(game.appid, install_dir, mods_path, [os.path.join(install_dir, p) for p in paths], mod_id)
             # Per-file records (BepInEx merge / RE4 natives) leave empty dirs behind — prune
             # them, but only when empty so a shared folder another mod uses survives.
             _prune_empty_dirs(install_dir, paths)
             mods_common._zipfolder_prune_staging(install_dir)  # tidy the NMS disabled-staging dir if now empty
-            mods.clear_installed_record(mod_id)
+            mods.clear_installed_record(game.appid, mod_id)
             # If a .pak mod was removed, close the numbering gap so the remaining pak mods keep
             # loading (and keep their relative load-order/priority).
             if any(_PAK_PATCH_RE.match(os.path.basename(p)) for p in paths):
-                mods_pak._renumber_pak_mods(install_dir)
+                mods_pak._renumber_pak_mods(game.appid, install_dir)
+            if install_type == "external_merge":
+                # Stage only — deleting a handful of mods stays instant; the game file is rebuilt once,
+                # on demand, via "Apply mods".
+                await mods_mergetool.mark_pending(game.appid)
             return True
         if is_dir_mod:
             # Remove folder and any backed-up versions
@@ -455,8 +463,8 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
                     os.remove(os.path.join(mods_path, f))
                     decky.logger.info(f"Removed backup {f}")
             # Restore a stock game file this single-file mod overwrote (mods_dir = game root).
-            mods_common._restore_originals(install_dir, mods_path, [os.path.join(mods_path, filename)], mod_id)
-        mods.clear_installed_record(mod_id)
+            mods_common._restore_originals(game.appid, install_dir, mods_path, [os.path.join(mods_path, filename)], mod_id)
+        mods.clear_installed_record(game.appid, mod_id)
         return True
     except Exception as e:
         decky.logger.error(f"Failed to uninstall {mod_id}: {e}")
@@ -503,7 +511,7 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
     Every mod uses its persisted record in installed.json.
     """
     mods_path = mods.resolve_mods_path(game, install_dir)
-    store = mods._load_store()
+    store = mods._load_store(game.appid)
     record = store.get(mod_id, {})
 
     # Steam Workshop enable/disable: the active/inactive flip happens in the frontend
@@ -511,7 +519,7 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
     # just persist the resulting enabled state so Moddy lists and snapshots it correctly.
     rec_source = record.get("source") or {}
     if rec_source.get("type") == "steamworkshop":
-        mods.set_mod_enabled(mod_id, enable)
+        mods.set_mod_enabled(game.appid, mod_id, enable)
         decky.logger.info(f"Workshop mod {mod_id} enabled={enable}")
         return True
 
@@ -607,11 +615,12 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
             decky.logger.error(f"Failed to toggle {mod_id}: {e}")
             return False
 
-    if install_type in ("zip_folder", "zip_smod"):
-        # Folder-per-mod mod (NMS GAMEDATA/MODS/; Satisfactory FactoryGame/Mods/ + Mods/GameFeatures/):
-        # the loader discovers any plugin folder under its scan roots, so an in-place `.disabled`
-        # rename does NOT hide a mod (the .uplugin inside is still found). Disabling MOVES each tracked
-        # folder out into a game-root staging dir (outside the scan roots); enabling moves it back.
+    if install_type in ("zip_folder", "zip_smod", "external_merge"):
+        # Folder-per-mod mod (NMS GAMEDATA/MODS/; Satisfactory FactoryGame/Mods/ + Mods/GameFeatures/;
+        # Fields of Mistria mods/): the loader/merge-tool discovers any folder under its scan roots, so
+        # an in-place `.disabled` rename does NOT hide a mod. Disabling MOVES each tracked folder out
+        # into a game-root staging dir (outside the scan roots); enabling moves it back. For an
+        # external-merge game the moved-out set is then re-baked by the tool (rebuild-on-change).
         import shutil
         paths = record.get("paths") or []
         moved = 0
@@ -633,6 +642,9 @@ async def toggle_mod(game: GameProfile, install_dir: str, mod_id: str, enable: b
                 decky.logger.warning(f"No folders to {'enable' if enable else 'disable'} for {mod_id}")
                 return False
             mods_common._zipfolder_prune_staging(install_dir)
+            if install_type == "external_merge":
+                # Stage only — the game file is rebuilt once, on demand, via "Apply mods".
+                await mods_mergetool.mark_pending(game.appid)
             decky.logger.info(f"{'Enabled' if enable else 'Disabled'} {filename} ({moved} folder{'s' if moved != 1 else ''})")
             return True
         except Exception as e:

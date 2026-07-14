@@ -1,0 +1,9 @@
+{
+  "id": "dyson-sphere-program",
+  "name": "Dyson Sphere Program",
+  "appid": 1366540,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "dyson-sphere-program",
+  "modloader_ids": ["bepinex-dsp"]
+}

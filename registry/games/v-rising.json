@@ -1,0 +1,9 @@
+{
+  "id": "v-rising",
+  "name": "V Rising",
+  "appid": 1604030,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "v-rising",
+  "modloader_ids": ["bepinex-vrising"]
+}

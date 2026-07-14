@@ -88,7 +88,7 @@ class ThunderstoreCascadeTest(unittest.TestCase):
     def mark_installed_on_disk(self, full_name, rel="BepInEx/plugins/{name}/{name}.dll"):
         name = full_name.split("-", 1)[-1]
         rel = rel.format(name=name)
-        mods.set_installed_record(full_name, "1.0.0", name, paths=[rel])
+        mods.set_installed_record(self.game.appid, full_name, "1.0.0", name, paths=[rel])
         p = os.path.join(self.install_dir, rel)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         open(p, "w").close()
@@ -118,7 +118,7 @@ class ThunderstoreCascadeTest(unittest.TestCase):
         # Record exists but its files are gone (e.g. modloader uninstall wiped them) -> NOT a skip.
         self.add_pkg("OwnerB-ModB")
         self.add_pkg("OwnerA-ModA", deps=["OwnerB-ModB"])
-        mods.set_installed_record("OwnerB-ModB", "1.0.0", "ModB", paths=["BepInEx/plugins/ModB/ModB.dll"])  # no file written
+        mods.set_installed_record(self.game.appid, "OwnerB-ModB", "1.0.0", "ModB", paths=["BepInEx/plugins/ModB/ModB.dll"])  # no file written
         self.cascade("OwnerA-ModA")
         self.assertEqual(self.installs, ["OwnerB-ModB", "OwnerA-ModA"], "an orphaned record must not skip the reinstall")
 

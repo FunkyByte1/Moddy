@@ -1,0 +1,9 @@
+{
+  "id": "nine-sols",
+  "name": "Nine Sols",
+  "appid": 1809540,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "nine-sols",
+  "modloader_ids": ["bepinex-mono"]
+}

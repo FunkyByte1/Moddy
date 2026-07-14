@@ -1,0 +1,9 @@
+{
+  "id": "resident-evil-7",
+  "name": "Resident Evil 7",
+  "appid": 418370,
+  "mods_dir": "",
+  "mods_dir_type": "game",
+  "modloader_ids": ["reframework-re7"],
+  "catalog": { "type": "nexus", "nexus_domain": "residentevil7", "install_type": "zip_natives" }
+}

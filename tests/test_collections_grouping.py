@@ -22,44 +22,44 @@ class RecordSourcesTest(unittest.TestCase):
     def _rec(self, mid="m1"):
         # A minimal install record (set_installed_record needs a ModInfo for source/meta; here we
         # only care about the sources map, so write the store directly the way installers leave it).
-        mods.set_installed_record(mid, "1.0", mid)
+        mods.set_installed_record(1, mid, "1.0", mid)
 
     def test_add_source_unions_and_is_idempotent(self):
         self._rec("m1")
-        mods.add_record_source("m1", {"id": "collection:abc", "name": "Worldly", "image": "u.png"})
-        mods.add_record_source("m1", {"id": "manual", "name": "You"})
-        mods.add_record_source("m1", {"id": "collection:abc", "name": "Worldly"})  # repeat -> no dup, keeps image
-        rec = mods.get_installed_record("m1")
+        mods.add_record_source(1, "m1", {"id": "collection:abc", "name": "Worldly", "image": "u.png"})
+        mods.add_record_source(1, "m1", {"id": "manual", "name": "You"})
+        mods.add_record_source(1, "m1", {"id": "collection:abc", "name": "Worldly"})  # repeat -> no dup, keeps image
+        rec = mods.get_installed_record(1, "m1")
         self.assertEqual(rec["sources"], {
             "collection:abc": {"name": "Worldly", "image": "u.png"},
             "manual": {"name": "You", "image": ""},
         })
 
     def test_add_source_noop_when_no_record(self):
-        mods.add_record_source("ghost", {"id": "manual", "name": "You"})  # must not create a record
-        self.assertIsNone(mods.get_installed_record("ghost"))
+        mods.add_record_source(1, "ghost", {"id": "manual", "name": "You"})  # must not create a record
+        self.assertIsNone(mods.get_installed_record(1, "ghost"))
 
     def test_sources_survive_reinstall(self):
         self._rec("m1")
-        mods.add_record_source("m1", {"id": "collection:abc", "name": "Worldly"})
-        mods.set_installed_record("m1", "2.0", "m1")  # re-install / version bump
-        self.assertEqual(mods.get_installed_record("m1")["sources"],
+        mods.add_record_source(1, "m1", {"id": "collection:abc", "name": "Worldly"})
+        mods.set_installed_record(1, "m1", "2.0", "m1")  # re-install / version bump
+        self.assertEqual(mods.get_installed_record(1, "m1")["sources"],
                          {"collection:abc": {"name": "Worldly", "image": ""}})
 
     def test_remove_source_returns_remaining_and_keeps_record(self):
         self._rec("m1")
-        mods.add_record_source("m1", {"id": "collection:abc", "name": "Worldly"})
-        mods.add_record_source("m1", {"id": "manual", "name": "You"})
-        remaining = mods.remove_record_source("m1", "collection:abc")
+        mods.add_record_source(1, "m1", {"id": "collection:abc", "name": "Worldly"})
+        mods.add_record_source(1, "m1", {"id": "manual", "name": "You"})
+        remaining = mods.remove_record_source(1, "m1", "collection:abc")
         self.assertEqual(remaining, {"manual": {"name": "You", "image": ""}})
-        self.assertEqual(mods.get_installed_record("m1")["sources"], {"manual": {"name": "You", "image": ""}})
+        self.assertEqual(mods.get_installed_record(1, "m1")["sources"], {"manual": {"name": "You", "image": ""}})
 
     def test_remove_last_source_clears_the_key(self):
         self._rec("m1")
-        mods.add_record_source("m1", {"id": "collection:abc", "name": "Worldly"})
-        remaining = mods.remove_record_source("m1", "collection:abc")
+        mods.add_record_source(1, "m1", {"id": "collection:abc", "name": "Worldly"})
+        remaining = mods.remove_record_source(1, "m1", "collection:abc")
         self.assertEqual(remaining, {})
-        self.assertNotIn("sources", mods.get_installed_record("m1"))  # record stays, sources gone
+        self.assertNotIn("sources", mods.get_installed_record(1, "m1"))  # record stays, sources gone
 
 
 class CollectionMembershipTest(unittest.TestCase):
@@ -67,24 +67,24 @@ class CollectionMembershipTest(unittest.TestCase):
         reset_store()
         # Three mods: one collection-only, one shared (collection + manual), one in a 2nd collection.
         for mid in ("only", "shared", "other"):
-            mods.set_installed_record(mid, "1.0", mid)
-            mods.set_installed_record(mid, "1.0", mid, mod=None)
-        mods.add_record_source("only", {"id": "collection:abc", "name": "Worldly"})
-        mods.add_record_source("shared", {"id": "collection:abc", "name": "Worldly"})
-        mods.add_record_source("shared", {"id": "manual", "name": "You"})
-        mods.add_record_source("other", {"id": "collection:xyz", "name": "Renn's"})
+            mods.set_installed_record(1, mid, "1.0", mid)
+            mods.set_installed_record(1, mid, "1.0", mid, mod=None)
+        mods.add_record_source(1, "only", {"id": "collection:abc", "name": "Worldly"})
+        mods.add_record_source(1, "shared", {"id": "collection:abc", "name": "Worldly"})
+        mods.add_record_source(1, "shared", {"id": "manual", "name": "You"})
+        mods.add_record_source(1, "other", {"id": "collection:xyz", "name": "Renn's"})
 
     def _meta_names(self):
         # preview_uninstall_collection reports meta.name (falls back to id); our minimal records have
         # no meta, so it should fall back to the id. Confirm partition by id.
-        return nc.preview_uninstall_collection("abc")
+        return nc.preview_uninstall_collection(1, "abc")
 
     def test_collection_members_lists_only_tagged_mods(self):
-        self.assertEqual(sorted(nc.collection_members("abc")), ["only", "shared"])
-        self.assertEqual(nc.collection_members("xyz"), ["other"])
+        self.assertEqual(sorted(nc.collection_members(1, "abc")), ["only", "shared"])
+        self.assertEqual(nc.collection_members(1, "xyz"), ["other"])
 
     def test_preview_partitions_remove_vs_keep(self):
-        preview = nc.preview_uninstall_collection("abc")
+        preview = nc.preview_uninstall_collection(1, "abc")
         self.assertEqual(preview["remove"], ["only"])   # sole source is collection:abc
         self.assertEqual(preview["keep"], ["shared"])   # also manual -> kept
 
@@ -93,7 +93,7 @@ class CollectionMembershipTest(unittest.TestCase):
 
         async def fake_uninstall(game, install_dir, mid):
             calls.append(mid)
-            mods.clear_installed_record(mid)
+            mods.clear_installed_record(1, mid)
             return True
 
         orig_uninstall = mods.uninstall_mod
@@ -113,8 +113,8 @@ class CollectionMembershipTest(unittest.TestCase):
         self.assertEqual(result["removed"], ["only"])
         self.assertEqual(result["kept"], ["shared"])
         # The shared mod's record stays, just minus the collection tag.
-        self.assertEqual(mods.get_installed_record("shared")["sources"], {"manual": {"name": "You", "image": ""}})
-        self.assertIsNone(mods.get_installed_record("only"))
+        self.assertEqual(mods.get_installed_record(1, "shared")["sources"], {"manual": {"name": "You", "image": ""}})
+        self.assertIsNone(mods.get_installed_record(1, "only"))
 
 
 class CancelRollbackTest(unittest.TestCase):
@@ -150,15 +150,15 @@ class CancelRollbackTest(unittest.TestCase):
                           {"mod_id": "200", "name": "C", "author": "", "version": None, "optional": False, "choices": None}]
         # Mod 5076 was already installed manually BEFORE this collection run.
         pre = f"nexus.{self.DOMAIN}.5076"
-        mods.set_installed_record(pre, "1.0", pre)
-        mods.add_record_source(pre, {"id": "manual", "name": "You"})
+        mods.set_installed_record(582010, pre, "1.0", pre)
+        mods.add_record_source(582010, pre, {"id": "manual", "name": "You"})
 
         job = types.SimpleNamespace(cancel_requested=False)
 
         async def fake_install_one(game, install_dir, dom, m, source):
             mid = f"nexus.{dom}.{m['mod_id']}"
-            mods.set_installed_record(mid, "1.0", mid)
-            mods.add_record_source(mid, source)
+            mods.set_installed_record(game.appid, mid, "1.0", mid)
+            mods.add_record_source(game.appid, mid, source)
             if m["mod_id"] == "100":      # after the 2nd mod installs, the user hits cancel
                 job.cancel_requested = True
             return True
@@ -166,17 +166,17 @@ class CancelRollbackTest(unittest.TestCase):
 
         removed = []
         async def fake_uninstall(game, install_dir, mid):
-            removed.append(mid); mods.clear_installed_record(mid); return True
+            removed.append(mid); mods.clear_installed_record(game.appid, mid); return True
         mods.uninstall_mod = fake_uninstall
 
         result = asyncio.run(nc.run_collection(582010, self.DOMAIN, "testslug", job))
         self.assertIsNone(result)  # cancelled
         # 5076 was pre-installed (manual) → kept, collection tag dropped. 100 was added this run → removed.
         self.assertEqual(removed, [f"nexus.{self.DOMAIN}.100"])
-        self.assertIsNotNone(mods.get_installed_record(pre))
-        self.assertEqual(mods.get_installed_record(pre)["sources"], {"manual": {"name": "You", "image": ""}})
-        self.assertIsNone(mods.get_installed_record(f"nexus.{self.DOMAIN}.100"))
-        self.assertIsNone(mods.get_installed_record(f"nexus.{self.DOMAIN}.200"))  # never reached
+        self.assertIsNotNone(mods.get_installed_record(582010, pre))
+        self.assertEqual(mods.get_installed_record(582010, pre)["sources"], {"manual": {"name": "You", "image": ""}})
+        self.assertIsNone(mods.get_installed_record(582010, f"nexus.{self.DOMAIN}.100"))
+        self.assertIsNone(mods.get_installed_record(582010, f"nexus.{self.DOMAIN}.200"))  # never reached
 
 
 class OptionalSelectionTest(unittest.TestCase):
@@ -254,7 +254,7 @@ class OptionalSelectionTest(unittest.TestCase):
         orig_present, orig_add = mods.installed_files_present, mods.add_record_source
         claimed = []
         mods.installed_files_present = lambda game, install_dir, mid: mid == f"nexus.{self.DOMAIN}.1"  # req already on disk
-        mods.add_record_source = lambda mid, src: claimed.append(mid)
+        mods.add_record_source = lambda appid, mid, src: claimed.append(mid)
         try:
             job = types.SimpleNamespace(variant="2", cancel_requested=False)  # chose OptA
             res = asyncio.run(nc.run_collection(582010, self.DOMAIN, "slug", job))

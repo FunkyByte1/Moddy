@@ -53,14 +53,14 @@ class SmodInstallTest(unittest.TestCase):
         self.assertTrue(self.install(self._mod("CoolMod"), self._smod("CoolMod")))
         self.assertTrue(os.path.isfile(self.mods_dir("CoolMod", "CoolMod.uplugin")))
         self.assertTrue(os.path.isfile(self.mods_dir("CoolMod", "Content", "Paks", "CoolMod.pak")))
-        self.assertEqual(mods.get_installed_record("ficsit.CoolMod")["paths"],
+        self.assertEqual(mods.get_installed_record(self.game.appid, "ficsit.CoolMod")["paths"],
                          ["FactoryGame/Mods/CoolMod"])
 
     def test_game_feature_goes_to_gamefeatures_subdir(self):
         self.assertTrue(self.install(self._mod("FeatureMod"), self._smod("FeatureMod", game_feature=True)))
         self.assertTrue(os.path.isfile(self.mods_dir("GameFeatures", "FeatureMod", "FeatureMod.uplugin")))
         self.assertFalse(os.path.isdir(self.mods_dir("FeatureMod")))
-        self.assertEqual(mods.get_installed_record("ficsit.FeatureMod")["paths"],
+        self.assertEqual(mods.get_installed_record(self.game.appid, "ficsit.FeatureMod")["paths"],
                          ["FactoryGame/Mods/GameFeatures/FeatureMod"])
 
     def test_folder_named_by_uplugin_not_catalog_filename(self):
@@ -84,7 +84,7 @@ class SmodInstallTest(unittest.TestCase):
         # No .uplugin anywhere = a malformed .smod; refuse rather than mis-install a folder SML can't load.
         self.assertFalse(self.install(self._mod("CoolMod"), {"Content/x.pak": b"P", "readme.txt": b"hi"}))
         self.assertFalse(os.path.isdir(self.mods_dir("CoolMod")))
-        self.assertIsNone(mods.get_installed_record("ficsit.CoolMod"))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, "ficsit.CoolMod"))
 
     def test_disable_moves_folder_out_then_reenable_moves_back(self):
         self.install(self._mod("CoolMod"), self._smod("CoolMod"))
@@ -108,7 +108,7 @@ class SmodInstallTest(unittest.TestCase):
         run(mods.toggle_mod(self.game, self.install_dir, "ficsit.FeatureMod", False))
         self.assertTrue(run(mods.uninstall_mod(self.game, self.install_dir, "ficsit.FeatureMod")))
         self.assertFalse(os.path.isdir(self.parked("FeatureMod")))
-        self.assertIsNone(mods.get_installed_record("ficsit.FeatureMod"))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, "ficsit.FeatureMod"))
 
     def test_installed_listing_tracks_enabled_state(self):
         self.install(self._mod("CoolMod"), self._smod("CoolMod"))
@@ -123,14 +123,14 @@ class SmodInstallTest(unittest.TestCase):
         self.install(self._mod("CoolMod"), self._smod("CoolMod"))
         self.assertTrue(run(mods.uninstall_mod(self.game, self.install_dir, "ficsit.CoolMod")))
         self.assertFalse(os.path.isdir(self.mods_dir("CoolMod")))
-        self.assertIsNone(mods.get_installed_record("ficsit.CoolMod"))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, "ficsit.CoolMod"))
 
     def test_uninstall_while_disabled_removes_parked_folder(self):
         self.install(self._mod("CoolMod"), self._smod("CoolMod"))
         run(mods.toggle_mod(self.game, self.install_dir, "ficsit.CoolMod", False))
         self.assertTrue(run(mods.uninstall_mod(self.game, self.install_dir, "ficsit.CoolMod")))
         self.assertFalse(os.path.isdir(self.parked("CoolMod")))
-        self.assertIsNone(mods.get_installed_record("ficsit.CoolMod"))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, "ficsit.CoolMod"))
 
     def test_reinstall_replaces_cleanly(self):
         self.install(self._mod("CoolMod"), self._smod("CoolMod"))

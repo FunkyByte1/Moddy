@@ -1,0 +1,9 @@
+{
+  "id": "resident-evil-village",
+  "name": "Resident Evil Village",
+  "appid": 1196590,
+  "mods_dir": "",
+  "mods_dir_type": "game",
+  "modloader_ids": ["reframework-re8"],
+  "catalog": { "type": "nexus", "nexus_domain": "residentevilvillage", "install_type": "zip_natives" }
+}

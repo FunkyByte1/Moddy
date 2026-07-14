@@ -70,7 +70,7 @@ class PalworldInstallTest(unittest.TestCase):
     def test_shape_b_bare_pak(self):
         self.assertTrue(self.install({"BNLnew_P.pak": b"PAK"}))
         self.assertTrue(os.path.isfile(self.g("Pal/Content/Paks/~mods/BNLnew_P.pak")))
-        rec = mods.get_installed_record("nexus.palworld.1")
+        rec = mods.get_installed_record(self.game.appid, "nexus.palworld.1")
         self.assertEqual(rec["paths"], [os.path.join("Pal", "Content", "Paks", "~mods", "BNLnew_P.pak")])
 
     def test_shape_b_pak_set_with_sidecars(self):
@@ -104,11 +104,11 @@ class PalworldInstallTest(unittest.TestCase):
             self.g("Pal/Binaries/Win64/ue4ss/Mods/PalSchema/mods/True Monster Rancher/raw/Bristla.json")))
         self.assertTrue(run(mods.uninstall_mod(self.game, self.install_dir, "nexus.palworld.1")))
         self.assertFalse(os.path.isfile(bp))
-        self.assertIsNone(mods.get_installed_record("nexus.palworld.1"))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, "nexus.palworld.1"))
 
     def test_empty_or_junk_archive_refused(self):
         self.assertFalse(self.install({"readme.txt": b"hi", "preview.png": b"img"}))
-        self.assertIsNone(mods.get_installed_record("nexus.palworld.1"))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, "nexus.palworld.1"))
 
     # ── Toggle + uninstall (reuse the natives .disabled machinery) ────────────────
     def test_pak_toggle_disables_by_rename(self):
@@ -137,14 +137,14 @@ class PalworldInstallTest(unittest.TestCase):
         self.assertTrue(run(mods.uninstall_mod(self.game, self.install_dir, "nexus.palworld.1")))
         self.assertFalse(os.path.isfile(self.g("Pal/Binaries/Win64/ue4ss/Mods/Dek/enabled.txt")))
         self.assertFalse(os.path.isfile(self.g("Pal/Content/Paks/LogicMods/Dek_P.pak")))
-        self.assertIsNone(mods.get_installed_record("nexus.palworld.1"))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, "nexus.palworld.1"))
 
     def test_uninstall_while_disabled_removes_disabled_files(self):
         self.install({"BNLnew_P.pak": b"PAK"})
         run(mods.toggle_mod(self.game, self.install_dir, "nexus.palworld.1", False))
         self.assertTrue(run(mods.uninstall_mod(self.game, self.install_dir, "nexus.palworld.1")))
         self.assertFalse(os.path.isfile(self.g("Pal/Content/Paks/~mods/BNLnew_P.pak.disabled")))
-        self.assertIsNone(mods.get_installed_record("nexus.palworld.1"))
+        self.assertIsNone(mods.get_installed_record(self.game.appid, "nexus.palworld.1"))
 
     def test_toggle_rolls_back_on_midloop_failure(self):
         # A Shape-A mod spans two subsystems (LogicMods pak + UE4SS Lua) — a half-done disable would
@@ -345,7 +345,7 @@ class Ue4ssLoaderTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.w("Pal/Binaries/Win64/ue4ss/Mods/mods.json")))
         self.assertTrue(modloaders.is_modloader_installed(self.game, self.install_dir, "ue4ss-palworld"))
         self.assertTrue(modloaders.is_modloader_enabled(self.game, self.install_dir, "ue4ss-palworld"))
-        self.assertEqual(modloaders.get_modloader_version("ue4ss-palworld"), "3.0.1")
+        self.assertEqual(modloaders.get_modloader_version(self.game.appid, "ue4ss-palworld"), "3.0.1")
 
     def test_missing_proxy_dll_fails(self):
         self.assertFalse(self.install({"ue4ss/UE4SS.dll": b"X"}))  # no dwmapi.dll in the archive
@@ -436,7 +436,7 @@ class PalworldMultifileTest(unittest.TestCase):
                      "u2": {"MyMod/enabled.txt": b"", "MyMod/Scripts/main.lua": b"x"}})
         mod = make_mod(mod_id="nexus.palworld.1", filename="nexus-1", install_type="zip_palworld")
         self.assertTrue(run(mods.install_palworld_files(self.game, self.install_dir, mod, "1.0", ["u1", "u2"])))
-        paths = {p.replace(os.sep, "/") for p in mods.get_installed_record("nexus.palworld.1")["paths"]}
+        paths = {p.replace(os.sep, "/") for p in mods.get_installed_record(self.game.appid, "nexus.palworld.1")["paths"]}
         self.assertIn("Pal/Content/Paks/~mods/PalInfo_P.pak", paths)
         self.assertIn("Pal/Binaries/Win64/ue4ss/Mods/MyMod/enabled.txt", paths)
         self.assertTrue(os.path.isfile(self.g("Pal/Content/Paks/~mods/PalInfo_P.pak")))

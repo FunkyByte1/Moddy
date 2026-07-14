@@ -8,7 +8,7 @@ import {
 import {
   installMod, installThunderstoreMod, enqueueFicsit, uninstallMod, toggleMod,
   getModReleases, getBackedUpVersions, deleteModVersion, getBrowseDenylist,
-  uninstallCollection, previewUninstallCollection, enqueueCollection,
+  uninstallCollection, previewUninstallCollection, enqueueCollection, setLibraryIgnored,
 } from '../lib/api';
 import { installedCollections, inCollection, InstalledCollection } from '../lib/modSources';
 import CollectionListItem from '../components/CollectionListItem';
@@ -90,6 +90,7 @@ const InstalledTab: FC<{
       hasUpdate: updatesById.has(im.id),
       dependenciesMet,
       isLibrary: !!im.is_library,
+      ignoreUnused: !!im.ignore_unused,
       addedAt: im.added_at ?? 0,
       sources: im.sources ?? null,
       info: {
@@ -175,7 +176,7 @@ const InstalledTab: FC<{
   // Uninstall a whole collection from its detail panel — confirm first, showing the ref-counted
   // outcome (a member also installed manually / in another collection is kept, not removed).
   const confirmUninstallCollection = async (c: InstalledCollection) => {
-    const preview = await previewUninstallCollection(c.slug).catch(() => ({ remove: [], keep: [] }));
+    const preview = await previewUninstallCollection(game.appid, c.slug).catch(() => ({ remove: [], keep: [] }));
     const removeN = preview.remove.length || c.count;
     const keepN = preview.keep.length;
     showModal(
@@ -263,7 +264,7 @@ const InstalledTab: FC<{
             strOKButtonText="Delete"
             strCancelButtonText="Cancel"
             bDestructiveWarning
-            onOK={async () => { setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
+            onOK={async () => { setBusy(true); toaster.toast({ title: 'Moddy', body: `Removing ${mod.name}…` }); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
           />
         );
         return;
@@ -271,7 +272,7 @@ const InstalledTab: FC<{
       showModal(
         <DeleteVersionModal
           modName={mod.name} currentVersion={currentVersion} backedUpVersions={backedUp}
-          onDeleteAll={async (c) => { c(); setBusy(true); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
+          onDeleteAll={async (c) => { c(); setBusy(true); toaster.toast({ title: 'Moddy', body: `Removing ${mod.name}…` }); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
           onDeleteVersion={async (version, c) => { c(); setBusy(true); if (currentVersion === version) { await uninstallMod(game.appid, mod.id); } else { await deleteModVersion(game.appid, mod.id, version); } await onRefresh(); setBusy(false); }}
         />
       );
@@ -284,7 +285,7 @@ const InstalledTab: FC<{
           primaryAction="delete"
           onDisable={async (close: () => void) => { close(); setBusy(true); for (const dep of dependents) await toggleMod(game.appid, dep.id, false); await onRefresh(); setBusy(false); showDeleteModal(); }}
           onKeep={async (close: () => void) => { close(); showDeleteModal(); }}
-          onDelete={async (close: () => void) => { close(); setBusy(true); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
+          onDelete={async (close: () => void) => { close(); setBusy(true); toaster.toast({ title: 'Moddy', body: `Removing ${mod.name}…` }); for (const dep of dependents) await uninstallMod(game.appid, dep.id); await uninstallMod(game.appid, mod.id); await onRefresh(); setBusy(false); }}
         />
       );
       return;
@@ -310,6 +311,14 @@ const InstalledTab: FC<{
     if (ok === null) { await onRefresh(); setBusy(false); return; }
     if (!ok) { toaster.toast({ title: 'Moddy', body: `Failed to change ${mod.name} to ${version}` }); }
     await onRefresh(); setBusy(false);
+  };
+
+  // Mark/unmark a library as an intentional dep so the unused-libraries broom stops flagging it.
+  const handleToggleIgnoreUnused = async (mod: ModInfo, ignored: boolean) => {
+    setBusy(true);
+    await setLibraryIgnored(game.appid, mod.id, ignored);
+    await onRefresh();
+    setBusy(false);
   };
 
   const handleChangeVersion = async (mod: ModInfo) => {
@@ -536,7 +545,9 @@ const InstalledTab: FC<{
         onSecondaryActionDescription="Filter"
       >
         {unusedLibraries.length > 0 && (
-          <div style={{ marginBottom: '4px' }}>
+          // Keep the bordered ButtonItem, just ~10% smaller (scale — the focus highlight scales
+          // with it since it's inside the transformed element).
+          <div style={{ marginBottom: '4px', transform: 'scale(0.9)', transformOrigin: 'center' }}>
             <ButtonItem layout="below" disabled={busy} onClick={showLibraryCleanup}>
               {`🧹 ${unusedLibraries.length} unused librar${unusedLibraries.length === 1 ? 'y' : 'ies'}`}
             </ButtonItem>
@@ -638,6 +649,7 @@ const InstalledTab: FC<{
           entry={selectedEntry} game={game} busy={busy} installing={installing} progress={progress}
           updates={updates} onInstall={() => {}} onDelete={handleDeleteMod}
           onUpdate={handleUpdateMod} onChangeVersion={handleChangeVersion}
+          onToggleIgnoreUnused={handleToggleIgnoreUnused}
           onCancel={onCancel} onMenuButton={onMenuButton} onFilterButton={onFilterButton}
           onCancelButton={focusModRow} denylist={denylist}
         />

@@ -33,20 +33,51 @@ Moddy installs mods from several sources. What you need to do depends on where a
 ### Thunderstore
 No setup. Moddy installs from Thunderstore automatically.
 
+- Among Us
+- ATLYSS
+- Bomb Rush Cyberfunk
+- Bopl Battle
+- Content Warning
+- Crab Game
+- Cult of the Lamb
+- Dyson Sphere Program
 - Enter the Gungeon
+- Gamble With Your Friends
+- GTFO
+- Inscryption
+- Lethal Company
+- Megabonk
+- Muck
+- Nine Sols
+- Outward
 - PEAK
+- R.E.P.O.
 - Risk of Rain 2
 - ROUNDS
+- Shadows of Doubt
+- Sons of the Forest
+- Stacklands
+- Techtonica
+- Totally Accurate Battle Simulator
+- Trombone Champ
+- ULTRAKILL
+- V Rising
 - Valheim
+- Void Crew
 
 ### Nexus Mods
 Sign in with your Nexus Mods account (Settings → Nexus Mods account). Premium is required for downloads.
 
+- Devil May Cry 5
 - Monster Hunter Rise
 - Monster Hunter World
 - No Man's Sky
 - Palworld
+- Resident Evil 2
+- Resident Evil 3
 - Resident Evil 4
+- Resident Evil 7
+- Resident Evil Village
 - Slime Rancher 2
 - Stardew Valley
 
@@ -61,8 +92,10 @@ No setup. Moddy subscribes the mods through Steam.
 - Crusader Kings III
 - Darkest Dungeon
 - Dead Cells
+- Divinity: Original Sin 2
 - Don't Starve Together
 - Dwarf Fortress
+- Euro Truck Simulator 2
 - Europa Universalis IV
 - Garry's Mod
 - Hand of Fate 2

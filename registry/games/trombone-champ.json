@@ -1,0 +1,9 @@
+{
+  "id": "trombone-champ",
+  "name": "Trombone Champ",
+  "appid": 1059990,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "trombone-champ",
+  "modloader_ids": ["bepinex-trombone-champ"]
+}

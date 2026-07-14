@@ -25,7 +25,7 @@ def _next_pak_slot(install_dir: str) -> int:
     return highest + 1
 
 
-def _renumber_pak_mods(install_dir: str) -> None:
+def _renumber_pak_mods(appid: int, install_dir: str) -> None:
     """Keep Moddy's RE4 `.pak` mods packed contiguously right above the base game's paks, so a
     gap left by uninstalling/disabling one can't stop the engine loading the rest. Preserves
     their relative order — which is load priority (a higher patch number overrides a lower one),
@@ -34,7 +34,7 @@ def _renumber_pak_mods(install_dir: str) -> None:
 
     A pak is "Moddy's" iff some installed record lists it; everything else at patch_NNN is the
     base game, whose highest number is the ceiling we pack above."""
-    store = mods._load_store()
+    store = mods._load_store(appid)
 
     # active basename -> owning mod_id, for every pak any record claims.
     owner_of: dict[str, str] = {}
@@ -85,4 +85,4 @@ def _renumber_pak_mods(install_dir: str) -> None:
         changed = True
         decky.logger.info(f"pak renumber: {name} -> {new_name}")
     if changed:
-        mods._save_store(store)
+        mods._save_store(appid, store)

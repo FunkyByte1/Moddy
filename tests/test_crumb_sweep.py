@@ -50,7 +50,7 @@ class InstallCrumbSweepTest(unittest.TestCase):
         os.makedirs(self.mods_path)
         # A tracked record so its path dir (BepInEx/plugins/Cool/) is in the sweep scope.
         mod = make_mod(mod_id="m", filename="Cool", install_type="zip_dir")
-        mods.set_installed_record("m", "1.0.0", "Cool", paths=["BepInEx/plugins/Cool/Cool.dll"], mod=mod)
+        mods.set_installed_record(self.game.appid, "m", "1.0.0", "Cool", paths=["BepInEx/plugins/Cool/Cool.dll"], mod=mod)
 
     def exists(self, *parts):
         return os.path.exists(os.path.join(self.install_dir, *parts))

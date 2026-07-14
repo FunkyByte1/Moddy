@@ -21,8 +21,8 @@ def touch(path, data=b"x"):
 
 def register(mod_id, filename, install_type, paths=None):
     mod = make_mod(mod_id=mod_id, filename=filename, install_type=install_type)
-    mods.set_installed_record(mod_id, "1.0.0", filename, paths=paths, mod=mod)
-    return mods.get_installed_record(mod_id)
+    mods.set_installed_record(1, mod_id, "1.0.0", filename, paths=paths, mod=mod)
+    return mods.get_installed_record(1, mod_id)
 
 
 class ModPresenceTest(unittest.TestCase):
@@ -68,8 +68,8 @@ class ModPresenceTest(unittest.TestCase):
         # Workshop files are Steam-managed (not under install_dir), so the record is authoritative.
         mod = make_mod(mod_id="w", filename="WS", install_type="steamworkshop")
         mod.source.type = "steamworkshop"
-        mods.set_installed_record("w", "1.0.0", "WS", mod=mod)
-        rec = mods.get_installed_record("w")
+        mods.set_installed_record(1, "w", "1.0.0", "WS", mod=mod)
+        rec = mods.get_installed_record(1, "w")
         self.assertTrue(mods.mod_files_present(self.game, self.install_dir, rec))
 
 

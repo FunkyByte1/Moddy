@@ -1,10 +1,11 @@
 import os
-import json
 import shutil
 import zipfile
 import decky
+import game_store
 import github
 import mods
+import mods_mergetool
 import nexus
 import ficsit
 import thunderstore
@@ -12,78 +13,41 @@ import utils
 from install_txn import _StagedInstall
 from registry import GameProfile, ModloaderInfo
 
-# Version store — stored inside installed.json under "modloaders" key
-_modloader_versions: dict = {}
+
+# Version store — each game's "modloaders" section in installed.json (see game_store).
+# Per-game keying is what lets two games share a loader id without their version/paths
+# records colliding (today's unique-id-per-game registry convention becomes optional).
+
+def _version_store(appid: int) -> dict:
+    """One game's live {modloader_id: {version, paths}} map; mutate + game_store.save()."""
+    return game_store.section(appid, "modloaders")
 
 
-def _get_store_path() -> str:
-    return os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "installed.json")
+def get_modloader_version(appid: int, modloader_id: str) -> str | None:
+    return _version_store(appid).get(modloader_id, {}).get("version")
 
 
-def _load_version_store() -> dict:
-    global _modloader_versions
-    if _modloader_versions:
-        return _modloader_versions
-    path = _get_store_path()
-    try:
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                data = json.load(f)
-                _modloader_versions = data.get("modloaders", {})
-                return _modloader_versions
-    except Exception as e:
-        decky.logger.error(f"Failed to load modloader versions: {e}")
-    _modloader_versions = {}
-    return _modloader_versions
-
-
-def _save_version_store(store: dict) -> None:
-    global _modloader_versions
-    _modloader_versions = store
-    path = _get_store_path()
-    tmp = path + ".tmp"
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        full = {}
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                full = json.load(f)
-        full["modloaders"] = store
-        with open(tmp, "w") as f:
-            json.dump(full, f, indent=2)
-        os.replace(tmp, path)
-    except Exception as e:
-        decky.logger.error(f"Failed to save modloader versions: {e}")
-        if os.path.exists(tmp):
-            os.remove(tmp)
-
-
-def get_modloader_version(modloader_id: str) -> str | None:
-    return _load_version_store().get(modloader_id, {}).get("version")
-
-
-def get_modloader_paths(modloader_id: str) -> list[str]:
+def get_modloader_paths(appid: int, modloader_id: str) -> list[str]:
     """Game-dir-relative paths a loader install placed (tracked for loaders installed by merging a
     whole archive, e.g. Stracker's: dinput8.dll + loader.dll + loader-config.json + nativePC/plugins/*).
     Lets uninstall remove exactly what was installed without touching the shared nativePC tree. Empty
     for loaders installed before this was tracked, or that only place declared files/dirs."""
-    return list(_load_version_store().get(modloader_id, {}).get("paths") or [])
+    return list(_version_store(appid).get(modloader_id, {}).get("paths") or [])
 
 
-def set_modloader_version(modloader_id: str, version: str, paths: list[str] | None = None) -> None:
-    store = _load_version_store()
-    entry = {"version": version}
+def set_modloader_version(appid: int, modloader_id: str, version: str, paths: list[str] | None = None) -> None:
+    entry: dict = {"version": version}
     if paths:
         entry["paths"] = list(paths)
-    store[modloader_id] = entry
-    _save_version_store(store)
+    _version_store(appid)[modloader_id] = entry
+    game_store.save()
 
 
-def clear_modloader_version(modloader_id: str) -> None:
-    store = _load_version_store()
+def clear_modloader_version(appid: int, modloader_id: str) -> None:
+    store = _version_store(appid)
     if modloader_id in store:
         del store[modloader_id]
-        _save_version_store(store)
+        game_store.save()
 
 
 # ── ficsit (Satisfactory / SML) loader: move-out enable/disable ───────────────
@@ -126,7 +90,7 @@ def _move_ficsit_loader(install_dir: str, ml: ModloaderInfo, enable: bool) -> bo
         return False
 
 
-def _uninstall_ficsit_loader(install_dir: str, ml: ModloaderInfo) -> bool:
+def _uninstall_ficsit_loader(game: GameProfile, install_dir: str, ml: ModloaderInfo) -> bool:
     """Remove SML whether it's live (Mods/SML) or parked (disabled). Both forms are whole-folder, so
     rmtree covers the tracked plugin files without the per-path loop."""
     try:
@@ -134,7 +98,7 @@ def _uninstall_ficsit_loader(install_dir: str, ml: ModloaderInfo) -> bool:
             if os.path.isdir(d):
                 shutil.rmtree(d)
         mods._zipfolder_prune_staging(install_dir)
-        clear_modloader_version(ml.id)
+        clear_modloader_version(game.appid, ml.id)
         decky.logger.info(f"Uninstalled {ml.id}")
         return True
     except Exception as e:
@@ -150,8 +114,8 @@ def _loader_is_foreign(game: GameProfile, install_dir: str):
     general path that replaces the old bespoke version.dll.deckhand_bak backup. Provenance is read
     from the store, so a loader's OWN files (recorded by its prior install) are not mistaken for
     stock on upgrade — only a genuine stock file at a fresh slot is captured."""
-    claimed = set(mods._claimed_paths_map(install_dir, mods.resolve_mods_path(game, install_dir)))
-    for _mid, rec in (_load_version_store() or {}).items():
+    claimed = set(mods._claimed_paths_map(game.appid, install_dir, mods.resolve_mods_path(game, install_dir)))
+    for _mid, rec in (_version_store(game.appid) or {}).items():
         for p in (rec.get("paths") or []):
             claimed.add(os.path.normpath(os.path.join(install_dir, p)))
     return lambda p: os.path.normpath(p) not in claimed
@@ -174,7 +138,10 @@ def is_modloader_installed(game: GameProfile, install_dir: str, modloader_id: st
         # removes the sentinel, and a setup loader has no <indicator>.disabled form) would read as
         # "not installed" — the Mod Loader tab would drop the toggle and offer to re-install, and
         # Reset Game would skip uninstalling it (main.py gates uninstall on is_modloader_installed).
-        return get_modloader_version(modloader_id) is not None
+        return get_modloader_version(game.appid, modloader_id) is not None
+    if ml.source.type == "external_cli":
+        # The CLI binary lives outside the game dir; "installed" = its version-store entry (like setup).
+        return get_modloader_version(game.appid, modloader_id) is not None
     if not ml.indicator:
         return False
     return (
@@ -189,6 +156,10 @@ def is_modloader_enabled(game: GameProfile, install_dir: str, modloader_id: str)
         return False
     if ml.native:
         return True
+    if ml.source.type == "external_cli":
+        # "enabled" = mods currently baked into the shared game file (tracked flag, since there's no
+        # on-disk indicator — the loader is stateless and apply/restore is driven per-op + by vanilla).
+        return mods_mergetool.is_applied(game.appid)
     if not ml.indicator:
         return False
     return os.path.exists(os.path.join(install_dir, ml.indicator))
@@ -213,6 +184,8 @@ async def enable_modloader(game: GameProfile, install_dir: str, modloader_id: st
         return True
     if ml.source.type == "ficsit":
         return _move_ficsit_loader(install_dir, ml, enable=True)  # move SML back into Mods/
+    if ml.source.type == "external_cli":
+        return await mods_mergetool.run_apply(game, install_dir, ml)  # re-bake mods (also: leaving vanilla)
     try:
         _apply_setup_removes(install_dir, ml)   # re-park setup files (e.g. NMS DISABLEMODS.TXT) on re-enable / leaving vanilla; no-op without a `setup` block
         for f in ml.files:
@@ -238,6 +211,8 @@ async def disable_modloader(game: GameProfile, install_dir: str, modloader_id: s
         return True
     if ml.source.type == "ficsit":
         return _move_ficsit_loader(install_dir, ml, enable=False)  # move SML out of Mods/ (scan roots)
+    if ml.source.type == "external_cli":
+        return await mods_mergetool.run_restore(game, install_dir, ml)  # unbake → pristine (also: entering vanilla)
     try:
         _restore_setup_removes(install_dir, ml)   # restore setup files (e.g. NMS DISABLEMODS.TXT) so mods stop loading on disable / entering vanilla; no-op without a `setup` block
         for f in ml.files:
@@ -288,13 +263,24 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
     if ml.native:
         return True
     if ml.source.type == "ficsit":
-        return _uninstall_ficsit_loader(install_dir, ml)  # whole-folder removal (live or parked)
+        return _uninstall_ficsit_loader(game, install_dir, ml)  # whole-folder removal (live or parked)
+    if ml.source.type == "external_cli":
+        try:
+            await mods_mergetool.run_restore(game, install_dir, ml)  # unbake mods (best-effort; pristine data.win)
+            shutil.rmtree(mods_mergetool.tool_dir(ml), ignore_errors=True)  # remove the CLI binary
+            clear_modloader_version(game.appid, modloader_id)
+            mods_mergetool.clear_state(game.appid)  # no stale "Apply mods" prompt after reset
+            decky.logger.info(f"Uninstalled {modloader_id}")
+            return True
+        except Exception as e:
+            decky.logger.error(f"Failed to uninstall {modloader_id}: {e}")
+            return False
     try:
         # Loaders installed by merging a whole archive (Stracker's: dinput8.dll, loader.dll,
         # loader-config.json, nativePC/plugins/*) tracked every placed path — remove exactly those
         # (and their .disabled forms), then prune any dirs they emptied, so the shared nativePC tree
         # and other mods' files survive.
-        tracked_paths = get_modloader_paths(modloader_id)
+        tracked_paths = get_modloader_paths(game.appid, modloader_id)
         for relpath in tracked_paths:
             for candidate in [relpath, relpath + ".disabled"]:
                 path = os.path.join(install_dir, candidate)
@@ -319,9 +305,9 @@ async def uninstall_modloader(game: GameProfile, install_dir: str, modloader_id:
         # replaces the old bespoke version.dll.deckhand_bak restore.
         restore_candidates = [os.path.join(install_dir, p) for p in tracked_paths] + \
                              [os.path.join(install_dir, f) for f in ml.files]
-        mods._restore_originals(install_dir, mods.resolve_mods_path(game, install_dir),
+        mods._restore_originals(game.appid, install_dir, mods.resolve_mods_path(game, install_dir),
                                 restore_candidates, modloader_id)
-        clear_modloader_version(modloader_id)
+        clear_modloader_version(game.appid, modloader_id)
         decky.logger.info(f"Uninstalled {modloader_id}")
         return True
     except Exception as e:
@@ -352,6 +338,10 @@ async def install_modloader(game: GameProfile, install_dir: str, modloader_id: s
         ok = await _install_ficsit_modloader(game, install_dir, ml, version)
     elif ml.source.type == "setup":
         ok = await _install_setup_modloader(game, install_dir, ml, version)
+    elif ml.source.type == "external_cli":
+        # Download the merge-tool CLI (to the runtime dir). Mods are baked lazily on first mod
+        # install/toggle via run_apply, so nothing to apply here on a fresh loader install.
+        ok = await mods_mergetool.ensure_tool_installed(game, install_dir, ml, version)
     else:
         decky.logger.error(f"Unsupported modloader source type: {ml.source.type}")
         return False
@@ -401,8 +391,21 @@ def _apply_config_files(install_dir: str, ml: ModloaderInfo) -> None:
             for key in order:
                 if key not in seen:
                     out_lines.append(desired[key])
-            with open(dst, "w") as f:
-                f.write("\n".join(out_lines) + "\n")
+            # Atomic write: a truncate-in-place `open(dst, "w")` would leave the config
+            # truncated if power is lost mid-write, and for REFramework that silently drops
+            # LooseFileLoader_Enabled=true — loose natives/ mods then stop loading with no
+            # visible error. Write a temp file, fsync it, and rename over dst (same idiom as
+            # _save_version_store) so dst is always the old or new content, never partial.
+            tmp = dst + ".tmp"
+            try:
+                with open(tmp, "w") as f:
+                    f.write("\n".join(out_lines) + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, dst)
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
             decky.logger.info(f"Applied config file {rel_path} for {ml.id}")
         except Exception as e:
             decky.logger.error(f"Failed to write config file {rel_path} for {ml.id}: {e}")
@@ -464,7 +467,7 @@ async def _install_setup_modloader(game: GameProfile, install_dir: str, ml: Modl
     _restore_setup_removes, not the placed-paths loop."""
     try:
         _apply_setup_removes(install_dir, ml)
-        set_modloader_version(ml.id, version or "setup")
+        set_modloader_version(game.appid, ml.id, version or "setup")
         decky.logger.info(f"Set up {ml.id}")
         return True
     except Exception as e:
@@ -548,7 +551,7 @@ async def _install_ficsit_modloader(game: GameProfile, install_dir: str, ml: Mod
             decky.logger.error(f"{ml.name}: archive contained no files")
             return False
 
-        set_modloader_version(ml.id, resolved_version, paths=sorted(placed))
+        set_modloader_version(game.appid, ml.id, resolved_version, paths=sorted(placed))
         # Preserve the user's disabled state across an update: the new files committed to active
         # Mods/SML, so re-park them if SML was disabled before.
         if was_disabled:
@@ -618,7 +621,7 @@ async def _install_thunderstore_modloader(game: GameProfile, install_dir: str, m
                     txn.place(full, rel)
                     placed.append(rel)
 
-        set_modloader_version(ml.id, resolved_version, paths=sorted(placed))
+        set_modloader_version(game.appid, ml.id, resolved_version, paths=sorted(placed))
         decky.logger.info(f"{ml.name} {resolved_version} installed successfully")
         return True
     except utils.InstallCancelledError:
@@ -711,7 +714,7 @@ async def _install_nexus_modloader(game: GameProfile, install_dir: str, ml: Modl
                     txn.place(full, rel)
                     placed.append(rel)
 
-        set_modloader_version(ml.id, resolved_version, paths=placed)
+        set_modloader_version(game.appid, ml.id, resolved_version, paths=placed)
         decky.logger.info(f"{ml.name} {resolved_version} installed successfully ({len(placed)} file(s))")
         return True
     except utils.InstallCancelledError:
@@ -810,7 +813,7 @@ async def _install_smapi_modloader(game: GameProfile, install_dir: str, ml: Modl
                     txn.place(full, rel)
                     placed.append(rel)
 
-        set_modloader_version(ml.id, resolved_version, paths=placed)
+        set_modloader_version(game.appid, ml.id, resolved_version, paths=placed)
         decky.logger.info(f"{ml.name} {resolved_version} installed successfully ({len(placed)} file(s))")
         return True
     except utils.InstallCancelledError:
@@ -886,7 +889,7 @@ async def _install_github_modloader(game: GameProfile, install_dir: str, ml: Mod
                 await enable_modloader(game, install_dir, ml.id)
             placed: list[str] = []
             with _StagedInstall(install_dir) as txn:
-                for rel in get_modloader_paths(ml.id):   # retire only the prior install's own files
+                for rel in get_modloader_paths(game.appid, ml.id):   # retire only the prior install's own files
                     txn.retire(rel)
                 for f in ml.files:
                     txn.retire(f)
@@ -896,7 +899,7 @@ async def _install_github_modloader(game: GameProfile, install_dir: str, ml: Mod
                         rel = os.path.join(ml.source.base_dir, os.path.relpath(full, tmp_dir))
                         txn.place(full, rel)
                         placed.append(rel)
-            set_modloader_version(ml.id, resolved_version, paths=sorted(placed))
+            set_modloader_version(game.appid, ml.id, resolved_version, paths=sorted(placed))
             if was_disabled:
                 await disable_modloader(game, install_dir, ml.id)
             decky.logger.info(f"{ml.name} {resolved_version} installed under {ml.source.base_dir} ({len(placed)} file(s))")
@@ -931,7 +934,7 @@ async def _install_github_modloader(game: GameProfile, install_dir: str, ml: Mod
                         txn.place(full, rel)
                         placed.append(rel)
 
-        set_modloader_version(ml.id, resolved_version, paths=sorted(placed))
+        set_modloader_version(game.appid, ml.id, resolved_version, paths=sorted(placed))
         decky.logger.info(f"{ml.name} {resolved_version} installed successfully")
         return True
 

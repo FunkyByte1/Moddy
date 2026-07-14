@@ -7,7 +7,7 @@ import { useQueueFooterProps, promptVariant } from '../components/DownloadQueueM
 import { useDownloadQueue } from '../lib/downloadQueue';
 
 import { GameStatus, ModUpdate } from '../types';
-import { getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, ensureModloaderLaunchOptions, setGameToProton, applyVanillaMode, getSetting, gameHasCollections, NSFW_ENABLED, NSFW_DEFAULT_ON } from '../lib/api';
+import { getGameStatus, checkModUpdates, saveProfile, getProfiles, refreshThunderstoreCatalog, refreshBmiCatalog, resetGame, removeModloaderLaunchOptions, ensureModloaderLaunchOptions, setGameToProton, reapplyMergeTool, applyVanillaMode, getSetting, gameHasCollections, NSFW_ENABLED, NSFW_DEFAULT_ON } from '../lib/api';
 import InstalledTab from '../tabs/InstalledTab';
 import ModLoaderTab from '../tabs/ModLoaderTab';
 import ProfilesTab from '../tabs/ProfilesTab';
@@ -77,6 +77,7 @@ const ModPage: FC = () => {
   // not have flushed by the time refresh() re-reads it, so don't wait on the backend round-trip.
   const [protonApplied, setProtonApplied] = useState(false);
   const [settingProton, setSettingProton] = useState(false);
+  const [reapplying, setReapplying] = useState(false);
   // Whole-page work (vanilla toggle, reset) shows a content-area spinner with this label and
   // gates input by replacing the tabs/buttons — null when idle.
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
@@ -708,6 +709,39 @@ const ModPage: FC = () => {
             }}
           >
             {settingProton ? 'Setting…' : 'Set to Proton'}
+          </DialogButton>
+        </div>
+      )}
+      {/* "Apply mods" prompt for external-merge games (Fields of Mistria/MOMI). These bake all mods
+          into one shared game file (data.win), and each rebuild is slow — so install/delete/toggle are
+          instant (they just stage folders) and the rebuild happens ONCE, on demand (a deployment model
+          like Vortex/Mod Organizer). Shown when there are staged-but-unapplied changes
+          (merge_tool_pending) OR a Steam game update wiped the baked mods (merge_tool_stale). Apply
+          rebuilds from the current mod set (clearing the tool's now-stale backups first so an update is
+          preserved). Runs off the event loop, so the button just shows a spinner while it works. */}
+      {game?.installed && (game.merge_tool_pending || game.merge_tool_stale) && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '10px',
+          margin: '6px 12px', padding: '5px 6px 5px 10px', borderRadius: '4px',
+          background: 'var(--gpColorBgTertiary, rgba(255,255,255,0.05))', borderLeft: '3px solid #f8a623',
+        }}>
+          <span style={{ flex: 1, minWidth: 0, fontSize: '0.82em', lineHeight: 1.3, color: 'var(--gpColorTextSecondary)' }}>
+            {game.merge_tool_stale
+              ? `${game.name} was updated — reapply your mods.`
+              : 'Unapplied mod changes — apply before you launch.'}
+          </span>
+          <DialogButton
+            disabled={reapplying}
+            style={{ minWidth: 0, width: 'auto', padding: '3px 14px', alignSelf: 'center' }}
+            onClick={async () => {
+              setReapplying(true);
+              const res = await reapplyMergeTool(appid).catch(() => ({ ok: false, reason: 'failed' }));
+              setReapplying(false);
+              toaster.toast({ title: 'Moddy', body: res.ok ? 'Mods applied' : `Couldn't apply mods — ${res.reason || 'try again'}` });
+              if (res.ok) refresh();
+            }}
+          >
+            {reapplying ? 'Applying…' : 'Apply'}
           </DialogButton>
         </div>
       )}

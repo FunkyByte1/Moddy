@@ -1,4 +1,4 @@
-import { ToggleField, Focusable } from '@decky/ui';
+import { Focusable } from '@decky/ui';
 import { FC, memo } from 'react';
 
 import { ModEntry } from './ModEntry';
@@ -32,8 +32,8 @@ const ModListItem: FC<{
       }
     }}
     style={{
-      display: 'flex', alignItems: 'center', padding: '10px 8px',
-      borderRadius: '4px', marginBottom: '2px',
+      display: 'flex', alignItems: 'center', padding: '5px 8px',
+      borderRadius: '4px', marginBottom: '1px',
       background: selected ? 'var(--gpColorHighlight1)' : 'transparent',
       cursor: 'pointer', outline: 'none',
     }}
@@ -52,7 +52,7 @@ const ModListItem: FC<{
     )}
     {showThumbnail && (
       <div style={{
-        width: '32px', height: '32px', marginRight: '10px', flexShrink: 0,
+        width: '36px', height: '36px', marginRight: '10px', flexShrink: 0,
         borderRadius: '3px', overflow: 'hidden', background: 'rgba(255,255,255,0.08)',
       }}>
         {entry.info.thumbnail && (
@@ -62,7 +62,7 @@ const ModListItem: FC<{
       </div>
     )}
     <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontWeight: selected ? 'bold' : 'normal', fontSize: '0.9em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div style={{ fontWeight: selected ? 'bold' : 'normal', fontSize: '0.95em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {entry.name}
       </div>
       {!entry.installed && (
@@ -95,7 +95,27 @@ const ModListItem: FC<{
       <div style={{ color: 'var(--gpSystemLightBlue)', fontSize: '1.1em', marginRight: '4px' }}>↑</div>
     )}
     {entry.installed && !selectionMode && (
-      <ToggleField label="" checked={entry.enabled} onChange={(val) => onToggle(entry.id, val)} />
+      // Compact custom switch instead of Decky's ToggleField — the ToggleField is a Field whose
+      // own padding set the row's minimum height and made rows look far apart. This is sized to the
+      // row. Toggling also works via the row's onActivate (gamepad A); clicking the switch is the
+      // mouse path (stopPropagation so it doesn't double-fire with a row click).
+      <div
+        role="switch"
+        aria-checked={entry.enabled}
+        onClick={(e) => { e.stopPropagation(); onToggle(entry.id, !entry.enabled); }}
+        style={{
+          width: '34px', height: '18px', flexShrink: 0, marginLeft: '8px', borderRadius: '9px',
+          position: 'relative', cursor: 'pointer', transition: 'background 0.15s',
+          // Solid hex, not var(--gpSystemLightBlue): that var doesn't resolve in this full-page
+          // route, so the "on" track was rendering transparent (invisible but for the knob).
+          background: entry.enabled ? '#1a9fff' : 'rgba(255,255,255,0.25)',
+        }}
+      >
+        <div style={{
+          position: 'absolute', top: '2px', left: entry.enabled ? '18px' : '2px',
+          width: '14px', height: '14px', borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+        }} />
+      </div>
     )}
   </Focusable>
 );

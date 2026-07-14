@@ -53,7 +53,7 @@ class InstallGroupTest(unittest.TestCase):
         mods.install_smapi_files = fake_smapi
         mods.install_palworld_files = fake_palworld
         mods.install_folder_files = fake_folder
-        mods.add_record_source = lambda mid, src: self.sources.append((mid, src))
+        mods.add_record_source = lambda appid, mid, src: self.sources.append((mid, src))
         nc._install_one = fake_one
 
     def tearDown(self):
@@ -228,7 +228,7 @@ class InstallFolderFilesTest(unittest.TestCase):
         folder = os.path.join(self.install_dir, "GAMEDATA", "MODS", "nexus-1649")
         self.assertTrue(os.path.isfile(os.path.join(folder, "InTheWild.pak")), "first file present")
         self.assertTrue(os.path.isfile(os.path.join(folder, "NearShelters.pak")), "second file present (not overwritten)")
-        rec = mods.get_installed_record(mod.id)
+        rec = mods.get_installed_record(self.game.appid, mod.id)
         self.assertEqual(rec["paths"], ["GAMEDATA/MODS/nexus-1649"], "one tracked folder for the merged mod")
 
 

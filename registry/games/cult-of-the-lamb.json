@@ -1,0 +1,9 @@
+{
+  "id": "cult-of-the-lamb",
+  "name": "Cult of the Lamb",
+  "appid": 1313140,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "cult-of-the-lamb",
+  "modloader_ids": ["bepinex-cult-of-the-lamb"]
+}

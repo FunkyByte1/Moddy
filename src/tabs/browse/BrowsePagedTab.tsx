@@ -241,8 +241,6 @@ const BrowsePagedTab: FC<{
         ) : (
           <Focusable
             ref={detailRef}
-            noFocusRing
-            onGamepadFocus={focusDetail}
             onCancelButton={focusSelectedRow}
             style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 16px 60px' }}
           >

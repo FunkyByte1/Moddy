@@ -1,7 +1,7 @@
 import { showModal } from '@decky/ui';
 
 import { GameStatus, InstalledMod } from '../types';
-import { uninstallMod } from './api';
+import { uninstallMod, setLibraryIgnored } from './api';
 import { modDisplayName } from './modName';
 import { stripVersion } from './modGraph';
 import { collectionSources } from './modSources';
@@ -60,6 +60,9 @@ function buildForwardDeps(game: GameStatus, denylist: Set<string>): Map<string, 
  * look orphaned), and a collection's libraries are managed by it (removed via "Uninstall collection",
  * ref-counted), not by this manual-cleanup chip. After a collection is uninstalled the library loses
  * its collection source and becomes eligible again if it's then genuinely unused.
+ *
+ * Libraries the user explicitly marked "don't flag as unused" (ignore_unused — for a framework that
+ * IS depended on via an undocumented dependency the graph can't see) are excluded too.
  */
 export function findUnusedLibraries(game: GameStatus, denylist: Set<string>): InstalledMod[] {
   const fwd = buildForwardDeps(game, denylist);
@@ -79,7 +82,7 @@ export function findUnusedLibraries(game: GameStatus, denylist: Set<string>): In
     }
   }
   return game.installed_mods.filter(m =>
-    m.is_library && !denylist.has(m.id.toLowerCase()) && !used.has(m.id.toLowerCase())
+    m.is_library && !m.ignore_unused && !denylist.has(m.id.toLowerCase()) && !used.has(m.id.toLowerCase())
     && collectionSources(m.sources).length === 0);
 }
 
@@ -104,6 +107,11 @@ export function showUnusedLibrariesCleanup(opts: {
       onCleanup={async (removeIds, close) => {
         close(); setBusy(true);
         for (const id of removeIds) await uninstallMod(game.appid, id);
+        await onRefresh(); setBusy(false);
+      }}
+      onIgnore={async (ignoreIds, close) => {
+        close(); setBusy(true);
+        for (const id of ignoreIds) await setLibraryIgnored(game.appid, id, true);
         await onRefresh(); setBusy(false);
       }}
     />

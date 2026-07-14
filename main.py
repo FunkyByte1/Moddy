@@ -9,6 +9,8 @@ import registry
 import steam
 import modloaders
 import mods
+import mods_mergetool
+import game_store
 import profiles
 import github
 import thunderstore
@@ -20,6 +22,7 @@ import ficsit
 # named `settings` collides with decky_loader's own `settings` module (which wins on the
 # import path), so `import settings` would silently resolve to the wrong module.
 import app_settings as settings
+import json_store
 import utils
 import steamworkshop_browse
 import download_queue
@@ -110,7 +113,7 @@ class Plugin:
         game = registry.get_game_by_appid(appid)
         if not game or not game.modloaders:
             return None
-        return modloaders.get_modloader_version(game.modloaders[0].id)
+        return modloaders.get_modloader_version(appid, game.modloaders[0].id)
 
     async def get_modloader_releases(self, appid: int) -> list:
         game = registry.get_game_by_appid(appid)
@@ -135,7 +138,7 @@ class Plugin:
         if not game or not game.modloaders:
             return None
         ml = game.modloaders[0]
-        installed = modloaders.get_modloader_version(ml.id)
+        installed = modloaders.get_modloader_version(appid, ml.id)
         if not installed:
             return None
         if ml.source.type == "ficsit":
@@ -182,12 +185,12 @@ class Plugin:
         orphaned = mods.mods_under_modloader(game, install_dir, ml.dirs, ml.files)
         # Remove bundled frameworks first — they're part of the loader, not content mods.
         for fw_id in game.bundled_framework_ids():
-            if mods.get_installed_record(fw_id) is not None:
+            if mods.get_installed_record(appid, fw_id) is not None:
                 await mods.uninstall_mod(game, install_dir, fw_id)
         ok = await modloaders.uninstall_modloader(game, install_dir, ml.id)
         if ok:
             for m in orphaned:
-                mods.clear_installed_record(m["id"])
+                mods.clear_installed_record(appid, m["id"])
         return ok
 
     async def enable_modloader(self, appid: int) -> bool:
@@ -248,7 +251,7 @@ class Plugin:
             installed_version = entry.get("version")
             if not installed_version or installed_version == "latest":
                 continue
-            source = (mods.get_installed_record(mod_id) or {}).get("source") or {}
+            source = (mods.get_installed_record(appid, mod_id) or {}).get("source") or {}
             source_type, owner, repo = source.get("type", ""), source.get("owner", ""), source.get("repo", "")
             nexus_domain, nexus_mod_id = source.get("nexus_domain", ""), source.get("mod_id", "")
             if source_type == "github":
@@ -332,6 +335,12 @@ class Plugin:
         if not install_dir:
             return False
         return await mods.toggle_mod(game, install_dir, mod_id, enable)
+
+    async def set_library_ignored(self, appid: int, mod_id: str, ignored: bool) -> bool:
+        """Mark an installed library as an intentional (undocumented) dependency so the
+        unused-libraries cleanup stops flagging it — or clear that mark. Per-game: ignoring
+        a library for one game no longer ignores it everywhere."""
+        return mods.set_ignore_unused(appid, mod_id, ignored)
 
     async def get_backed_up_versions(self, appid: int, mod_id: str) -> list:
         game = registry.get_game_by_appid(appid)
@@ -558,6 +567,15 @@ class Plugin:
         return settings.set_setting(key, value)
 
     # ── Diagnostics ────────────────────────────────────────────────────────────
+    async def get_store_health(self) -> dict:
+        """Whether installed.json was quarantined this session (corrupt → set aside),
+        so the UI can explain an unexpectedly empty library instead of leaving the
+        user to assume their mods are gone. Forces a store read so a corrupt file is
+        detected here, not whenever some later call happens to read it."""
+        for appid in game_store.appids():  # appids() itself forces the read; per-game loads keep it thorough
+            mods._load_store(int(appid))
+        return {"quarantined": json_store.quarantine_events()}
+
     async def export_logs(self) -> str | None:
         """Bundle Moddy's logs + a small system-info file into one zip the user can
         attach to a bug report. Writes to the Deck's Desktop (easy to find and drag
@@ -576,7 +594,7 @@ class Plugin:
         Implicit deps are unioned in only here, NOT into _BROWSE_DENYLIST: that set is what the
         install cascade uses to *skip* installs, and the modloader cores must still get installed."""
         implicit = {dep.lower() for g in registry.SUPPORTED_GAMES for dep in g.implicit_deps}
-        return sorted(plugin_install_denylists._BROWSE_DENYLIST | plugin_install_denylists.nexus_browse_denylist()
+        return sorted(plugin_install_denylists.thunderstore_browse_denylist() | plugin_install_denylists.nexus_browse_denylist()
                       | plugin_install_denylists.ficsit_browse_denylist() | implicit)
 
     async def get_unresolved_dependencies(self, appid: int, full_name: str, with_deps: bool = True) -> list:
@@ -635,6 +653,12 @@ class Plugin:
         via SteamClient; `modloader_id` is returned when the loader was toggled so the frontend can
         add/remove its launch options. Returns a summary dict."""
         return await plugin_game_lifecycle.set_game_vanilla_mode(appid, vanilla)
+
+    async def reapply_merge_tool(self, appid: int) -> dict:
+        """Rebuild an external-merge game's shared file (e.g. Fields of Mistria's data.win) from the
+        current mod set. Used after a Steam game update wiped the baked mods (status.merge_tool_stale);
+        clears the tool's stale pristine backups first so the update is preserved. Returns {ok, reason}."""
+        return await mods_mergetool.reapply(appid)
 
     async def cancel_install(self) -> None:
         utils.cancel_install()
@@ -695,10 +719,10 @@ class Plugin:
             return await thunderstore_modpacks.enqueue_modpack(appid, ref)
         return await nexus_collections.enqueue_collection(appid, ref)
 
-    async def preview_uninstall_collection(self, slug: str) -> dict:
+    async def preview_uninstall_collection(self, appid: int, slug: str) -> dict:
         """Preview "Uninstall collection <slug>": {remove:[names], keep:[names]} — keep = mods also
         installed manually or in another collection, so the UI can warn before removing."""
-        return nexus_collections.preview_uninstall_collection(slug)
+        return nexus_collections.preview_uninstall_collection(appid, slug)
 
     async def uninstall_collection(self, appid: int, slug: str) -> dict:
         """Ref-counted removal of a whole collection: drop each member's collection:<slug> tag,
@@ -735,7 +759,7 @@ class Plugin:
         game = registry.get_game_by_appid(appid)
         if not game:
             return []
-        return profiles.list_profiles(game.id)
+        return profiles.list_profiles(appid)
 
     async def save_profile(self, appid: int, name: str) -> bool:
         game = registry.get_game_by_appid(appid)
@@ -749,19 +773,19 @@ class Plugin:
             {"id": m["id"], "enabled": m["enabled"], "version": m.get("version")}
             for m in installed
         ]
-        return profiles.save_profile(game.id, name, snapshot)
+        return profiles.save_profile(appid, name, snapshot)
 
     async def rename_profile(self, appid: int, old_name: str, new_name: str) -> bool:
         game = registry.get_game_by_appid(appid)
         if not game:
             return False
-        return profiles.rename_profile(game.id, old_name, new_name)
+        return profiles.rename_profile(appid, old_name, new_name)
 
     async def delete_profile(self, appid: int, name: str) -> bool:
         game = registry.get_game_by_appid(appid)
         if not game:
             return False
-        return profiles.delete_profile(game.id, name)
+        return profiles.delete_profile(appid, name)
 
     async def _main(self):
         decky.logger.info("Decky Mod Manager loaded")

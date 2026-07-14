@@ -1,0 +1,9 @@
+{
+  "id": "bomb-rush-cyberfunk",
+  "name": "Bomb Rush Cyberfunk",
+  "appid": 1353230,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "bomb-rush-cyberfunk",
+  "modloader_ids": ["bepinex-mono"]
+}

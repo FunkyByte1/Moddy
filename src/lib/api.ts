@@ -287,6 +287,9 @@ export const toggleMod = async (appid: number, mod_id: string, enable: boolean):
   if (wid) setWorkshopItemDisabled(appid, wid, !enable);
   return _toggleMod(appid, mod_id, enable);
 };
+// Mark an installed library as an intentional (undocumented) dependency so the unused-libraries
+// cleanup ("broom") stops flagging it — or clear that mark. Keyed by mod id (game-agnostic backend).
+export const setLibraryIgnored = callable<[appid: number, mod_id: string, ignored: boolean], boolean>('set_library_ignored');
 export const getModReleases = callable<[appid: number, mod_id: string], ModRelease[]>('get_mod_releases');
 export const checkModUpdates = callable<[appid: number], ModUpdate[]>('check_mod_updates');
 export const getBackedUpVersions = callable<[appid: number, mod_id: string], string[]>('get_backed_up_versions');
@@ -356,6 +359,10 @@ export const getCollectionsCatalog =
 // tab shows at all, independent of the NSFW setting (the list inside still filters NSFW).
 export const gameHasCollections =
   callable<[appid: number], boolean>('game_has_collections');
+// Rebuild an external-merge game's shared file (e.g. Fields of Mistria's data.win) from the current
+// mod set — used after a Steam game update wiped the baked mods (GameStatus.merge_tool_stale).
+export const reapplyMergeTool =
+  callable<[appid: number], { ok: boolean; reason: string }>('reapply_merge_tool');
 // A collection's detail — name/image/description + its mod list (name + thumbnail + optional). One
 // light GraphQL call; drives the browse-tab "mods in this collection" list and the Installed-tab panel.
 export const getCollectionDetail =
@@ -363,7 +370,7 @@ export const getCollectionDetail =
 // Preview a collection uninstall: {remove, keep} display-name lists (keep = mods also installed
 // manually or in another collection, so they'd be kept). Lets the UI warn before removing.
 export const previewUninstallCollection =
-  callable<[slug: string], { remove: string[]; keep: string[] }>('preview_uninstall_collection');
+  callable<[appid: number, slug: string], { remove: string[]; keep: string[] }>('preview_uninstall_collection');
 // Ref-counted "remove this collection": drops each member's collection:<slug> tag, uninstalls a mod
 // only if that was its last source. Returns {removed, kept} mod-id lists.
 export const uninstallCollection =
@@ -398,6 +405,11 @@ export const NSFW_DEFAULT_ON = 'nsfw_default_on';
 
 // Bundles logs into a zip on the Deck's Desktop and returns the path (or null on failure).
 export const exportLogs = callable<[], string | null>('export_logs');
+
+// Whether installed.json was quarantined this session (corrupt file set aside, library
+// rebuilt empty) — lets the panel explain an unexpectedly empty library.
+export interface QuarantineEvent { file: string; to: string | null; at: number }
+export const getStoreHealth = callable<[], { quarantined: QuarantineEvent[] }>('get_store_health');
 
 // Steam Workshop browse — server-paginated/searched (~30 items per page).
 export const getWorkshopCatalog =

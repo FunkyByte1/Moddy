@@ -1,0 +1,9 @@
+{
+  "id": "devil-may-cry-5",
+  "name": "Devil May Cry 5",
+  "appid": 601150,
+  "mods_dir": "",
+  "mods_dir_type": "game",
+  "modloader_ids": ["reframework-dmc5"],
+  "catalog": { "type": "nexus", "nexus_domain": "devilmaycry5", "install_type": "zip_natives" }
+}

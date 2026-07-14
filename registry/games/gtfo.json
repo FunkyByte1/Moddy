@@ -1,0 +1,9 @@
+{
+  "id": "gtfo",
+  "name": "GTFO",
+  "appid": 493520,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "gtfo",
+  "modloader_ids": ["bepinex-gtfo"]
+}

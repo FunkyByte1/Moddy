@@ -1,0 +1,9 @@
+{
+  "id": "repo",
+  "name": "R.E.P.O.",
+  "appid": 3241660,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "thunderstore_community": "repo",
+  "modloader_ids": ["bepinex-mono"]
+}
