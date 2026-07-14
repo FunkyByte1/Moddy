@@ -218,6 +218,17 @@ def sign_out() -> None:
     settings.set_setting(settings.NEXUS_OAUTH, {})
 
 
+def forget_legacy_api_key() -> bool:
+    """One-time migration: OAuth replaced the personal API key, which is never read anymore,
+    so purge any leftover key from settings (a stale plaintext secret). Idempotent — safe to
+    call on every load. Returns True if a key was actually removed."""
+    if not settings.get_setting(settings.NEXUS_API_KEY):
+        return False
+    settings.delete_setting(settings.NEXUS_API_KEY)
+    decky.logger.info("Purged legacy Nexus API key from settings (auth is OAuth now)")
+    return True
+
+
 # ── Loopback callback listener (RFC 8252) ─────────────────────────────────────
 # After the user approves in the browser, Nexus redirects to
 # http://127.0.0.1:53682/callback?code=...&state=... . We run a one-shot local HTTP

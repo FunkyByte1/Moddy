@@ -8,11 +8,11 @@ colliding with decky_loader's (settings, loader, main, helpers, plugin, browser,
 
 A tiny key/value JSON store in DECKY_PLUGIN_SETTINGS_DIR, separate from installed.json
 (which is per-mod install state). Holds account-global config that isn't tied to one game
-— currently the Nexus Mods personal API key.
+— e.g. the Nexus Mods OAuth token bundle and the NSFW gate.
 
-The key is stored in plaintext: Decky has no OS keyring binding and the file lives on the
-user's own device under the plugin's private settings dir, so this matches how Decky
-plugins persist credentials generally.
+Credentials are stored in plaintext: Decky has no OS keyring binding and the file lives on
+the user's own device under the plugin's private settings dir (chmod 0o600), so this matches
+how Decky plugins persist credentials generally.
 """
 
 import json
@@ -47,11 +47,9 @@ def get_setting(key: str, default=None):
     return _load().get(key, default)
 
 
-def set_setting(key: str, value) -> bool:
-    """Persist a single setting atomically. Returns True on success."""
+def _persist(store: dict) -> bool:
+    """Atomically write the whole settings dict (temp file + rename) and refresh the cache."""
     global _SETTINGS
-    store = _load()
-    store[key] = value
     path = _path()
     tmp = path + ".tmp"
     try:
@@ -59,7 +57,7 @@ def set_setting(key: str, value) -> bool:
         with open(tmp, "w") as f:
             json.dump(store, f, indent=2)
         os.replace(tmp, path)
-        # Owner-only: the file holds the user's Nexus API key. Single-user device, but this
+        # Owner-only: the file holds the user's Nexus OAuth token. Single-user device, but this
         # keeps the secret out of group/other-readable reach as a basic hardening.
         try:
             os.chmod(path, 0o600)
@@ -68,7 +66,7 @@ def set_setting(key: str, value) -> bool:
         _SETTINGS = store
         return True
     except Exception as e:
-        decky.logger.error(f"Failed to save setting {key}: {e}")
+        decky.logger.error(f"Failed to save settings: {e}")
         if os.path.exists(tmp):
             try:
                 os.remove(tmp)
@@ -77,17 +75,30 @@ def set_setting(key: str, value) -> bool:
         return False
 
 
+def set_setting(key: str, value) -> bool:
+    """Persist a single setting atomically. Returns True on success."""
+    store = _load()
+    store[key] = value
+    return _persist(store)
+
+
+def delete_setting(key: str) -> bool:
+    """Remove a key from the store (used to purge the legacy Nexus API key after OAuth).
+    Returns True if a key was actually removed."""
+    store = _load()
+    if key not in store:
+        return False
+    store.pop(key, None)
+    return _persist(store)
+
+
 # ── Nexus convenience ─────────────────────────────────────────────────────────
-# Legacy personal API key. Retained only for the one-time migration prompt (Phase 4);
-# auth now goes through the OAuth token below. See nexus_oauth.py.
+# Legacy personal API key. Auth now goes through the OAuth token below (see nexus_oauth.py);
+# this constant survives only so the one-time on-load purge can find and delete a stale key.
 NEXUS_API_KEY = "nexus_api_key"
 
 # OAuth token bundle: {access_token, refresh_token, expires_at}. Managed by nexus_oauth.
 NEXUS_OAUTH = "nexus_oauth"
-
-
-def nexus_api_key() -> str:
-    return (get_setting(NEXUS_API_KEY) or "").strip()
 
 
 def nexus_oauth_token() -> dict:

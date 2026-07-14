@@ -296,5 +296,25 @@ class LoopbackListenerTest(unittest.TestCase):
         self.assertIsNone(nexus_oauth._login_server)
 
 
+class LegacyKeyPurgeTest(unittest.TestCase):
+    """One-time migration that removes a stale personal API key after the OAuth switch."""
+    def setUp(self):
+        _reset_settings()
+
+    def test_purges_existing_key(self):
+        settings.set_setting(settings.NEXUS_API_KEY, "old-key")
+        self.assertTrue(nexus_oauth.forget_legacy_api_key())
+        self.assertIsNone(settings.get_setting(settings.NEXUS_API_KEY))
+
+    def test_noop_when_no_key(self):
+        self.assertFalse(nexus_oauth.forget_legacy_api_key())
+
+    def test_leaves_oauth_token_untouched(self):
+        settings.set_setting(settings.NEXUS_API_KEY, "old-key")
+        settings.set_setting(settings.NEXUS_OAUTH, {"access_token": "t"})
+        nexus_oauth.forget_legacy_api_key()
+        self.assertEqual(settings.nexus_oauth_token(), {"access_token": "t"})
+
+
 if __name__ == "__main__":
     unittest.main()

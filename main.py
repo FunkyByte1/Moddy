@@ -765,6 +765,11 @@ class Plugin:
 
     async def _main(self):
         decky.logger.info("Decky Mod Manager loaded")
+        # One-time migration: OAuth replaced the personal Nexus API key — purge any stale key.
+        try:
+            nexus_oauth.forget_legacy_api_key()
+        except Exception as e:
+            decky.logger.warning(f"Legacy Nexus key purge failed: {e}")
         # Startup-only crumb sweep: resolve any install artifacts a hard crash stranded mid-commit
         # (restore set-aside backups whose file is gone, drop stale ones and scratch). Safe here
         # because nothing is installing yet; never run while a job is in flight.
