@@ -39,15 +39,20 @@ scp main.py plugin.json package.json "$DECK:$TMP/"
 scp -r registry "$DECK:$TMP/"
 scp backend/*.py "$DECK:$TMP/backend/"
 scp dist/index.js dist/index.js.map "$DECK:$TMP/dist/"
+ssh $DECK "sudo systemctl stop plugin_loader"
 ssh $DECK "rm -f $PLUGIN_DIR/registry.json && cp -r $TMP/* $PLUGIN_DIR/ && rm -rf $TMP"
-ssh $DECK "sudo systemctl restart plugin_loader"
+ssh $DECK "sudo systemctl start plugin_loader"
 ```
+
+Stop the loader **before** copying: writing into the live plugin directory fires Decky's file
+watcher into a mid-copy reload, and a reload race can wedge a plugin sandbox process inside
+Decky's socket read loop (runaway CPU/memory that survives the service restart).
 
 Then `chmod +x deploy.sh && ./deploy.sh`.
 
 For passwordless deploys, take ownership of the plugin dir once
 (`sudo chown -R deck:deck /home/deck/homebrew/plugins/moddy`) and whitelist the restart command via
-sudoers (`echo 'deck ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart plugin_loader' | sudo tee /etc/sudoers.d/moddy-deploy && sudo chmod 0440 /etc/sudoers.d/moddy-deploy`).
+sudoers (`echo 'deck ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop plugin_loader, /usr/bin/systemctl start plugin_loader, /usr/bin/systemctl restart plugin_loader' | sudo tee /etc/sudoers.d/zz-moddy-deploy && sudo chmod 0440 /etc/sudoers.d/zz-moddy-deploy`; the `zz-` name matters — sudoers is last-match-wins and SteamOS's own `/etc/sudoers.d/wheel` would otherwise override the NOPASSWD entry).
 
 ## Adding a game
 

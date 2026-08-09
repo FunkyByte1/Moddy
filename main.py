@@ -1,7 +1,15 @@
 import asyncio
+import faulthandler
+import signal
 import sys
 import os
 import decky
+
+# Wedge diagnosis: `kill -USR1 <backend pid>` dumps every thread's Python traceback to stderr
+# (PluginLoader's journal). faulthandler is async-signal-safe C — it works even while the
+# interpreter is stuck inside one long native call, which is exactly the runaway-spin state
+# (100% CPU, RSS ballooning, SIGTERM never delivered) seen on 2026-08-09.
+faulthandler.register(signal.SIGUSR1)
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "backend"))
 
