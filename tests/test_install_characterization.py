@@ -306,3 +306,24 @@ class ZipDirNonZipArchive(unittest.TestCase):
         ok = run(mods._install_mod_zip_dir(self.game, self.install_dir, self.mods_path, mod, "1.0.0", "https://x/m.bin"))
         self.assertFalse(ok)  # error surfaces as a failed install, not a crash
         self.assertFalse(os.path.exists(os.path.join(self.mods_path, "Cool_tmp.zip")))
+
+    def test_zip_flat_7z_archive_repacked_and_installed(self):
+        """zip_flat (MelonLoader / Slime Rancher 2) gets the same non-zip repack as zip_dir."""
+        async def fake_download(url, dest, appid, expected_hash=None):
+            with open(dest, "wb") as f:
+                f.write(b"7z\xbc\xaf\x27\x1c" + b"\x00" * 32)
+        utils.download = fake_download
+
+        def fake_extract(archive_path, dest_dir):
+            os.makedirs(dest_dir, exist_ok=True)
+            with open(os.path.join(dest_dir, "FlatMod.dll"), "wb") as f:
+                f.write(b"dll")
+        self.mods_archive.extract_archive = fake_extract
+
+        game = make_game(mods_dir="Mods")
+        mods_path = os.path.join(self.install_dir, "Mods")
+        os.makedirs(mods_path, exist_ok=True)
+        mod = make_mod(install_type="zip_flat", filename="FlatMod")
+        ok = run(mods._install_mod_zip_flat(game, self.install_dir, mods_path, mod, "1.0.0", "https://x/m.7z"))
+        self.assertTrue(ok)
+        self.assertTrue(os.path.isfile(os.path.join(mods_path, "FlatMod.dll")))

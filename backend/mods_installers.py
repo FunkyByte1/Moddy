@@ -297,6 +297,9 @@ async def _install_mod_zip_flat(game: GameProfile, install_dir: str, mods_path: 
         decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_zip, game.appid)
 
+        if not zipfile.is_zipfile(tmp_zip):
+            _repack_to_zip(tmp_zip)  # Nexus mods ship .7z/.rar alongside zips
+
         # Extract to staging (outside the live tree), computing each file's destination with a
         # single redundant wrapper folder stripped and Thunderstore metadata skipped.
         placements: list[tuple[str, str]] = []  # (staged absolute path, install-dir-relative dest)
