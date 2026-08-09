@@ -1,0 +1,9 @@
+{
+  "id": "subnautica-below-zero",
+  "name": "Subnautica: Below Zero",
+  "appid": 848450,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "modloader_ids": ["bepinex-subnautica-bz"],
+  "catalog": { "type": "nexus", "nexus_domain": "subnauticabelowzero", "install_type": "zip_dir" }
+}

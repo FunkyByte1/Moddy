@@ -81,6 +81,7 @@ Sign in with your Nexus Mods account (Settings → Nexus Mods account). Premium 
 - Slime Rancher 2
 - Stardew Valley
 - Subnautica
+- Subnautica: Below Zero
 
 ### Steam Workshop
 No setup. Moddy subscribes the mods through Steam.
