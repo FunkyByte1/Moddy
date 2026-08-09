@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isActiveStatus, jobStatusText, summarize } from './downloadQueue';
+import { isActiveStatus, jobStatusText, summarize, terminalTransitionAppids } from './downloadQueue';
 import type { QueueJob } from '../types';
 
 // Importing downloadQueue pulls in ./types (which imports @decky/api at module load), so this also
@@ -74,5 +74,54 @@ describe('summarize', () => {
     expect(s.currentIndex).toBe(0);
     expect(s.total).toBe(2);
     expect(s.hasFinished).toBe(false);
+  });
+});
+
+describe('terminalTransitionAppids (launch-option heal trigger)', () => {
+  it('reports the appid when an active job reaches a terminal status', () => {
+    const prev = [job({ job_id: 1, appid: 632360, status: 'downloading' })];
+    const next = [job({ job_id: 1, appid: 632360, status: 'done' })];
+    expect(terminalTransitionAppids(prev, next)).toEqual([632360]);
+  });
+
+  it('fires for failed and cancelled too — a partial collection may still have installed the loader', () => {
+    const prev = [
+      job({ job_id: 1, appid: 10, status: 'downloading' }),
+      job({ job_id: 2, appid: 20, status: 'queued' }),
+    ];
+    const next = [
+      job({ job_id: 1, appid: 10, status: 'failed' }),
+      job({ job_id: 2, appid: 20, status: 'cancelled' }),
+    ];
+    expect(terminalTransitionAppids(prev, next).sort()).toEqual([10, 20]);
+  });
+
+  it('dedupes multiple same-game completions into one appid', () => {
+    const prev = [
+      job({ job_id: 1, appid: 632360, status: 'downloading' }),
+      job({ job_id: 2, appid: 632360, status: 'queued' }),
+    ];
+    const next = [
+      job({ job_id: 1, appid: 632360, status: 'done' }),
+      job({ job_id: 2, appid: 632360, status: 'done' }),
+    ];
+    expect(terminalTransitionAppids(prev, next)).toEqual([632360]);
+  });
+
+  it('ignores lingering terminal rows on hydrate (job unknown to the previous snapshot)', () => {
+    const next = [job({ job_id: 1, status: 'done' }), job({ job_id: 2, status: 'failed' })];
+    expect(terminalTransitionAppids([], next)).toEqual([]);
+  });
+
+  it('ignores jobs that stay active or stay terminal across snapshots', () => {
+    const prev = [
+      job({ job_id: 1, status: 'downloading' }),
+      job({ job_id: 2, status: 'done' }),
+    ];
+    const next = [
+      job({ job_id: 1, status: 'downloading', percent: 80 }),
+      job({ job_id: 2, status: 'done' }),
+    ];
+    expect(terminalTransitionAppids(prev, next)).toEqual([]);
   });
 });

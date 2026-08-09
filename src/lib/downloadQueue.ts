@@ -12,7 +12,7 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { addEventListener, removeEventListener } from '@decky/api';
 import { QueueJob } from '../types';
-import { getDownloadQueue } from './api';
+import { ensureModloaderLaunchOptions, getDownloadQueue, getGameStatus } from './api';
 
 let jobs: QueueJob[] = [];
 const listeners = new Set<() => void>();
@@ -87,6 +87,36 @@ export function summarize(all: QueueJob[]): QueueSummary {
   };
 }
 
+/**
+ * Appids whose jobs just reached a terminal status in this snapshot. A job counts only when
+ * the previous snapshot knew it as active — a fresh hydrate (prev unknown) must not re-fire
+ * for the done/failed rows that linger in the queue for the "Clear finished" UI.
+ */
+export function terminalTransitionAppids(prev: QueueJob[], next: QueueJob[]): number[] {
+  const prevStatus = new Map(prev.map(j => [j.job_id, j.status]));
+  const appids = new Set<number>();
+  for (const j of next) {
+    const was = prevStatus.get(j.job_id);
+    if (!isActiveStatus(j.status) && was !== undefined && isActiveStatus(was)) appids.add(j.appid);
+  }
+  return [...appids];
+}
+
+// A queued install can (re)install a game's modloader entirely in the backend — e.g. a modpack
+// reinstall after its uninstall ref-counted the loader away, which also removed the loader's
+// launch option. The backend can't touch launch options (SteamClient is frontend-only), so
+// without this the game silently boots vanilla until the user happens to open its mod page
+// (the ModPage self-heal). Heal on every terminal transition: ensure* is a no-op unless the
+// loader is installed + enabled with options to apply, so failed/cancelled jobs and loaderless
+// games cost one status read. Fire-and-forget: the queue UI must not wait on it.
+function healLaunchOptionsAfter(prev: QueueJob[], next: QueueJob[]): void {
+  for (const appid of terminalTransitionAppids(prev, next)) {
+    getGameStatus(appid)
+      .then(g => { if (g) ensureModloaderLaunchOptions(g); })
+      .catch(() => {});
+  }
+}
+
 let stateListener: ((...args: any[]) => void) | undefined;
 let progressListener: ((...args: any[]) => void) | undefined;
 
@@ -95,8 +125,10 @@ export function initDownloadQueue(): void {
   getDownloadQueue().then(initial => { jobs = initial ?? []; emit(); }).catch(() => {});
 
   stateListener = addEventListener<[next: QueueJob[]]>('queue_state', (next) => {
+    const prev = jobs;
     jobs = next ?? [];
     emit();
+    healLaunchOptionsAfter(prev, jobs);
   });
   // Patch just the active job's percent/sub_label without waiting for the next full snapshot.
   progressListener = addEventListener<[jobId: number, percent: number, subLabel: string]>(
