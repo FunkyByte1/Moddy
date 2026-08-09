@@ -145,7 +145,10 @@ class ThunderstoreProvider(ModProvider):
             id=item["full_name"],
             name=item["name"],
             description=latest.get("description", ""),
-            filename=item["name"],
+            # full_name, not name: `filename` keys the on-disk folder, version backups
+            # (<filename>.v*.bak discovery), and legacy-path fallbacks — all of which now
+            # follow r2modman's <Owner>-<Name> convention.
+            filename=item["full_name"],
             source=registry.ModSource(
                 type="thunderstore", owner=item["owner"], repo=item["name"], install_type="zip_dir",
             ),

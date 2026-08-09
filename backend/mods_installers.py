@@ -24,7 +24,7 @@ async def _install_mod_zip_dir(game: GameProfile, install_dir: str, mods_path: s
       plugins/patchers/monomod content lands in a per-mod `<Owner>-<Name>/` subfolder
       (r2modman's layout; mods that enumerate "their" folder — asset bundles, languages —
       break when several packages merge into one shared dir), core/ merges as-is.
-    - Otherwise: extract as a single folder under BepInEx/plugins/<mod.filename>/.
+    - Otherwise: extract as a single per-mod folder under BepInEx/plugins/<Owner>-<Name>/.
     """
     import zipfile
 
@@ -46,8 +46,8 @@ async def _install_mod_zip_dir(game: GameProfile, install_dir: str, mods_path: s
         # Bare-DLL layout: no recognized BepInEx folders, but loose .dll files at the
         # zip root (e.g. PaladinMod, BiggerBazaar, Aetherium). Common Thunderstore shape.
         if any(f.lower().endswith(".dll") for f in top_files):
-            return _extract_bare_dll(game.appid, mods_path, mod, version, tmp_zip)
-        return _extract_to_mods_folder(game.appid, mods_path, mod, version, tmp_zip)
+            return _extract_bare_dll(game.appid, install_dir, mods_path, mod, version, tmp_zip)
+        return _extract_to_mods_folder(game.appid, install_dir, mods_path, mod, version, tmp_zip)
     except utils.InstallCancelledError:
         decky.logger.info(f"Install of {mod.name} was cancelled")
         return None
@@ -160,13 +160,31 @@ def _extract_bepinex_subdirs(appid: int, install_dir: str, mod: ModInfo, version
     )
 
 
-def _extract_bare_dll(appid: int, mods_path: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
+def _retire_stale_dir_locations(appid: int, install_dir: str, mods_path: str, mod: ModInfo, dst_dir: str) -> None:
+    """Remove a folder mod's previous on-disk locations after a reinstall whose folder name
+    moved (e.g. the pre-r2modman `<Name>/` layout → `<Owner>-<Name>/`). Without this the old
+    copy stays behind and BepInEx double-loads the plugin. Reads the OLD record (paths, or the
+    legacy filename-derived folder), so it must run before set_installed_record rewrites it."""
+    import shutil
+    old = mods._load_store(appid).get(mod.id) or {}
+    candidates = [os.path.join(install_dir, rel) for rel in (old.get("paths") or [])]
+    old_filename = old.get("filename")
+    if old_filename:
+        candidates.append(os.path.join(mods_path, old_filename))
+    for cand in candidates:
+        if os.path.abspath(cand) != os.path.abspath(dst_dir) and os.path.isdir(cand):
+            shutil.rmtree(cand)
+            decky.logger.info(f"Removed stale previous install at {os.path.relpath(cand, install_dir)}")
+
+
+def _extract_bare_dll(appid: int, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
     """Install a bare-DLL Thunderstore mod: loose .dll/.pdb files at the zip root
-    (plus possibly sidecar asset folders) extracted into BepInEx/plugins/<mod.filename>/.
-    Thunderstore metadata files (manifest.json, icon.png, README.md, CHANGELOG.md, LICENSE)
-    are skipped to keep the plugin folder clean."""
+    (plus possibly sidecar asset folders) extracted into a per-mod
+    BepInEx/plugins/<Owner>-<Name>/ folder (r2modman's layout). Thunderstore metadata
+    (manifest.json, icon.png, README.md) is kept — r2modman ships it into the folder,
+    and mods like Cloudburst read their own icon.png at runtime."""
     import zipfile
-    dst_dir = os.path.join(mods_path, mod.filename)
+    dst_dir = os.path.join(mods_path, _ts_pkg_dir(mod))
     staged = dst_dir + ".moddy-new"  # sibling: same filesystem, so the swap is a rename
     if os.path.exists(staged):
         _discard(staged)
@@ -177,16 +195,14 @@ def _extract_bare_dll(appid: int, mods_path: str, mod: ModInfo, version: str | N
             for member in z.namelist():
                 if member.endswith("/"):
                     continue
-                parts = member.split("/")
-                # Skip Thunderstore metadata at the zip root
-                if len(parts) == 1 and parts[0].lower() in _THUNDERSTORE_METADATA_FILES:
-                    continue
                 z.extract(member, staged)
                 extracted += 1
 
         mods_common._backup_version_dir(appid, dst_dir, mod.id)  # version-history snapshot of the install being replaced
         mods_common._atomic_dir_swap(dst_dir, staged)
-        mods.set_installed_record(appid, mod.id, version or "latest", mod.filename, mod=mod)
+        _retire_stale_dir_locations(appid, install_dir, mods_path, mod, dst_dir)
+        mods.set_installed_record(appid, mod.id, version or "latest", mod.filename,
+                                  paths=[os.path.relpath(dst_dir, install_dir)], mod=mod)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'}) — {extracted} files in bare-DLL layout")
         return True
     finally:
@@ -194,12 +210,12 @@ def _extract_bare_dll(appid: int, mods_path: str, mod: ModInfo, version: str | N
             _discard(staged)
 
 
-def _extract_to_mods_folder(appid: int, mods_path: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
-    """Extract the zip as a single folder under BepInEx/plugins/<mod.filename>/.
-    Backs up the existing folder if one is present.
+def _extract_to_mods_folder(appid: int, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
+    """Extract the zip as a single per-mod folder under BepInEx/plugins/<Owner>-<Name>/
+    (r2modman's layout). Backs up the existing folder if one is present.
     """
     import zipfile, shutil
-    dst_dir = os.path.join(mods_path, mod.filename)
+    dst_dir = os.path.join(mods_path, _ts_pkg_dir(mod))
     staged = dst_dir + ".moddy-new"      # sibling: same filesystem, so the swap is a rename
     tmp_extract = dst_dir + "_extract"   # scratch for stripping a single wrapper folder
     for p in (staged, tmp_extract):
@@ -218,7 +234,9 @@ def _extract_to_mods_folder(appid: int, mods_path: str, mod: ModInfo, version: s
 
         mods_common._backup_version_dir(appid, dst_dir, mod.id)  # version-history snapshot of the install being replaced
         mods_common._atomic_dir_swap(dst_dir, staged)
-        mods.set_installed_record(appid, mod.id, version or "latest", mod.filename, mod=mod)
+        _retire_stale_dir_locations(appid, install_dir, mods_path, mod, dst_dir)
+        mods.set_installed_record(appid, mod.id, version or "latest", mod.filename,
+                                  paths=[os.path.relpath(dst_dir, install_dir)], mod=mod)
         decky.logger.info(f"Installed {mod.name} ({version or 'latest'})")
         return True
     finally:

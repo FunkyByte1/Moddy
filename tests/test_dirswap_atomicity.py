@@ -66,7 +66,7 @@ class DirSwapAtomicityTest(unittest.TestCase):
     def test_bare_dll_install_and_swap(self):
         tmp_zip = self._zip({"Cool.dll": b"v1", "manifest.json": "{}"})
         mod = make_mod(install_type="zip_dir", filename="Cool")
-        self.assertTrue(mods._extract_bare_dll(1, self.mods_path, mod, "1.0.0", tmp_zip))
+        self.assertTrue(mods._extract_bare_dll(1, self.install_dir, self.mods_path, mod, "1.0.0", tmp_zip))
         self.assertTrue(self.exists("Cool/Cool.dll"))
         self.assertFalse(self.exists("Cool.moddy-new"))
         self.assertFalse(self.exists("Cool.moddy-old"))
@@ -85,7 +85,7 @@ class DirSwapAtomicityTest(unittest.TestCase):
         mod = make_mod(mod_id="m", install_type="zip_dir", filename="Cool")
         with _FailingExtract(fail_on=2):
             with self.assertRaises(OSError):
-                mods._extract_bare_dll(1, self.mods_path, mod, "2.0.0", tmp_zip)
+                mods._extract_bare_dll(1, self.install_dir, self.mods_path, mod, "2.0.0", tmp_zip)
         self.assertEqual(tree_snapshot(self.mods_path), before, "failed extraction must leave v1 in place")
         self.assertFalse(self.exists("Cool.moddy-new"))
         self.assertFalse(self.exists("Cool.moddy-old"))
@@ -98,7 +98,7 @@ class DirSwapAtomicityTest(unittest.TestCase):
 
         tmp_zip = self._zip({"Cool.dll": b"v2"})
         mod = make_mod(mod_id="m", install_type="zip_dir", filename="Cool")
-        self.assertTrue(mods._extract_bare_dll(1, self.mods_path, mod, "2.0.0", tmp_zip))
+        self.assertTrue(mods._extract_bare_dll(1, self.install_dir, self.mods_path, mod, "2.0.0", tmp_zip))
         # New version live, old version preserved as a .v1.0.0.bak snapshot.
         with open(os.path.join(self.mods_path, "Cool", "Cool.dll"), "rb") as f:
             self.assertEqual(f.read(), b"v2")
@@ -110,7 +110,7 @@ class DirSwapAtomicityTest(unittest.TestCase):
     def test_mods_folder_single_wrapper_swap(self):
         tmp_zip = self._zip({"Wrapper/a.dll": b"a", "Wrapper/sub/b.dll": b"b"})
         mod = make_mod(install_type="zip_dir", filename="Cool")
-        self.assertTrue(mods._extract_to_mods_folder(1, self.mods_path, mod, "1.0.0", tmp_zip))
+        self.assertTrue(mods._extract_to_mods_folder(1, self.install_dir, self.mods_path, mod, "1.0.0", tmp_zip))
         self.assertTrue(self.exists("Cool/a.dll"))
         self.assertTrue(self.exists("Cool/sub/b.dll"))
         for crumb in ("Cool.moddy-new", "Cool.moddy-old", "Cool_extract"):
@@ -120,7 +120,7 @@ class DirSwapAtomicityTest(unittest.TestCase):
         # No single wrapper: multiple top-level dirs extract straight into the staged folder.
         tmp_zip = self._zip({"A/a.dll": b"a", "B/b.dll": b"b"})
         mod = make_mod(install_type="zip_dir", filename="Cool")
-        self.assertTrue(mods._extract_to_mods_folder(1, self.mods_path, mod, "1.0.0", tmp_zip))
+        self.assertTrue(mods._extract_to_mods_folder(1, self.install_dir, self.mods_path, mod, "1.0.0", tmp_zip))
         self.assertTrue(self.exists("Cool/A/a.dll"))
         self.assertTrue(self.exists("Cool/B/b.dll"))
 
@@ -139,7 +139,7 @@ class DirSwapAtomicityTest(unittest.TestCase):
                 raise OSError("simulated extractall failure")
             zipfile.ZipFile.extractall = boom
             with self.assertRaises(OSError):
-                mods._extract_to_mods_folder(1, self.mods_path, mod, "2.0.0", tmp_zip)
+                mods._extract_to_mods_folder(1, self.install_dir, self.mods_path, mod, "2.0.0", tmp_zip)
         finally:
             zipfile.ZipFile.extractall = real_extractall
         self.assertEqual(tree_snapshot(self.mods_path), before, "failed extraction must leave the old folder in place")

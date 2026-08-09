@@ -159,14 +159,33 @@ class ExtractorCharacterization(unittest.TestCase):
             "manifest.json": "{}",
             "README.md": "hi",
         })
-        mod = make_mod(install_type="zip_dir", filename="Cool")
-        ok = mods._extract_bare_dll(1, mods_path, mod, "1.0.0", tmp_zip)
+        mod = make_mod(install_type="zip_dir", filename="Cool", owner="Team", repo="Cool")
+        ok = mods._extract_bare_dll(1, self.install_dir, mods_path, mod, "1.0.0", tmp_zip)
         self.assertTrue(ok)
-        self.assertTrue(os.path.isfile(os.path.join(mods_path, "Cool", "Cool.dll")))
-        self.assertTrue(os.path.isfile(os.path.join(mods_path, "Cool", "Cool.pdb")))
-        # Metadata at zip root is skipped.
-        self.assertFalse(os.path.exists(os.path.join(mods_path, "Cool", "manifest.json")))
-        self.assertFalse(os.path.exists(os.path.join(mods_path, "Cool", "README.md")))
+        # Per-mod <Owner>-<Name>/ folder; metadata is kept (r2modman ships it, and mods
+        # like Cloudburst read their own icon.png at runtime).
+        self.assertTrue(os.path.isfile(os.path.join(mods_path, "Team-Cool", "Cool.dll")))
+        self.assertTrue(os.path.isfile(os.path.join(mods_path, "Team-Cool", "Cool.pdb")))
+        self.assertTrue(os.path.isfile(os.path.join(mods_path, "Team-Cool", "manifest.json")))
+        self.assertTrue(os.path.isfile(os.path.join(mods_path, "Team-Cool", "README.md")))
+        rec = mods.get_installed_record(1, mod.id)
+        self.assertEqual(rec["paths"], ["BepInEx/plugins/Team-Cool"])
+
+    def test_extract_bare_dll_reinstall_retires_old_layout_folder(self):
+        """Upgrading a mod recorded under the pre-r2modman folder name must remove the old
+        folder — otherwise BepInEx loads both copies of the DLL."""
+        mods_path = os.path.join(self.install_dir, "BepInEx", "plugins")
+        old_dir = os.path.join(mods_path, "Cool")
+        os.makedirs(old_dir)
+        with open(os.path.join(old_dir, "Cool.dll"), "wb") as f:
+            f.write(b"v1")
+        mod = make_mod(install_type="zip_dir", filename="Cool", owner="Team", repo="Cool")
+        mods.set_installed_record(1, mod.id, "0.9.0", "Cool", mod=mod)  # legacy record: filename-derived dir, no paths
+        tmp_zip = self._zip({"Cool.dll": b"v2"})
+        ok = mods._extract_bare_dll(1, self.install_dir, mods_path, mod, "1.0.0", tmp_zip)
+        self.assertTrue(ok)
+        self.assertFalse(os.path.exists(old_dir))
+        self.assertTrue(os.path.isfile(os.path.join(mods_path, "Team-Cool", "Cool.dll")))
 
     def test_extract_to_mods_folder_single_wrapper(self):
         mods_path = os.path.join(self.install_dir, "BepInEx", "plugins")
@@ -175,14 +194,16 @@ class ExtractorCharacterization(unittest.TestCase):
             "Wrapper/a.dll": b"a",
             "Wrapper/sub/b.dll": b"b",
         })
-        mod = make_mod(install_type="zip_dir", filename="Cool")
-        ok = mods._extract_to_mods_folder(1, mods_path, mod, "1.0.0", tmp_zip)
+        mod = make_mod(install_type="zip_dir", filename="Cool", owner="Team", repo="Cool")
+        ok = mods._extract_to_mods_folder(1, self.install_dir, mods_path, mod, "1.0.0", tmp_zip)
         self.assertTrue(ok)
-        # The single wrapper folder is stripped: contents land under <filename>/.
-        self.assertTrue(os.path.isfile(os.path.join(mods_path, "Cool", "a.dll")))
-        self.assertTrue(os.path.isfile(os.path.join(mods_path, "Cool", "sub", "b.dll")))
+        # The single wrapper folder is stripped: contents land under the per-mod folder.
+        self.assertTrue(os.path.isfile(os.path.join(mods_path, "Team-Cool", "a.dll")))
+        self.assertTrue(os.path.isfile(os.path.join(mods_path, "Team-Cool", "sub", "b.dll")))
         # The _extract scratch dir is cleaned up.
-        self.assertFalse(os.path.exists(os.path.join(mods_path, "Cool_extract")))
+        self.assertFalse(os.path.exists(os.path.join(mods_path, "Team-Cool_extract")))
+        rec = mods.get_installed_record(1, mod.id)
+        self.assertEqual(rec["paths"], ["BepInEx/plugins/Team-Cool"])
 
 
 class ZipFlatCharacterization(unittest.TestCase):

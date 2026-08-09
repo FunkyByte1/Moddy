@@ -421,6 +421,19 @@ async def uninstall_mod(game: GameProfile, install_dir: str, mod_id: str) -> boo
             if os.path.isdir(legacy):
                 shutil.rmtree(legacy)
                 decky.logger.info(f"Removed legacy {filename}/")
+            # Folder mods that record paths (r2modman-layout zip_dir) keep their version-history
+            # snapshots as <dir>.v<ver>.bak siblings — sweep those too, like the no-paths dir
+            # branch below does for <filename>.v*.bak.
+            if is_dir_mod:
+                for relpath in paths:
+                    parent, base = os.path.split(os.path.join(install_dir, relpath))
+                    if not os.path.isdir(parent):
+                        continue
+                    for entry in os.listdir(parent):
+                        if entry.startswith(f"{base}.v") and entry.endswith(".bak"):
+                            bak = os.path.join(parent, entry)
+                            shutil.rmtree(bak) if os.path.isdir(bak) else os.remove(bak)
+                            decky.logger.info(f"Removed backup {entry}")
             # Restore any stock game file this mod overwrote at install, for slots no other mod
             # still claims. Done before the prune so the restored file keeps its parent dir.
             mods_common._restore_originals(game.appid, install_dir, mods_path, [os.path.join(install_dir, p) for p in paths], mod_id)
