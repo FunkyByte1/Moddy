@@ -5,8 +5,7 @@ import { useState, useEffect } from 'react';
 import contextMenuPatch, { LibraryContextMenu } from './lib/contextMenuPatch';
 import ModPage from './pages/ModPage';
 import SettingsPage from './pages/SettingsPage';
-import { GameStatus } from './types';
-import { getSupportedAppids, getSupportedGames, exportLogs, getStoreHealth, QuarantineEvent, cancelDownloadJob, clearFinishedDownloads } from './lib/api';
+import { getSupportedAppids, exportLogs, getStoreHealth, QuarantineEvent, cancelDownloadJob, clearFinishedDownloads } from './lib/api';
 import { initDownloadQueue, teardownDownloadQueue, useDownloadQueue, summarize, isActiveStatus, jobStatusText } from './lib/downloadQueue';
 import { promptVariant } from './components/DownloadQueueModal';
 
@@ -136,12 +135,6 @@ function StoreHealthNotice() {
 }
 
 function Content() {
-  const [games, setGames] = useState<GameStatus[]>([]);
-
-  useEffect(() => {
-    getSupportedGames().then(setGames);
-  }, []);
-
   return (
     <>
       <StoreHealthNotice />
@@ -155,15 +148,6 @@ function Content() {
             Settings
           </ButtonItem>
         </PanelSectionRow>
-      </PanelSection>
-      <PanelSection title="Supported Games">
-        {games.map(game => (
-          <PanelSectionRow key={game.appid}>
-            <div style={{ color: game.installed ? 'inherit' : 'var(--gpColorTextSecondary)' }}>
-              {game.name}{!game.installed ? ' (not installed)' : ''}
-            </div>
-          </PanelSectionRow>
-        ))}
         <PanelSectionRow>
           <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.85em', marginTop: '8px' }}>
             Press the Start button on a supported game to manage its mods.
