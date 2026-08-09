@@ -182,7 +182,8 @@ def _member_closure(provider, game, ref, seen: set, out: list) -> None:
 
 
 async def run_modpack(appid: int, full_name: str, job) -> "bool | None":
-    """Install a modpack's whole dependency tree (best-effort, at latest), stamping the modpack's
+    """Install a modpack's whole dependency tree at the pack's PINNED versions (best-effort;
+    transitive deps the manifest omits float to latest), stamping the modpack's
     collection:<full_name> provenance on every member so the Installed tab groups them and a later
     "uninstall modpack" ref-counts them. The modpack package's own (empty) archive is never installed.
     Returns True if anything installed/claimed, False on failure, None on cancel. A cancel rolls back
@@ -196,11 +197,11 @@ async def run_modpack(appid: int, full_name: str, job) -> "bool | None":
         decky.logger.error(f"modpack {full_name}: not found in catalog / not a modpack")
         return False
 
-    deps = []
+    deps = []  # (full_name, pinned_version) — a modpack's dep list is a FROZEN, tested set
     for dep in _deps(pkg):
         parsed = thunderstore.parse_dep(dep)
         if parsed:
-            deps.append(parsed[0])
+            deps.append(parsed)
         else:
             decky.logger.warning(f"modpack {full_name}: unparseable dependency {dep!r}")
     if not deps:
@@ -219,8 +220,8 @@ async def run_modpack(appid: int, full_name: str, job) -> "bool | None":
     # claim already-present members. Walked from the deps — the modpack package itself is never a member.
     members: list = []
     member_seen: set = set()
-    for dep in deps:
-        _member_closure(provider, game, dep, member_seen, members)
+    for fn, _pinned in deps:
+        _member_closure(provider, game, fn, member_seen, members)
     # Already-installed members: claim them for this modpack (ref-counting) without re-downloading.
     present = [r for r in members
                if mods.installed_files_present(game, install_dir, provider.key(r))]
@@ -242,24 +243,57 @@ async def run_modpack(appid: int, full_name: str, job) -> "bool | None":
     for ref in present:
         mods.add_record_source(game.appid, ref, source)
 
+    # Pass 1 — the pack's own list at its EXACT pinned versions (r2modman semantics: the pack
+    # author froze a tested set; floating members to latest produces combinations nobody tested —
+    # SurvivorDLC pins Starstorm2 0.6.31 precisely because newer SS2 breaks it). with_deps=False:
+    # walking dep manifests here would install floating-latest copies before their pinned turn in
+    # this same list (the cascade's seen-set would then block the pin). Members already on disk
+    # were claimed above and keep their installed version rather than being force-downgraded.
     seen: set = set()
-    for dep in deps:
+    for fn, pinned in deps:
         if getattr(job, "cancel_requested", False):
             await _rollback_run()
             return None
+        if mods.installed_files_present(game, install_dir, provider.key(fn)):
+            continue  # claimed above; a pin would force a reinstall/downgrade
         try:
             res = await install_cascade.run_cascade(
-                provider, game, install_dir, dep, None, seen=seen, installed=installed_ids,
-                top=True, with_deps=True, allow_missing=True, source=source,
+                provider, game, install_dir, fn, pinned, seen=seen, installed=installed_ids,
+                top=True, with_deps=False, allow_missing=True, source=source,
             )
         except Exception as e:  # noqa: BLE001 — one bad mod must not abort the whole modpack
-            decky.logger.error(f"modpack {full_name}: {dep} errored: {e}")
+            decky.logger.error(f"modpack {full_name}: {fn} errored: {e}")
             res = False
         if res is None:
             await _rollback_run()
             return None  # cancelled mid-download
         if res is False:
-            await download_queue.note_warning(f"Couldn't install {dep}")
+            await download_queue.note_warning(f"Couldn't install {fn}")
+
+    # Pass 2 — safety net for transitive deps a pack manifest omitted: sweep the precomputed
+    # closure and install anything still absent at latest (no pin exists for these). Fresh seen —
+    # pass 1 marked every pack member, which would otherwise no-op this walk. Everything pass 1
+    # placed (or claimed) skips on the files-present check.
+    seen2: set = set()
+    for ref in members:
+        if getattr(job, "cancel_requested", False):
+            await _rollback_run()
+            return None
+        if mods.installed_files_present(game, install_dir, provider.key(ref)):
+            continue
+        try:
+            res = await install_cascade.run_cascade(
+                provider, game, install_dir, ref, None, seen=seen2, installed=installed_ids,
+                top=True, with_deps=True, allow_missing=True, source=source,
+            )
+        except Exception as e:  # noqa: BLE001
+            decky.logger.error(f"modpack {full_name}: {ref} errored: {e}")
+            res = False
+        if res is None:
+            await _rollback_run()
+            return None
+        if res is False:
+            await download_queue.note_warning(f"Couldn't install {ref}")
 
     decky.logger.info(f"modpack {full_name}: {len(installed_ids)} newly installed, "
                       f"{len(present)} already present (of {len(members)} members)")

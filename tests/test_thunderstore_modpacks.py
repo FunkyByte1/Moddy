@@ -48,11 +48,13 @@ class ThunderstoreModpacksTest(unittest.TestCase):
         )
         self.catalog = {}            # full_name.lower() -> CatalogItem
         self.installs = []           # (mod.id, source_id) passed to install_mod, in order
+        self.install_versions = {}   # mod.id -> version passed to install_mod
         self.install_results = {}    # id -> result override (default True)
         self.rolled_back = []        # ids uninstalled by rollback
 
         async def _install_mod(game, install_dir, mod, version=None, url=None, variant=None, source=None):
             self.installs.append((mod.id, (source or {}).get("id")))
+            self.install_versions[mod.id] = version
             res = self.install_results.get(mod.id, True)
             if res is True:
                 # Mimic the real install_mod: write the record + files on disk and stamp provenance, so
@@ -176,15 +178,39 @@ class ThunderstoreModpacksTest(unittest.TestCase):
     # ── install ──────────────────────────────────────────────────────────────────
     def test_run_modpack_installs_members_with_modpack_source(self):
         self.add_pkg("A-One")
-        self.add_pkg("B-Two", deps=["A-One"])  # transitive dep
+        self.add_pkg("B-Two", deps=["A-One"])  # transitive dep the pack list omits
         self.add_modpack("Curator-Pack", deps=["B-Two"])
         res = run(tm.run_modpack(632360, "Curator-Pack", _Job()))
         self.assertTrue(res)
         installed_ids = [i[0] for i in self.installs]
-        self.assertEqual(installed_ids, ["A-One", "B-Two"], "deps install depth-first")
+        # Pass 1 installs the pack's pinned list; pass 2 sweeps in transitive deps the
+        # manifest omitted (A-One). Order across passes is not meaningful to BepInEx.
+        self.assertEqual(sorted(installed_ids), ["A-One", "B-Two"])
         self.assertNotIn("Curator-Pack", installed_ids, "the modpack package itself is never installed")
         for _id, sid in self.installs:
             self.assertEqual(sid, "collection:Curator-Pack", "every member is stamped with the modpack source")
+
+    def test_run_modpack_installs_pinned_versions_not_latest(self):
+        """A modpack's dep list is a frozen, tested set — members must install at the pack's
+        pinned version even when the catalog's latest is newer (the SurvivorDLC crash: the pack
+        pins Starstorm2 0.6.31, floating to 0.6.39 produced a combination nobody tested)."""
+        self.add_pkg("Team-SS2", version="2.0.0")            # catalog latest = 2.0.0
+        self.add_modpack("Curator-Pack", deps=["Team-SS2"])  # dep string pins Team-SS2-1.0.0
+        res = run(tm.run_modpack(632360, "Curator-Pack", _Job()))
+        self.assertTrue(res)
+        self.assertEqual(self.install_versions["Team-SS2"], "1.0.0",
+                         "member installs at the pack's pin, not the catalog's latest")
+
+    def test_run_modpack_present_member_is_kept_not_downgraded(self):
+        """A member already on disk (e.g. manually installed, possibly newer) is claimed as-is;
+        the pin must not force a reinstall/downgrade of the user's copy."""
+        self.add_pkg("Team-SS2", version="2.0.0")
+        self.add_modpack("Curator-Pack", deps=["Team-SS2"])
+        self.mark_installed_on_disk("Team-SS2")
+        res = run(tm.run_modpack(632360, "Curator-Pack", _Job()))
+        self.assertTrue(res)
+        self.assertEqual(self.installs, [], "present member is claimed, never re-downloaded at the pin")
+        self.assertIn("collection:Curator-Pack", self.sources_of("Team-SS2"))
 
     def test_run_modpack_claims_already_present_member(self):
         self.add_pkg("A-One")
