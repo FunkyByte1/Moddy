@@ -250,3 +250,59 @@ class ZipFlatCharacterization(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZipDirNonZipArchive(unittest.TestCase):
+    """zip_dir downloads that aren't zips (.7z/.rar — Subnautica Nexus mods like
+    CyclopsEnhancement_Sonar) are extracted via the system-extractor stack and repacked as a
+    zip, then flow through the normal shape detection unchanged."""
+
+    def setUp(self):
+        reset_store()
+        import tempfile
+        self.install_dir = tempfile.mkdtemp(prefix="moddy-game-")
+        self.game = make_game(mods_dir="BepInEx/plugins")
+        self.mods_path = os.path.join(self.install_dir, "BepInEx", "plugins")
+        os.makedirs(self.mods_path)
+        import mods_archive
+        self.mods_archive = mods_archive
+        self._orig_download = utils.download
+        self._orig_extract = mods_archive.extract_archive
+
+    def tearDown(self):
+        utils.download = self._orig_download
+        self.mods_archive.extract_archive = self._orig_extract
+
+    def test_7z_archive_repacked_and_installed(self):
+        async def fake_download(url, dest, appid, expected_hash=None):
+            with open(dest, "wb") as f:
+                f.write(b"7z\xbc\xaf\x27\x1c" + b"\x00" * 32)  # 7z magic — not a zip
+        utils.download = fake_download
+
+        def fake_extract(archive_path, dest_dir):
+            os.makedirs(dest_dir, exist_ok=True)
+            with open(os.path.join(dest_dir, "CoolMod.dll"), "wb") as f:
+                f.write(b"dll")
+        self.mods_archive.extract_archive = fake_extract
+
+        mod = make_mod(install_type="zip_dir", filename="Cool", owner="Team", repo="Cool")
+        ok = run(mods._install_mod_zip_dir(self.game, self.install_dir, self.mods_path, mod, "1.0.0", "https://x/m.7z"))
+        self.assertTrue(ok)
+        # Bare-DLL shape detected post-repack -> per-mod folder, temp archive cleaned up.
+        self.assertTrue(os.path.isfile(os.path.join(self.mods_path, "Team-Cool", "CoolMod.dll")))
+        self.assertFalse(os.path.exists(os.path.join(self.mods_path, "Cool_tmp.zip")))
+
+    def test_unextractable_archive_fails_cleanly(self):
+        async def fake_download(url, dest, appid, expected_hash=None):
+            with open(dest, "wb") as f:
+                f.write(b"\x00garbage-not-an-archive")
+        utils.download = fake_download
+
+        def fake_extract(archive_path, dest_dir):
+            raise Exception("no extractor found")
+        self.mods_archive.extract_archive = fake_extract
+
+        mod = make_mod(install_type="zip_dir", filename="Cool", owner="Team", repo="Cool")
+        ok = run(mods._install_mod_zip_dir(self.game, self.install_dir, self.mods_path, mod, "1.0.0", "https://x/m.bin"))
+        self.assertFalse(ok)  # error surfaces as a failed install, not a crash
+        self.assertFalse(os.path.exists(os.path.join(self.mods_path, "Cool_tmp.zip")))

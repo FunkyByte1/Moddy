@@ -15,6 +15,34 @@ from install_txn import _StagedInstall, _discard
 _THUNDERSTORE_METADATA_FILES = {"manifest.json", "icon.png", "readme.md", "changelog.md", "license", "license.md", "license.txt"}
 
 
+def _repack_to_zip(archive_path: str) -> None:
+    """Convert a non-zip mod archive into a zip IN PLACE. Nexus zip_dir games ship .7z/.rar
+    alongside zips (Subnautica: CyclopsEnhancement_Sonar.7z et al); extraction goes through the
+    same magic-routed system-extractor stack as the natives path (7z → bsdtar → unrar, symlink-
+    hardened), then repacks so zip_dir's shape detection and placement stay single-format."""
+    import zipfile, shutil
+    extract_dir = archive_path + "_x"
+    repacked = archive_path + "_repack"
+    for p in (extract_dir, repacked):
+        if os.path.isdir(p):
+            shutil.rmtree(p)
+        elif os.path.exists(p):
+            os.remove(p)
+    try:
+        mods_archive.extract_archive(archive_path, extract_dir)
+        with zipfile.ZipFile(repacked, "w") as z:
+            for root, _dirs, files in os.walk(extract_dir):
+                for f in files:
+                    full = os.path.join(root, f)
+                    z.write(full, os.path.relpath(full, extract_dir))
+        os.replace(repacked, archive_path)
+    finally:
+        if os.path.isdir(extract_dir):
+            shutil.rmtree(extract_dir)
+        if os.path.exists(repacked):
+            os.remove(repacked)
+
+
 async def _install_mod_zip_dir(game: GameProfile, install_dir: str, mods_path: str, mod: ModInfo, version: str | None, url: str | None) -> bool | None:
     """Install a Thunderstore-style zip mod.
 
@@ -32,6 +60,9 @@ async def _install_mod_zip_dir(game: GameProfile, install_dir: str, mods_path: s
     try:
         decky.logger.info(f"Downloading {mod.name} from {utils.redact_url(url)}")
         await utils.download(url, tmp_zip, game.appid)
+
+        if not zipfile.is_zipfile(tmp_zip):
+            _repack_to_zip(tmp_zip)  # .7z/.rar → zip, or raise a real extractor error
 
         with zipfile.ZipFile(tmp_zip, "r") as z:
             members = z.namelist()
