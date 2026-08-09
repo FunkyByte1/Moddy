@@ -80,6 +80,7 @@ Sign in with your Nexus Mods account (Settings → Nexus Mods account). Premium 
 - Resident Evil Village
 - Slime Rancher 2
 - Stardew Valley
+- Subnautica
 
 ### Steam Workshop
 No setup. Moddy subscribes the mods through Steam.
@@ -123,11 +124,6 @@ No setup. Moddy subscribes the mods through Steam.
 ### Other
 - Balatro *(via [Balatro Mod Index](https://github.com/skyline69/balatro-mod-index))*
 - Satisfactory *(via [ficsit.app](https://ficsit.app))*
-
-### Planned
-- Vampire Survivors
-- Subnautica
-- and more :)
 
 ## Mod Sources
 

@@ -1,0 +1,9 @@
+{
+  "id": "subnautica",
+  "name": "Subnautica",
+  "appid": 264710,
+  "mods_dir": "BepInEx/plugins",
+  "mods_dir_type": "game",
+  "modloader_ids": ["bepinex-subnautica"],
+  "catalog": { "type": "nexus", "nexus_domain": "subnautica", "install_type": "zip_dir" }
+}

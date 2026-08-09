@@ -1,0 +1,17 @@
+{
+  "id": "bepinex-subnautica",
+  "name": "Tobey's BepInEx Pack",
+  "files": ["winhttp.dll", "doorstop_config.ini", ".doorstop_version"],
+  "dirs": ["BepInEx"],
+  "indicator": "BepInEx",
+  "ready_indicator": null,
+  "launch_options": "WINEDLLOVERRIDES=\"winhttp=n,b\" %command%",
+  "source": {
+    "type": "github",
+    "owner": "toebeann",
+    "repo": "BepInEx.Subnautica",
+    "asset": "Tobey.s.BepInEx.Pack.for.Subnautica.zip",
+    "install_type": "zip_into_game"
+  },
+  "nexus_skip_ids": ["1108"]
+}
