@@ -1,12 +1,13 @@
-import { ButtonItem, ConfirmModal, Navigation, PanelSection, PanelSectionRow, ToggleField, showModal } from '@decky/ui';
+import { ButtonItem, ConfirmModal, PanelSection, PanelSectionRow, ToggleField, showModal } from '@decky/ui';
 import { toaster } from '@decky/api';
 import { FC, useState, useEffect } from 'react';
 
 import {
   getSetting, setSetting, NSFW_ENABLED, NSFW_DEFAULT_ON,
-  nexusAccount, nexusLoginStart, nexusLoginWait, nexusLoginCancel, nexusSignOut, NexusAccount,
+  nexusAccount, nexusLoginCancel, nexusSignOut, NexusAccount,
   getSupportedGames, resetGame, removeModloaderLaunchOptions,
 } from '../lib/api';
+import { signInToNexus } from '../lib/nexusSignIn';
 import { gamesNeedingReset, resetAllSummary, PerGameReset } from '../lib/resetAll';
 import ResetGameModal from '../components/modals/ResetGameModal';
 import { GameStatus } from '../types';
@@ -154,16 +155,6 @@ function NsfwToggle() {
 }
 
 // A human-readable message for a failed sign-in reason from the backend.
-function loginErrorMessage(reason?: string): string {
-  switch (reason) {
-    case 'port_in_use': return "Couldn't start sign-in — the local port is busy. Close any other sign-in attempt and try again.";
-    case 'timeout': return 'Sign-in timed out or was cancelled.';
-    case 'exchange_failed': return 'Nexus rejected the sign-in. Please try again.';
-    case 'not_configured': return "Nexus sign-in isn't available in this build.";
-    case 'access_denied': return 'Sign-in was declined.';
-    default: return "Sign-in didn't complete. Please try again.";
-  }
-}
 
 // Nexus Mods account — account-global sign-in via OAuth2 + PKCE, used by the Nexus Browse
 // tab and installs. Replaces the old personal-API-key field: the user signs in through the
@@ -179,25 +170,10 @@ function NexusAccountField() {
   const signIn = async () => {
     setError(null);
     setBusy(true);
-    try {
-      const start = await nexusLoginStart();
-      if (!start.ok || !start.authorize_url) {
-        setError(loginErrorMessage(start.reason));
-        return;
-      }
-      // Hand off to the browser; the backend's loopback listener catches the redirect.
-      Navigation.NavigateToExternalWeb(start.authorize_url);
-      const result = await nexusLoginWait();
-      if (result.ok) {
-        await refresh();
-      } else {
-        setError(loginErrorMessage(result.reason));
-      }
-    } catch {
-      setError(loginErrorMessage());
-    } finally {
-      setBusy(false);
-    }
+    const err = await signInToNexus();  // shared flow — also used by the Browse empty state
+    if (err) setError(err);
+    else await refresh();
+    setBusy(false);
   };
 
   const cancel = () => { nexusLoginCancel().catch(() => {}); };

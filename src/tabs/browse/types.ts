@@ -58,6 +58,9 @@ export interface PagedVenueAdapter {
   installModel: 'queue' | 'inline';    // queue → optimistic pending + queue footer; inline → local busy
   hasFilter: boolean;                  // filter button + client-side filtering via pagedVisible
   emptyText: string;                   // shown when the first page is empty (no search)
+  // The venue needs a signed-in Nexus account: the empty state offers the inline OAuth sign-in
+  // button (only while actually signed out) and reloads the catalog on success.
+  nexusSignIn?: boolean;
   installNotice?: string;              // Workshop: shown under the Install button when not installed
 
   // Fetch one page. The WHOLE filter is passed (replacing the old scalar nsfw/sort args): a

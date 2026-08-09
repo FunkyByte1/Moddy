@@ -33,7 +33,8 @@ export const collectionsAdapter: PagedVenueAdapter = {
   // A collection is installed as a whole set; it's managed/removed from the Installed tab, not
   // item-by-item here — so an already-installed collection shows a disabled "Installed", not "Uninstall".
   noUninstall: true,
-  emptyText: 'No collections found — sign in to Nexus Mods in Moddy\'s Settings and check your network.',
+  emptyText: 'No collections found — sign in to Nexus Mods, or check your network.',
+  nexusSignIn: true,
   installNotice: 'Installs every required mod in this collection (with the curator’s installer choices). This can take a while; watch the download queue.',
 
   async fetchPage(game, query, page) {
@@ -85,6 +86,7 @@ export const modpacksAdapter: PagedVenueAdapter = {
   searchLabel: 'Search modpacks',
   catalogName: 'Modpacks',
   emptyText: 'No modpacks found — check your network and try again.',
+  nexusSignIn: false,  // inherited spread would carry the Nexus flag; Thunderstore needs no account
   installNotice: 'Installs every mod in this modpack (its full set of dependencies). This can take a while; watch the download queue.',
   detail(item): BrowseDetail {
     const c = item.raw as CollectionItem;

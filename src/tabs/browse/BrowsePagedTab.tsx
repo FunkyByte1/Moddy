@@ -1,8 +1,10 @@
-import { ButtonItem, Focusable, PanelSection, PanelSectionRow, ScrollPanelGroup, Spinner, TextField } from '@decky/ui';
+import { ButtonItem, DialogButton, Focusable, PanelSection, PanelSectionRow, ScrollPanelGroup, Spinner, TextField } from '@decky/ui';
 import { toaster } from '@decky/api';
 import { FC, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 
 import { GameStatus } from '../../types';
+import { nexusAccount, NexusAccount } from '../../lib/api';
+import { signInToNexus } from '../../lib/nexusSignIn';
 import { useQueueFooterProps } from '../../components/DownloadQueueModal';
 import { CatalogSourceLabel } from '../../components/CatalogSource';
 import { centerInView } from '../../components/centerInView';
@@ -20,6 +22,41 @@ export type { BrowsePagedFilter } from './pagedFilter';
 const ScrollArea = (ScrollPanelGroup ?? Focusable) as FC<any>;
 const PAGE_FULL = 25;
 const LEFT_PANEL_WIDTH = 320;
+
+// Inline Nexus sign-in for a Nexus-venue empty state (adapter.nexusSignIn): instead of sending the
+// user to Settings, run the same OAuth flow right here and reload the catalog on success. Rendered
+// only while actually signed OUT — an empty catalog while signed in is a network problem, and a
+// sign-in button would be a red herring.
+const NexusSignInAction: FC<{ onSignedIn: () => void }> = ({ onSignedIn }) => {
+  const [account, setAccount] = useState<NexusAccount | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    nexusAccount().then(a => { if (!cancelled) setAccount(a); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!account || account.signed_in) return null;
+
+  const go = async () => {
+    setBusy(true);
+    const err = await signInToNexus();
+    setBusy(false);
+    if (err) {
+      toaster.toast({ title: 'Moddy', body: err });
+    } else {
+      toaster.toast({ title: 'Moddy', body: 'Signed in to Nexus Mods' });
+      onSignedIn();
+    }
+  };
+
+  return (
+    <DialogButton disabled={busy} onClick={go} style={{ marginTop: 10, width: 'auto', minWidth: 220 }}>
+      {busy ? 'Waiting for sign-in…' : 'Sign in with Nexus Mods'}
+    </DialogButton>
+  );
+};
 
 const Row: FC<{
   item: BrowseItem; selected: boolean; installed: boolean;
@@ -79,6 +116,8 @@ const BrowsePagedTab: FC<{
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // Bumped after an inline Nexus sign-in succeeds, to re-fetch a catalog that failed signed-out.
+  const [retryKey, setRetryKey] = useState(0);
   // After a search is submitted (Enter/R2), keep focus on the search field instead of jumping into
   // the list. blur() (below) dismisses the on-screen keyboard; we then re-focus the input AFTER the
   // dismiss has finished — a bare focus (no click) doesn't reopen it (see useAutoKeyboard), but
@@ -122,7 +161,7 @@ const BrowsePagedTab: FC<{
     // on the whole object would re-fetch and reset the selection (setSelectedIndex(0)) on every
     // install — jumping the detail panel to the first mod. Installed-status (badge + Install/Uninstall
     // button) updates independently via the installedIds memo below, which DOES key on `game`.
-  }, [adapter, game.appid, debounced, fetchKey, refreshKey, ready]);
+  }, [adapter, game.appid, debounced, fetchKey, refreshKey, ready, retryKey]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
@@ -210,6 +249,9 @@ const BrowsePagedTab: FC<{
             <div style={{ padding: 24, color: 'var(--gpColorTextSecondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, textAlign: 'center' }}>
               <span style={{ fontSize: '2.6em', opacity: 0.55, lineHeight: 1 }}>∅</span>
               <span>{debounced ? 'No matches.' : adapter.emptyText}</span>
+              {!debounced && adapter.nexusSignIn && (
+                <NexusSignInAction onSignedIn={() => setRetryKey(k => k + 1)} />
+              )}
             </div>
           ) : visible.length === 0 ? (
             <div style={{ padding: 24, color: 'var(--gpColorTextSecondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, textAlign: 'center' }}>
