@@ -21,7 +21,9 @@ async def _install_mod_zip_dir(game: GameProfile, install_dir: str, mods_path: s
     Smart-detects layout:
     - `BepInEx/` at zip root: merge into the game's BepInEx tree (e.g. HookGenPatcher).
     - `plugins/`/`patchers/`/`monomod/`/`core/` at zip root: modern Thunderstore layout —
-      same merge but the zip omits the `BepInEx/` prefix.
+      plugins/patchers/monomod content lands in a per-mod `<Owner>-<Name>/` subfolder
+      (r2modman's layout; mods that enumerate "their" folder — asset bundles, languages —
+      break when several packages merge into one shared dir), core/ merges as-is.
     - Otherwise: extract as a single folder under BepInEx/plugins/<mod.filename>/.
     """
     import zipfile
@@ -57,7 +59,7 @@ async def _install_mod_zip_dir(game: GameProfile, install_dir: str, mods_path: s
             os.remove(tmp_zip)
 
 
-def _merge_zip_into_tree(appid: int, install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str, select) -> bool:
+def _merge_zip_into_tree(appid: int, install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str, select, old_paths=None) -> bool:
     """Merge selected zip members into the live install_dir tree atomically.
 
     `select(member)` maps a zip member to its install-dir-relative destination, or returns None to
@@ -92,6 +94,11 @@ def _merge_zip_into_tree(appid: int, install_dir: str, mod: ModInfo, version: st
                 placements.append((staged_abs, rel))
 
         with _StagedInstall(install_dir) as txn:
+            # Retire the previous install's files first: a reinstall whose layout moved
+            # (e.g. flat plugins root → per-mod subfolder) must not leave the old copy
+            # behind for BepInEx to double-load.
+            for p in old_paths or ():
+                txn.retire(p)
             for staged_abs, rel in placements:
                 txn.place(staged_abs, rel)
 
@@ -104,26 +111,52 @@ def _merge_zip_into_tree(appid: int, install_dir: str, mod: ModInfo, version: st
             shutil.rmtree(staging)
 
 
+def _ts_pkg_dir(mod: ModInfo) -> str:
+    """Per-mod folder name under BepInEx/plugins|patchers|monomod — r2modman's
+    `<Owner>-<Name>` convention, so mods that resolve paths relative to their own
+    folder see the layout they were authored against."""
+    return f"{mod.source.owner}-{mod.source.repo}" if mod.source.owner and mod.source.repo else mod.filename
+
+
 def _extract_to_game_root(appid: int, install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str) -> bool:
-    """Extract only the BepInEx/* members of the zip into the game's install dir.
-    Records which files under BepInEx/ this mod owns, so uninstall can clean up. Other top-level
-    zip entries (manifest.json, icon.png, README.md) are skipped to keep the game root clean.
+    """Extract the BepInEx/* members of the zip into the game's install dir verbatim.
+    Everything else (root-level DLLs like SeekersPatcher's plugin half, manifest.json /
+    icon.png / README.md that mods may read at runtime) follows r2modman's default rule:
+    it lands in the per-mod BepInEx/plugins/<Owner>-<Name>/ folder — dropping such files
+    silently loses plugin halves and leaves BepInDependency chains unsatisfiable.
+    Records every placed file, so uninstall can clean up.
     """
+    pkg_dir = _ts_pkg_dir(mod)
     return _merge_zip_into_tree(
         appid, install_dir, mod, version, tmp_zip,
-        select=lambda m: m if m.startswith("BepInEx/") else None,
+        select=lambda m: m if m.startswith("BepInEx/") else f"BepInEx/plugins/{pkg_dir}/{m}",
+        old_paths=(mods._load_store(appid).get(mod.id) or {}).get("paths"),
     )
 
 
 def _extract_bepinex_subdirs(appid: int, install_dir: str, mod: ModInfo, version: str | None, tmp_zip: str, subdirs: set) -> bool:
     """Thunderstore "modern" layout: zip has plugins/, patchers/, monomod/, or core/ at
-    its root. These are BepInEx subdirectories — merge them into the game's BepInEx/
-    tree so files land at e.g. BepInEx/plugins/<modname>/<dll>. Stray top-level files
-    (manifest.json, icon.png, README.md) are skipped to keep BepInEx clean.
+    its root. plugins/patchers/monomod content goes into a per-mod `<Owner>-<Name>/`
+    subfolder (r2modman's layout — the one mods are authored against; merging packages
+    into the shared roots collides on folders like assetbundles/, which mods enumerate
+    wholesale at runtime). core/ merges into BepInEx/core/ as-is: it's loader plumbing
+    that must sit at fixed paths. Anything else — root-level DLLs and the manifest.json /
+    icon.png / README.md some mods read at runtime — follows r2modman's default rule into
+    the per-mod plugins folder rather than being dropped.
     """
+    pkg_dir = _ts_pkg_dir(mod)
+
+    def select(m):
+        top, _, rest = m.partition("/")
+        if top not in subdirs or not rest:
+            return f"BepInEx/plugins/{pkg_dir}/{m}"
+        if top == "core":
+            return f"BepInEx/core/{rest}"
+        return f"BepInEx/{top}/{pkg_dir}/{rest}"
+
     return _merge_zip_into_tree(
-        appid, install_dir, mod, version, tmp_zip,
-        select=lambda m: f"BepInEx/{m}" if m.split("/")[0] in subdirs else None,
+        appid, install_dir, mod, version, tmp_zip, select,
+        old_paths=(mods._load_store(appid).get(mod.id) or {}).get("paths"),
     )
 
 

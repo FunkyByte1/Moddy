@@ -37,28 +37,118 @@ class ExtractorCharacterization(unittest.TestCase):
             "manifest.json": "{}",
             "icon.png": b"png",
         })
-        mod = make_mod(install_type="zip_dir", filename="Cool")
+        mod = make_mod(install_type="zip_dir", filename="Cool", owner="Team", repo="Cool")
         ok = mods._extract_to_game_root(1, self.install_dir, mod, "1.0.0", tmp_zip)
         self.assertTrue(ok)
-        # Only BepInEx/* members land; metadata files are skipped.
+        # BepInEx/* members land verbatim; root-level files follow r2modman's default rule
+        # into the per-mod plugins folder (mods like Cloudburst read their icon.png there).
         self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/plugins/Cool/Cool.dll")))
         self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/patchers/Cool/patch.dll")))
         self.assertFalse(os.path.exists(os.path.join(self.install_dir, "manifest.json")))
+        self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/plugins/Team-Cool/manifest.json")))
+        self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/plugins/Team-Cool/icon.png")))
         rec = mods.get_installed_record(1, mod.id)
-        self.assertEqual(rec["paths"], ["BepInEx/patchers/Cool/patch.dll", "BepInEx/plugins/Cool/Cool.dll"])
+        self.assertEqual(rec["paths"], [
+            "BepInEx/patchers/Cool/patch.dll",
+            "BepInEx/plugins/Cool/Cool.dll",
+            "BepInEx/plugins/Team-Cool/icon.png",
+            "BepInEx/plugins/Team-Cool/manifest.json",
+        ])
+
+    def test_extract_to_game_root_keeps_root_level_plugin_dll(self):
+        """SeekersPatcher shape: BepInEx/patchers/* plus the package's PLUGIN half as a
+        root-level DLL. Dropping the root DLL leaves BepInDependency chains unsatisfiable
+        and (for SeekersPatcher specifically) breaks the SotS addressables remap."""
+        tmp_zip = self._zip({
+            "BepInEx/patchers/SeekersPatcher/SeekersPatcher.dll": b"patcher",
+            "SeekersPatcherDLL.dll": b"plugin-half",
+            "manifest.json": "{}",
+        })
+        mod = make_mod(mod_id="pseudopulse-SeekersPatcher", install_type="zip_dir",
+                       filename="SeekersPatcher", owner="pseudopulse", repo="SeekersPatcher")
+        ok = mods._extract_to_game_root(1, self.install_dir, mod, "1.0.0", tmp_zip)
+        self.assertTrue(ok)
+        self.assertTrue(os.path.isfile(os.path.join(
+            self.install_dir, "BepInEx/patchers/SeekersPatcher/SeekersPatcher.dll")))
+        self.assertTrue(os.path.isfile(os.path.join(
+            self.install_dir, "BepInEx/plugins/pseudopulse-SeekersPatcher/SeekersPatcherDLL.dll")))
 
     def test_extract_bepinex_subdirs(self):
         tmp_zip = self._zip({
             "plugins/Cool/Cool.dll": b"dll",
             "manifest.json": "{}",
         })
-        mod = make_mod(install_type="zip_dir", filename="Cool")
+        mod = make_mod(install_type="zip_dir", filename="Cool", owner="Team", repo="Cool")
         ok = mods._extract_bepinex_subdirs(1, self.install_dir, mod, "1.0.0", tmp_zip, {"plugins"})
         self.assertTrue(ok)
-        self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/plugins/Cool/Cool.dll")))
+        # plugins/ content lands in a per-mod <Owner>-<Name>/ subfolder (r2modman layout);
+        # root-level metadata joins it there rather than being dropped.
+        self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/plugins/Team-Cool/Cool/Cool.dll")))
         self.assertFalse(os.path.exists(os.path.join(self.install_dir, "BepInEx/manifest.json")))
         rec = mods.get_installed_record(1, mod.id)
-        self.assertEqual(rec["paths"], ["BepInEx/plugins/Cool/Cool.dll"])
+        self.assertEqual(rec["paths"], [
+            "BepInEx/plugins/Team-Cool/Cool/Cool.dll",
+            "BepInEx/plugins/Team-Cool/manifest.json",
+        ])
+
+    def test_extract_bepinex_subdirs_patchers_and_core(self):
+        tmp_zip = self._zip({
+            "plugins/Cool.dll": b"dll",
+            "patchers/CoolPatcher.dll": b"patch",
+            "monomod/Cool.mm.dll": b"mm",
+            "core/CoreLib.dll": b"core",
+        })
+        mod = make_mod(install_type="zip_dir", filename="Cool", owner="Team", repo="Cool")
+        ok = mods._extract_bepinex_subdirs(1, self.install_dir, mod, "1.0.0", tmp_zip,
+                                           {"plugins", "patchers", "monomod", "core"})
+        self.assertTrue(ok)
+        # plugins/patchers/monomod are per-mod; core/ merges as-is (loader plumbing, fixed paths).
+        self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/plugins/Team-Cool/Cool.dll")))
+        self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/patchers/Team-Cool/CoolPatcher.dll")))
+        self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/monomod/Team-Cool/Cool.mm.dll")))
+        self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/core/CoreLib.dll")))
+
+    def test_extract_bepinex_subdirs_no_shared_folder_collision(self):
+        """Two packages both shipping plugins/assetbundles/ must not merge into one shared
+        folder — mods enumerate "their" assetbundles dir wholesale at runtime, and loading
+        another mod's bundle crashes Unity's content load (the RoR2 SurvivorDLC 73% hang)."""
+        zip_a = build_zip(os.path.join(self.scratch, "a.zip"), {
+            "plugins/MSU.Runtime.dll": b"msu",
+            "plugins/assetbundles/runtimebundle": b"msu-bundle",
+        })
+        zip_b = build_zip(os.path.join(self.scratch, "b.zip"), {
+            "plugins/Starstorm2.dll": b"ss2",
+            "plugins/assetbundles/ss2bundle": b"ss2-bundle",
+        })
+        mod_a = make_mod(mod_id="TeamMoonstorm-MSU", install_type="zip_dir", filename="MSU",
+                         owner="TeamMoonstorm", repo="MSU")
+        mod_b = make_mod(mod_id="TeamMoonstorm-Starstorm2", install_type="zip_dir", filename="Starstorm2",
+                         owner="TeamMoonstorm", repo="Starstorm2")
+        self.assertTrue(mods._extract_bepinex_subdirs(1, self.install_dir, mod_a, "1.0.0", zip_a, {"plugins"}))
+        self.assertTrue(mods._extract_bepinex_subdirs(1, self.install_dir, mod_b, "1.0.0", zip_b, {"plugins"}))
+        base = os.path.join(self.install_dir, "BepInEx/plugins")
+        self.assertTrue(os.path.isfile(os.path.join(base, "TeamMoonstorm-MSU/assetbundles/runtimebundle")))
+        self.assertTrue(os.path.isfile(os.path.join(base, "TeamMoonstorm-Starstorm2/assetbundles/ss2bundle")))
+        # No shared assetbundles dir at the plugins root.
+        self.assertFalse(os.path.exists(os.path.join(base, "assetbundles")))
+
+    def test_extract_bepinex_subdirs_reinstall_retires_old_flat_layout(self):
+        """A reinstall must remove the files the previous install placed (recorded `paths`),
+        even when the layout moved — otherwise BepInEx double-loads the stale flat copy."""
+        tmp_zip = self._zip({"plugins/Cool.dll": b"v2"})
+        mod = make_mod(install_type="zip_dir", filename="Cool", owner="Team", repo="Cool")
+        # Simulate a pre-existing install under the OLD flat layout.
+        old_flat = os.path.join(self.install_dir, "BepInEx/plugins/Cool.dll")
+        os.makedirs(os.path.dirname(old_flat))
+        with open(old_flat, "wb") as f:
+            f.write(b"v1")
+        mods.set_installed_record(1, mod.id, "0.9.0", mod.filename, paths=["BepInEx/plugins/Cool.dll"], mod=mod)
+        ok = mods._extract_bepinex_subdirs(1, self.install_dir, mod, "1.0.0", tmp_zip, {"plugins"})
+        self.assertTrue(ok)
+        self.assertFalse(os.path.exists(old_flat))
+        self.assertTrue(os.path.isfile(os.path.join(self.install_dir, "BepInEx/plugins/Team-Cool/Cool.dll")))
+        rec = mods.get_installed_record(1, mod.id)
+        self.assertEqual(rec["paths"], ["BepInEx/plugins/Team-Cool/Cool.dll"])
 
     def test_extract_bare_dll(self):
         mods_path = os.path.join(self.install_dir, "BepInEx", "plugins")
