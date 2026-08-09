@@ -1,10 +1,77 @@
 import { ButtonItem, ConfirmModal, Navigation, PanelSection, PanelSectionRow, ToggleField, showModal } from '@decky/ui';
+import { toaster } from '@decky/api';
 import { FC, useState, useEffect } from 'react';
 
 import {
   getSetting, setSetting, NSFW_ENABLED, NSFW_DEFAULT_ON,
   nexusAccount, nexusLoginStart, nexusLoginWait, nexusLoginCancel, nexusSignOut, NexusAccount,
+  getSupportedGames, resetGame, removeModloaderLaunchOptions,
 } from '../lib/api';
+import { gamesNeedingReset, resetAllSummary, PerGameReset } from '../lib/resetAll';
+import ResetGameModal from '../components/modals/ResetGameModal';
+import { GameStatus } from '../types';
+
+// Settings → Maintenance: reset EVERY modded game in one go — the ModPage per-game reset,
+// looped. The backend reset can't touch launch options (SteamClient is frontend-only), so each
+// game's options are removed here after its reset, mirroring the ModPage flow.
+function ResetAllGamesButton() {
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const runAll = async (games: GameStatus[]) => {
+    const results: PerGameReset[] = [];
+    for (let i = 0; i < games.length; i++) {
+      const g = games[i];
+      setBusy(`Resetting ${g.name} (${i + 1} of ${games.length})…`);
+      try {
+        const r = await resetGame(g.appid);
+        if (r.ok || r.mods_removed > 0 || r.modloader_removed) {
+          removeModloaderLaunchOptions(g.appid, g.modloader_launch_options);
+        }
+        results.push({ name: g.name, result: r });
+      } catch (e) {
+        console.error('[Moddy] reset-all failed for', g.name, e);
+        results.push({ name: g.name, result: null });
+      }
+    }
+    setBusy(null);
+    toaster.toast({ title: 'Moddy', body: resetAllSummary(results) });
+  };
+
+  const onClick = async () => {
+    setBusy('Checking games…');
+    const games = gamesNeedingReset(await getSupportedGames().catch(() => [] as GameStatus[]));
+    setBusy(null);
+    if (games.length === 0) {
+      toaster.toast({ title: 'Moddy', body: 'Nothing to reset — no games have mods or a mod loader installed' });
+      return;
+    }
+    const shown = games.slice(0, 6).map(g => g.name).join(', ');
+    const more = games.length > 6 ? ` and ${games.length - 6} more` : '';
+    showModal(
+      <ResetGameModal
+        gameName="all games"
+        lockoutSeconds={3}
+        body={<>
+          This removes every installed mod and mod loader from{' '}
+          <b>{games.length} game{games.length === 1 ? '' : 's'}</b> ({shown}{more}),
+          restoring each to its original, unmodded state. Saved profiles are kept.{' '}
+          <span style={{ color: '#ff4d4d', fontWeight: 'bold' }}>
+            This permanently deletes all installed mods and cannot be undone.
+          </span>
+        </>}
+        onConfirm={(close) => { close(); runAll(games); }}
+      />
+    );
+  };
+
+  return (
+    <PanelSectionRow>
+      <ButtonItem layout="below" disabled={busy !== null} onClick={onClick}>
+        {busy ?? 'Reset all games…'}
+      </ButtonItem>
+    </PanelSectionRow>
+  );
+}
 
 // Account-global gate for NSFW content. Off by default; when on, each game's Browse
 // filter gains a "Show NSFW" checkbox (itself off by default) — a deliberate two-step
@@ -219,6 +286,9 @@ const SettingsPage: FC = () => (
     </PanelSection>
     <PanelSection title="Content">
       <NsfwToggle />
+    </PanelSection>
+    <PanelSection title="Maintenance">
+      <ResetAllGamesButton />
     </PanelSection>
   </div>
 );

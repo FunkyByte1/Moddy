@@ -1,5 +1,5 @@
 import { ButtonItem, ModalRoot } from '@decky/ui';
-import { FC, useState, useEffect } from 'react';
+import { FC, ReactNode, useState, useEffect } from 'react';
 
 const LOCKOUT_SECONDS = 1;
 
@@ -7,11 +7,13 @@ const ResetGameModal: FC<{
   gameName: string;
   onConfirm: (closeModal: () => void) => void;
   closeModal?: () => void;
-}> = ({ gameName, onConfirm, closeModal }) => {
+  body?: ReactNode;         // override the single-game description (e.g. the reset-ALL variant)
+  lockoutSeconds?: number;  // longer lockout for bigger blast radii
+}> = ({ gameName, onConfirm, closeModal, body, lockoutSeconds }) => {
   const close = closeModal ?? (() => {});
   // Brief lockout so the destructive button can't be hit reflexively the instant
   // the modal pops up.
-  const [countdown, setCountdown] = useState(LOCKOUT_SECONDS);
+  const [countdown, setCountdown] = useState(lockoutSeconds ?? LOCKOUT_SECONDS);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -28,11 +30,15 @@ const ResetGameModal: FC<{
           Reset {gameName}?
         </div>
         <div style={{ color: 'var(--gpColorTextSecondary)', fontSize: '0.9em', marginBottom: '16px' }}>
-          This removes every installed mod and the mod loader, restoring the game to its
-          original, unmodded state. Your saved profiles are kept.{' '}
-          <span style={{ color: '#ff4d4d', fontWeight: 'bold' }}>
-            This permanently deletes all installed mods and cannot be undone.
-          </span>
+          {body ?? (
+            <>
+              This removes every installed mod and the mod loader, restoring the game to its
+              original, unmodded state. Your saved profiles are kept.{' '}
+              <span style={{ color: '#ff4d4d', fontWeight: 'bold' }}>
+                This permanently deletes all installed mods and cannot be undone.
+              </span>
+            </>
+          )}
         </div>
         {/* Cancel first so it takes default gamepad focus — the user must arrow down
             to the destructive Reset action (which is also locked out below). */}
