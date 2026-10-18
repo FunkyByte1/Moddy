@@ -3,6 +3,9 @@
 Thanks for your interest in improving Moddy. This covers the local dev setup, deploying a build to a
 Steam Deck, and how games get added.
 
+Moddy has limited maintenance (see [Project status](README.md#project-status)), so PR reviews may be slow.
+If you'd like to take on a bigger role, or carry the project forward in a fork, you're welcome to.
+
 ## Requirements
 
 - Node.js v20+

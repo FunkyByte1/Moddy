@@ -6,6 +6,13 @@
 
 A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for one-click mod installation and management on Steam Deck, directly in Game Mode.
 
+## Project status
+
+> [!IMPORTANT]
+> **Moddy has limited maintenance.** Because of life circumstances, I won't have much time for Moddy going forward. I'll do my best to keep it working, but updates, bug fixes, and replies to issues will be slow and infrequent.
+>
+> **Anyone who wants to pick up the project is welcome to.** Fork it and run with it, or open an issue or PR if you'd like to help maintain it here. It's licensed under the [GPL-3.0](#license), so you're free to build on it. [CONTRIBUTING.md](CONTRIBUTING.md) covers the dev setup and how games get added.
+
 ## Install
 
 Moddy isn't in the Decky store yet, so install it from its URL:
@@ -134,7 +141,7 @@ Nexus access uses the official API with **OAuth sign-in** (you log in with your 
 
 ## Reporting issues
 
-Moddy is in alpha. There are plenty of bugs, and I'm well aware. You don't need to report every rough edge yet, but if you hit something and feel like flagging it, you're completely welcome to open an issue on the [GitHub issue tracker](../../issues). If you do, please include:
+Moddy is in alpha. There are plenty of bugs, and I'm well aware. You don't need to report every rough edge yet, but if you hit something and feel like flagging it, you're completely welcome to open an issue on the [GitHub issue tracker](../../issues). Given the [project status](#project-status), I may be slow to respond. If you do open one, please include:
 
 - What game and mod you were installing
 - What you expected vs. what happened
