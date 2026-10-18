@@ -1,6 +1,6 @@
 {
   "name": "moddy",
-  "version": "2026.6.15",
+  "version": "2026.10.18",
   "description": "One-click mod installation and management for supported games on Steam Deck.",
   "type": "module",
   "packageManager": "pnpm@9.15.9",

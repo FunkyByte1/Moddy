@@ -1,0 +1,35 @@
+name: Bug report
+description: Something went wrong installing or managing a mod
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Moddy has [limited maintenance](https://github.com/FunkyByte1/Moddy#project-status), so replies may be slow. A log bundle makes it much easier to track down the problem.
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      placeholder: e.g. Lethal Company
+    validations:
+      required: true
+  - type: input
+    id: mod
+    attributes:
+      label: Mod or mod loader
+      description: Its name, plus a link if you have one (Thunderstore, Nexus, Workshop, ...).
+      placeholder: e.g. MoreCompany, BepInEx
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log bundle
+      description: |
+        In the Decky panel, open **Moddy → Diagnostics → Export logs**. This saves `moddy-logs-<timestamp>.zip` to your Steam Deck's Desktop. Switch to Desktop Mode and drag the zip into this box. Your Nexus credentials are not included.
+      placeholder: Drag the moddy-logs zip here
