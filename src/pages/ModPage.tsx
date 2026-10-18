@@ -252,6 +252,19 @@ const ModPage: FC = () => {
     );
   }
 
+  // Configure Mods is offered for owned-but-uninstalled games too. Nothing here works without an
+  // install dir (the backend refuses loader/mod installs), and a Steam Workshop game would build
+  // an empty tab list — no Mod Loader tab, and the rest wait on modloader_ready, which needs the
+  // install dir — which crashes Steam's Tabs.
+  if (!game.installed) {
+    return (
+      <div style={{ padding: '24px', color: 'var(--gpColorTextSecondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px', textAlign: 'center', height: '100%' }}>
+        <span style={{ fontSize: '2.8em', opacity: 0.55, lineHeight: 1 }}>⊘</span>
+        <span>{game.name} isn't installed. Install it from Steam to manage its mods.</span>
+      </div>
+    );
+  }
+
   const handleCancelInstall = async () => {
     const { cancelInstall } = await import('../lib/api');
     await cancelInstall();
