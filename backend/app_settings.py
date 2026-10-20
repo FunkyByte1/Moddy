@@ -15,10 +15,10 @@ the user's own device under the plugin's private settings dir (chmod 0o600), so 
 how Decky plugins persist credentials generally.
 """
 
-import json
 import os
 
 import decky
+import json_store
 
 _SETTINGS = None  # in-memory cache of the whole settings dict
 _MTIME = None     # mtime the cache was built from, so we notice external edits to the file
@@ -39,21 +39,15 @@ def _load() -> dict:
     """Return the settings dict, re-reading the file whenever its mtime has changed since
     the cache was built. Settings can be edited on disk out-of-band (Desktop Mode / SSH), so a
     cache that never reloaded would keep serving stale values — NSFW off, a stale token — until
-    the next plugin restart. Keying the cache on mtime picks external edits up on the next read."""
+    the next plugin restart. Keying the cache on mtime picks external edits up on the next read.
+    The file itself goes through json_store, so a corrupt one is quarantined rather than
+    silently overwritten by the next save."""
     global _SETTINGS, _MTIME
     path = _path()
     mtime = _file_mtime(path)
     if _SETTINGS is not None and mtime == _MTIME:
         return _SETTINGS
-    try:
-        if os.path.isfile(path):
-            with open(path, "r") as f:
-                _SETTINGS = json.load(f)
-                _MTIME = mtime
-                return _SETTINGS
-    except Exception as e:
-        decky.logger.error(f"Failed to load settings: {e}")
-    _SETTINGS = {}
+    _SETTINGS = json_store.read(path)
     _MTIME = mtime
     return _SETTINGS
 
@@ -63,32 +57,16 @@ def get_setting(key: str, default=None):
 
 
 def _persist(store: dict) -> bool:
-    """Atomically write the whole settings dict (temp file + rename) and refresh the cache."""
+    """Atomically write the whole settings dict and refresh the cache. Owner-only (0o600):
+    the file holds the user's Nexus OAuth token. Single-user device, but this keeps the
+    secret out of group/other-readable reach as a basic hardening."""
     global _SETTINGS, _MTIME
     path = _path()
-    tmp = path + ".tmp"
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(tmp, "w") as f:
-            json.dump(store, f, indent=2)
-        os.replace(tmp, path)
-        # Owner-only: the file holds the user's Nexus OAuth token. Single-user device, but this
-        # keeps the secret out of group/other-readable reach as a basic hardening.
-        try:
-            os.chmod(path, 0o600)
-        except Exception:
-            pass
-        _SETTINGS = store
-        _MTIME = _file_mtime(path)  # our own write; don't mistake it for an external edit
-        return True
-    except Exception as e:
-        decky.logger.error(f"Failed to save settings: {e}")
-        if os.path.exists(tmp):
-            try:
-                os.remove(tmp)
-            except Exception:
-                pass
+    if not json_store.write(path, store, mode=0o600):
         return False
+    _SETTINGS = store
+    _MTIME = _file_mtime(path)  # our own write; don't mistake it for an external edit
+    return True
 
 
 def set_setting(key: str, value) -> bool:
@@ -99,8 +77,7 @@ def set_setting(key: str, value) -> bool:
 
 
 def delete_setting(key: str) -> bool:
-    """Remove a key from the store (used to purge the legacy Nexus API key after OAuth).
-    Returns True if a key was actually removed."""
+    """Remove a key from the store. Returns True if a key was actually removed."""
     store = _load()
     if key not in store:
         return False
@@ -109,10 +86,6 @@ def delete_setting(key: str) -> bool:
 
 
 # ── Nexus convenience ─────────────────────────────────────────────────────────
-# Legacy personal API key. Auth now goes through the OAuth token below (see nexus_oauth.py);
-# this constant survives only so the one-time on-load purge can find and delete a stale key.
-NEXUS_API_KEY = "nexus_api_key"
-
 # OAuth token bundle: {access_token, refresh_token, expires_at}. Managed by nexus_oauth.
 NEXUS_OAUTH = "nexus_oauth"
 

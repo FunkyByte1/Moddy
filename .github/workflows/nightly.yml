@@ -51,13 +51,34 @@ jobs:
           SHORT_SHA=${GITHUB_SHA::7}
           ZIP="releases/moddy-nightly-${SHORT_SHA}.zip"
           STABLE_ZIP="releases/moddy-nightly.zip"
+          MANIFEST="releases/moddy-latest.json"
           cp "$ZIP" "$STABLE_ZIP"
+
+          # Update manifest that installed copies poll (backend/moddy_update.py). Decky doesn't
+          # update URL-installed plugins, so this is how every build in the wild learns about a
+          # newer one. Optional .github/update-notice.txt is shown to ALL builds, current or not
+          # (e.g. "this build can lose data, update now") — delete the file to clear it.
+          # Old builds parse this forever: only ever ADD fields, never rename or remove one.
+          NOTICE_FILE=.github/update-notice.txt node -e "
+            const fs = require('fs');
+            const f = process.env.NOTICE_FILE;
+            const notice = fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim() : '';
+            const m = {
+              version: require('./package.json').version,
+              commit: process.env.GITHUB_SHA,
+              published_at: new Date().toISOString(),
+              download_url: 'https://github.com/${PUBLIC_REPO}/releases/download/${TAG}/moddy-nightly.zip',
+            };
+            if (notice) m.notice = notice;
+            fs.writeFileSync('$MANIFEST', JSON.stringify(m, null, 2) + '\n');
+            console.log(fs.readFileSync('$MANIFEST', 'utf8'));
+          "
 
           # Remove the previous nightly release + tag so the new one rolls forward.
           gh release delete "$TAG" --repo "$PUBLIC_REPO" --yes --cleanup-tag || true
 
           # Same repo now, so pin the rolling tag to the exact build commit.
-          gh release create "$TAG" "$ZIP" "$STABLE_ZIP" \
+          gh release create "$TAG" "$ZIP" "$STABLE_ZIP" "$MANIFEST" \
             --repo "$PUBLIC_REPO" \
             --target "$GITHUB_SHA" \
             --title "Nightly ($SHORT_SHA)" \

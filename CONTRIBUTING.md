@@ -72,3 +72,18 @@ simplest case (see `registry/games/brotato.json`): little more than the appid an
 **new mod loader integration** (e.g. UE4SS), or a **new install/extraction layout** (how a downloaded
 archive maps onto the game's folders) requires Python in `backend/` plus tests under `tests/`. The
 data-driven path covers reuse; genuinely new mechanics don't.
+
+## Keeping old installs working
+
+Installed copies don't auto-update, so every build that ever shipped is still out there. Three rules:
+
+- **Store files** (`installed.json`, `settings.json`): when you change a file's shape, bump its number
+  in `SCHEMAS` in `backend/json_store.py` and add a step to `MIGRATIONS` that upgrades the previous
+  version. Older builds treat a newer file as read-only instead of overwriting it.
+- **Update manifest** (`moddy-latest.json`, published by `.github/workflows/nightly.yml`): only add
+  fields, never rename or remove one. Every shipped build parses it. To show a message to all
+  builds (for example "this version can lose data, please update"), commit
+  `.github/update-notice.txt`; delete it to clear the message.
+- **Stable identifiers**: the plugin name in `plugin.json`, registry game and mod loader ids, and the
+  `.moddy-*` marker names left in game folders are all baked into users' data. Renaming any of them
+  needs a migration.

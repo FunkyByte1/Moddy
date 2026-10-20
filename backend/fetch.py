@@ -48,13 +48,14 @@ def request(
     return urllib.request.Request(url, headers=merged, data=data, method=method)
 
 
-def fetch_json(url: str, headers: dict | None = None) -> dict | list | None:
+def fetch_json(url: str, headers: dict | None = None, fresh: bool = False) -> dict | list | None:
     """GET and JSON-decode a URL, with a short in-memory cache keyed by URL.
     Returns None on any network/parse error (logged). `headers` (e.g. an apikey) are
-    NOT part of the cache key — callers that vary auth per URL must cache themselves."""
+    NOT part of the cache key — callers that vary auth per URL must cache themselves.
+    `fresh` skips the cached copy (the result still refreshes the cache)."""
     now = time.time()
     cached = _cache.get(url)
-    if cached and now - cached[0] < _CACHE_TTL_SECONDS:
+    if not fresh and cached and now - cached[0] < _CACHE_TTL_SECONDS:
         return cached[1]
     try:
         with urllib.request.urlopen(request(url, headers=headers), context=ssl_context(), timeout=10) as response:

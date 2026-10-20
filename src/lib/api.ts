@@ -406,10 +406,28 @@ export const NSFW_DEFAULT_ON = 'nsfw_default_on';
 // Bundles logs into a zip on the Deck's Desktop and returns the path (or null on failure).
 export const exportLogs = callable<[], string | null>('export_logs');
 
-// Whether installed.json was quarantined this session (corrupt file set aside, library
-// rebuilt empty) — lets the panel explain an unexpectedly empty library.
+// Store-file problems this session, so the panel can explain them: a corrupt file set aside
+// and started fresh (quarantined), or a file saved by a newer Moddy that this build won't
+// touch (read_only — the user rolled back).
 export interface QuarantineEvent { file: string; to: string | null; at: number }
-export const getStoreHealth = callable<[], { quarantined: QuarantineEvent[] }>('get_store_health');
+export interface ReadOnlyEvent { file: string; schema: unknown; supported: number }
+export interface StoreHealth { quarantined: QuarantineEvent[]; read_only: ReadOnlyEvent[] }
+export const getStoreHealth = callable<[], StoreHealth>('get_store_health');
+
+// Whether a newer Moddy build is published. `notify` is true only the first time a given
+// version is seen, so the toast fires once per release. `notice` is a message for every
+// build (e.g. an urgent "update now"), shown even when already up to date.
+export interface ModdyUpdate {
+  current: string;
+  latest: string | null;
+  update_available: boolean;
+  notify: boolean;
+  notice: string | null;
+  download_url: string | null;
+  dev_build: boolean;
+  error: string | null;
+}
+export const checkModdyUpdate = callable<[force?: boolean], ModdyUpdate>('check_moddy_update');
 
 // Steam Workshop browse — server-paginated/searched (~30 items per page).
 export const getWorkshopCatalog =

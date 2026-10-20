@@ -19,6 +19,7 @@ Two events drive the frontend store:
 
 import asyncio
 import decky
+import game_store
 
 import utils
 
@@ -280,6 +281,13 @@ async def _worker() -> None:
             continue
         if job.cancel_requested:
             # Cancelled while still queued — status already set in cancel().
+            continue
+        if not game_store.writable():
+            # A newer Moddy wrote installed.json: the install would be refused at placement anyway
+            # (see install_txn), so fail now with the reason instead of after a full download.
+            job.status = STATUS_FAILED
+            job.error = "Saved by a newer Moddy — update Moddy to install mods"
+            await _emit_state()
             continue
         _active_id = job_id
         job.status = STATUS_DOWNLOADING

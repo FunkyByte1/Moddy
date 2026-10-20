@@ -46,6 +46,7 @@ import plugin_ficsit_install
 import plugin_frameworks
 import plugin_game_lifecycle
 import plugin_diagnostics
+import moddy_update
 
 # Re-export the moved game-status helpers so existing `main._build_game_status(...)` call sites
 # (and tests) keep resolving after the verbatim move into plugin_game_status.
@@ -576,13 +577,20 @@ class Plugin:
 
     # ── Diagnostics ────────────────────────────────────────────────────────────
     async def get_store_health(self) -> dict:
-        """Whether installed.json was quarantined this session (corrupt → set aside),
-        so the UI can explain an unexpectedly empty library instead of leaving the
-        user to assume their mods are gone. Forces a store read so a corrupt file is
-        detected here, not whenever some later call happens to read it."""
+        """Problems with Moddy's store files this session, so the UI can explain them instead
+        of leaving the user to guess: `quarantined` (a corrupt file was set aside and started
+        fresh) and `read_only` (a file written by a newer Moddy, which this build won't touch).
+        Forces the store reads so both are detected here, not whenever some later call happens
+        to read the file."""
         for appid in game_store.appids():  # appids() itself forces the read; per-game loads keep it thorough
             mods._load_store(int(appid))
-        return {"quarantined": json_store.quarantine_events()}
+        settings.get_setting("")  # forces the settings.json read
+        return {"quarantined": json_store.quarantine_events(), "read_only": json_store.read_only_events()}
+
+    async def check_moddy_update(self, force: bool = False) -> dict:
+        """Whether a newer Moddy build is published (see moddy_update.py). `force` bypasses
+        the fetch cache, for the manual "Check for updates" button."""
+        return await asyncio.to_thread(moddy_update.check, bool(force))
 
     async def export_logs(self) -> str | None:
         """Bundle Moddy's logs + a small system-info file into one zip the user can
@@ -797,11 +805,6 @@ class Plugin:
 
     async def _main(self):
         decky.logger.info("Decky Mod Manager loaded")
-        # One-time migration: OAuth replaced the personal Nexus API key — purge any stale key.
-        try:
-            nexus_oauth.forget_legacy_api_key()
-        except Exception as e:
-            decky.logger.warning(f"Legacy Nexus key purge failed: {e}")
         # Startup-only crumb sweep: resolve any install artifacts a hard crash stranded mid-commit
         # (restore set-aside backups whose file is gone, drop stale ones and scratch). Safe here
         # because nothing is installing yet; never run while a job is in flight.
@@ -826,5 +829,3 @@ class Plugin:
     async def _uninstall(self):
         decky.logger.info("Decky Mod Manager uninstalled")
 
-    async def _migration(self):
-        pass

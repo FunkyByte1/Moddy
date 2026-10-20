@@ -7,6 +7,7 @@ dependency on the mods/modloaders modules so both can import it without a cycle.
 """
 import os
 import decky
+import game_store
 
 
 # Suffix for a file set aside mid-install (displaced by an incoming file, or retired from a
@@ -121,6 +122,10 @@ def recover_journals() -> None:
         except Exception as e:  # noqa: BLE001 — recovery must never crash startup
             decky.logger.error(f"install journal recovery failed for {name}: {e}")
         _discard(path)
+
+
+class StoreReadOnlyError(Exception):
+    """installed.json is read-only this session (see json_store), so an install can't be recorded."""
 
 
 class _StagedInstall:
@@ -249,6 +254,12 @@ class _StagedInstall:
                 self._set_aside(cand)
 
     def __enter__(self) -> "_StagedInstall":
+        # Every placement ends in a store write. If installed.json can't be written (a newer Moddy
+        # wrote it), the files would land untracked, so nothing could ever uninstall them. Refuse
+        # before touching the tree.
+        if not game_store.writable():
+            raise StoreReadOnlyError(
+                "Moddy's mod library was saved by a newer version of Moddy. Update Moddy to install or change mods.")
         self._open_journal()
         return self
 

@@ -52,6 +52,13 @@ def save() -> bool:
     return json_store.update_section(_path(), "games", _load())
 
 
+def writable() -> bool:
+    """False when installed.json was written by a newer Moddy, so nothing this build changes
+    could be recorded. Forces the read that detects it."""
+    _load()
+    return json_store.is_writable(_path())
+
+
 def reset() -> None:
     """Drop the cache so the next access re-reads from disk (tests move the settings dir)."""
     global _GAMES
