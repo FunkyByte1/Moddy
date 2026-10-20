@@ -29,6 +29,17 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Every push to main ships to every install, so a failing check stops the release and
+      # users stay on the last good build.
+      - name: Backend tests
+        working-directory: tests
+        run: python3 -m unittest discover -p "test_*.py"
+
+      - name: Frontend typecheck and tests
+        run: |
+          pnpm exec tsc --noEmit
+          pnpm test
+
       - name: Stamp build version with the commit SHA
         # CalVer base from package.json (e.g. 2026.6.15) + the build SHA as semver build
         # metadata, so each nightly self-identifies in-app and in the Nexus header.
