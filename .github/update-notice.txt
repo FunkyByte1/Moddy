@@ -1,0 +1,1 @@
+Test notice from the update check. Ignore this, it will be removed shortly.
