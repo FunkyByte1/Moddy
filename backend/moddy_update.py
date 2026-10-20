@@ -17,12 +17,20 @@ Manifest (moddy-latest.json):
 decky_loader's own; see the note in app_settings.py.)
 """
 
+import time
+from datetime import datetime
+
 import fetch
 import app_settings as settings
 
 # The rolling release the install URL points at. Builds published from another channel later
 # should point at that channel's manifest instead.
 MANIFEST_URL = "https://github.com/FunkyByte1/Moddy/releases/download/nightly/moddy-latest.json"
+
+# A build isn't reported until it's been published this long. Right after the release workflow
+# replaces the rolling release, GitHub can keep serving the previous zip for a few minutes, so
+# someone who reinstalls straight away gets the old build and is told to update again.
+_SETTLE_SECONDS = 10 * 60
 
 # Last manifest version the user was toasted about, so each new build is announced once.
 _NOTIFIED_KEY = "update_notified_version"
@@ -32,6 +40,16 @@ def _build_commit(version: str) -> str:
     """The short SHA the release workflow stamps as semver build metadata ("2026.10.18+abc1234"),
     or "" for a local build (deploy.sh / a hand-built zip), which can't be compared."""
     return version.split("+", 1)[1].strip() if "+" in version else ""
+
+
+def _age_seconds(published_at) -> float | None:
+    """Seconds since the manifest's ISO-8601 `published_at`, or None if it's missing or unparseable."""
+    if not isinstance(published_at, str):
+        return None
+    try:
+        return time.time() - datetime.fromisoformat(published_at.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 
 def check(force: bool = False) -> dict:
@@ -72,7 +90,11 @@ def check(force: bool = False) -> dict:
         download_url=download_url if isinstance(download_url, str) else None,
     )
 
-    if commit and latest_commit and not latest_commit.startswith(commit):
+    # A negative age means the Deck's clock is behind; don't hold the update back for that.
+    age = _age_seconds(manifest.get("published_at"))
+    settling = age is not None and 0 <= age < _SETTLE_SECONDS
+
+    if commit and latest_commit and not latest_commit.startswith(commit) and not settling:
         result["update_available"] = True
         if settings.get_setting(_NOTIFIED_KEY) != latest:
             settings.set_setting(_NOTIFIED_KEY, latest)

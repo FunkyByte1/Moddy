@@ -17,7 +17,7 @@ import moddy_update
 
 def _manifest(**over) -> dict:
     m = {"version": "2026.11.1+bbbbbbb", "commit": "bbbbbbb" + "0" * 33,
-         "published_at": "2026-11-01T00:00:00Z", "download_url": "https://example.invalid/m.zip"}
+         "published_at": "2026-01-01T00:00:00Z", "download_url": "https://example.invalid/m.zip"}
     m.update(over)
     return m
 
@@ -68,8 +68,25 @@ class TestModdyUpdate(unittest.TestCase):
             moddy_update.check(force=True)
         self.assertEqual([c.kwargs.get("fresh") for c in fj.call_args_list], [False, True])
 
+    def test_fresh_release_is_held_back_until_it_settles(self):
+        published = 1_800_000_000
+        m = _manifest(published_at="2027-01-15T08:00:00Z")  # == published
+        with mock.patch.object(moddy_update.time, "time", return_value=published + 5 * 60):
+            r = self._check("2026.10.18+aaaaaaa", m)
+        self.assertFalse(r["update_available"])
+        self.assertFalse(r["notify"])
+        with mock.patch.object(moddy_update.time, "time", return_value=published + 11 * 60):
+            r = self._check("2026.10.18+aaaaaaa", m)
+        self.assertTrue(r["update_available"])
+        self.assertTrue(r["notify"])
+
+    def test_deck_clock_behind_does_not_hold_back(self):
+        with mock.patch.object(moddy_update.time, "time", return_value=0):
+            self.assertTrue(self._check("2026.10.18+aaaaaaa", _manifest())["update_available"])
+
     def test_tolerates_odd_manifests(self):
-        for m in ({}, {"version": 5, "commit": None, "notice": ["x"]}, {"version": "2026.11.1+bbbbbbb"}):
+        for m in ({}, {"version": 5, "commit": None, "notice": ["x"], "published_at": 7},
+                  {"version": "2026.11.1+bbbbbbb", "published_at": "yesterday"}):
             r = self._check("2026.10.18+aaaaaaa", m)
             self.assertIsNone(r["error"])
             self.assertIsNone(r["notice"])
