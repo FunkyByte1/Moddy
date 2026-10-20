@@ -44,7 +44,16 @@ def cfg(steps_xml, required="", conditional="", module_deps=""):
 
 
 class TestCorpus(unittest.TestCase):
-    """Every real fixture must parse + resolve under defaults without surprises."""
+    """Every real fixture must parse + resolve under defaults without surprises.
+
+    The fixtures are mod authors' installer files, so they aren't committed (we don't
+    redistribute mod content; only PROVENANCE.json is tracked). Where they're absent, as in CI,
+    the corpus is skipped and the synthetic tests below still cover the engine."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not fixture_names():
+            raise unittest.SkipTest("FOMOD corpus not present (fixtures aren't committed)")
 
     def test_all_fixtures_parse_clean(self):
         names = fixture_names()
