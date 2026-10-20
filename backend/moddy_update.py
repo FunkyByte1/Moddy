@@ -23,9 +23,11 @@ from datetime import datetime
 import fetch
 import app_settings as settings
 
-# The rolling release the install URL points at. Builds published from another channel later
-# should point at that channel's manifest instead.
-MANIFEST_URL = "https://github.com/FunkyByte1/Moddy/releases/download/nightly/moddy-latest.json"
+# A Cloudflare redirect on moddy.gg, currently to moddy-latest.json on the rolling nightly
+# release. Every installed build has this URL baked in for good, so it points at a domain we
+# control rather than at GitHub: a stable channel or a repo move only needs the redirect
+# repointed. Never change this to a GitHub URL.
+MANIFEST_URL = "https://get.moddy.gg/latest.json"
 
 # A build isn't reported until it's been published this long. Right after the release workflow
 # replaces the rolling release, GitHub can keep serving the previous zip for a few minutes, so

@@ -83,7 +83,9 @@ Installed copies don't auto-update, so every build that ever shipped is still ou
 - **Update manifest** (`moddy-latest.json`, published by `.github/workflows/nightly.yml`): only add
   fields, never rename or remove one. Every shipped build parses it. To show a message to all
   builds (for example "this version can lose data, please update"), commit
-  `.github/update-notice.txt`; delete it to clear the message.
+  `.github/update-notice.txt`; delete it to clear the message. Builds fetch it from
+  `https://get.moddy.gg/latest.json`, a Cloudflare redirect rule on moddy.gg. To move the manifest
+  (a stable channel, a renamed repo), repoint that rule; the URL in the code must never change.
 - **Stable identifiers**: the plugin name in `plugin.json`, registry game and mod loader ids, and the
   `.moddy-*` marker names left in game folders are all baked into users' data. Renaming any of them
   needs a migration.
